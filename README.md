@@ -4,14 +4,14 @@
   <p><strong>An open-source, offline-first Android launcher built specifically for aftermarket car head units.</strong></p>
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-  [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
-</div>
 
+</div>
 
 ---
 ## THIS IS A CUSTOMIZED VERSION
-All credits adn donation should directed to David for his original work. 
+All credits and donations should directed to David for his original work. 
 https://github.com/dw2lam/openlauncher
+
 
 ---
 
