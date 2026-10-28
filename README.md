@@ -7,15 +7,11 @@
   [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 </div>
 
----
 
-## 📖 Table of Contents
-- [Why Build Another Car Launcher?](#-why-build-another-car-launcher)
-- [The Philosophy](#-the-philosophy-offline-first--oem-aesthetics)
-- [Current Features](#-current-features)
-- [Roadmap & Future Plans](#️-roadmap--future-plans)
-- [Contributing](#-contributing-open-source-first)
-- [License](#-license)
+---
+## THIS IS A CUSTOMIZED VERSION
+All credits adn donation should directed to David for his original work. 
+https://github.com/dw2lam/openlauncher
 
 ---
 
