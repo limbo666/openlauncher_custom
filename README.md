@@ -26,6 +26,8 @@ https://github.com/dw2lam/openlauncher
 - New theme/mode managemnt. Added custom where customizations are targeting and Dark remains as default
 - Colors for widgets tiles
 - Option to disable view for top right Bluetooth and Wifi indicators
+- Multiple volume protocols build in and tool to detect and select the aprpopriate for the device
+
   
 
 
