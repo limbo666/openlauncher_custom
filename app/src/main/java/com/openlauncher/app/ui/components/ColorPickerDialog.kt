@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.ui.theme.accentPresetLabels
 import com.openlauncher.app.ui.theme.accentPresets
 
@@ -47,17 +48,26 @@ fun ColorPickerDialog(
         hue = hsv[0]; sat = hsv[1]; value = hsv[2]
     }
 
+    val isDayMode = LocalDayMode.current
+    val containerColor = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF1A1A1A)
+    val titleContentColor = if (isDayMode) Color(0xFF111111) else Color.White
+    val textContentColor = if (isDayMode) Color(0xFF333333) else Color(0xFFCCCCCC)
+    val sectionHeaderColor = if (isDayMode) Color(0xFF495057) else Color(0xFF888888)
+    val sliderLabelColor = if (isDayMode) Color(0xFF555555) else Color(0xFF777777)
+    val dividerColor = if (isDayMode) Color(0xFFE9ECEF) else Color(0xFF2A2A2A)
+    val thumbColor = if (isDayMode) Color(0xFF222222) else Color.White
+    val cancelColor = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA)
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        // Always-dark surface: pin light content colors so day mode stays legible
-        containerColor    = Color(0xFF1A1A1A),
-        titleContentColor = Color.White,
-        textContentColor  = Color(0xFFCCCCCC),
+        containerColor    = containerColor,
+        titleContentColor = titleContentColor,
+        textContentColor  = textContentColor,
         title = { Text(title) },
         text  = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 // Preset swatches
-                Text("Presets", style = MaterialTheme.typography.labelMedium, color = Color(0xFF888888))
+                Text("Presets", style = MaterialTheme.typography.labelMedium, color = sectionHeaderColor)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     accentPresets.forEachIndexed { i, color ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -67,25 +77,29 @@ fun ColorPickerDialog(
                                     .clip(CircleShape)
                                     .background(color)
                                     .border(
-                                        width = 1.dp,
-                                        color = if (selectedColor == color) Color.White else Color(0xFF333333),
+                                        width = if (selectedColor == color) 2.dp else 1.dp,
+                                        color = if (selectedColor == color) {
+                                            if (isDayMode) Color(0xFF111111) else Color.White
+                                        } else {
+                                            if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.35f)
+                                        },
                                         shape = CircleShape
                                     )
                                     .clickable { syncFrom(color) }
                             )
                             Spacer(Modifier.height(2.dp))
-                            Text(accentPresetLabels[i], style = MaterialTheme.typography.labelSmall, color = Color(0xFF555555), fontSize = androidx.compose.ui.unit.TextUnit(8f, androidx.compose.ui.unit.TextUnitType.Sp))
+                            Text(accentPresetLabels[i], style = MaterialTheme.typography.labelSmall, color = if (isDayMode) Color(0xFF666666) else Color(0xFF555555), fontSize = androidx.compose.ui.unit.TextUnit(8f, androidx.compose.ui.unit.TextUnitType.Sp))
                         }
                     }
                 }
 
-                Divider(color = Color(0xFF2A2A2A))
+                HorizontalDivider(color = dividerColor)
 
                 // Custom HSV sliders
-                Text("Custom", style = MaterialTheme.typography.labelMedium, color = Color(0xFF888888))
+                Text("Custom", style = MaterialTheme.typography.labelMedium, color = sectionHeaderColor)
 
                 // Hue slider
-                Text("Hue", style = MaterialTheme.typography.labelSmall, color = Color(0xFF666666))
+                Text("Hue", style = MaterialTheme.typography.labelSmall, color = sliderLabelColor)
                 Slider(
                     value = hue / 360f,
                     onValueChange = { hue = it * 360f; rebuildColor() },
@@ -97,16 +111,17 @@ fun ColorPickerDialog(
                             colors = (0..6).map { i ->
                                 Color(android.graphics.Color.HSVToColor(floatArrayOf(i * 60f, 1f, 1f)))
                             }
-                        )),
+                        ))
+                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.25f), RoundedCornerShape(4.dp)),
                     colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
+                        thumbColor = thumbColor,
                         activeTrackColor = Color.Transparent,
                         inactiveTrackColor = Color.Transparent
                     )
                 )
 
                 // Saturation slider
-                Text("Saturation", style = MaterialTheme.typography.labelSmall, color = Color(0xFF666666))
+                Text("Saturation", style = MaterialTheme.typography.labelSmall, color = sliderLabelColor)
                 Slider(
                     value = sat,
                     onValueChange = { sat = it; rebuildColor() },
@@ -117,16 +132,17 @@ fun ColorPickerDialog(
                         .background(Brush.horizontalGradient(listOf(
                             Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0f, value))),
                             Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, value)))
-                        ))),
+                        )))
+                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.25f), RoundedCornerShape(4.dp)),
                     colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
+                        thumbColor = thumbColor,
                         activeTrackColor = Color.Transparent,
                         inactiveTrackColor = Color.Transparent
                     )
                 )
 
                 // Brightness slider
-                Text("Brightness", style = MaterialTheme.typography.labelSmall, color = Color(0xFF666666))
+                Text("Brightness", style = MaterialTheme.typography.labelSmall, color = sliderLabelColor)
                 Slider(
                     value = value,
                     onValueChange = { value = it; rebuildColor() },
@@ -137,9 +153,10 @@ fun ColorPickerDialog(
                         .background(Brush.horizontalGradient(listOf(
                             Color.Black,
                             Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, 1f)))
-                        ))),
+                        )))
+                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.25f), RoundedCornerShape(4.dp)),
                     colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
+                        thumbColor = thumbColor,
                         activeTrackColor = Color.Transparent,
                         inactiveTrackColor = Color.Transparent
                     )
@@ -152,6 +169,7 @@ fun ColorPickerDialog(
                         .height(36.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(selectedColor)
+                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.40f), RoundedCornerShape(8.dp))
                 )
             }
         },
@@ -169,7 +187,7 @@ fun ColorPickerDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", color = Color(0xFFAAAAAA)) }
+            TextButton(onClick = onDismiss) { Text("Cancel", color = cancelColor) }
         }
     )
 }

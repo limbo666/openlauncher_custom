@@ -33,6 +33,8 @@ fun VitalsWidget(
     accent: Color,
     isDayMode: Boolean = false,
     asBars: Boolean = false,
+    vitalsElements: List<String> = listOf("CPU", "RAM", "TEMP"),
+    customContentColor: Color? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -42,6 +44,8 @@ fun VitalsWidget(
     var ramUsedPercent by remember { mutableFloatStateOf(45f) }
     var ramDisplayGb by remember { mutableStateOf("0.0G") }
     var temperature by remember { mutableFloatStateOf(35f) }
+    var storageUsedPercent by remember { mutableFloatStateOf(40f) }
+    var storageDisplayGb by remember { mutableStateOf("0.0G") }
 
     // CPU Stat Tracking variables
     var lastCpuTime by remember { mutableLongStateOf(0L) }
@@ -150,6 +154,25 @@ fun VitalsWidget(
         } catch (_: Exception) {}
     }
 
+    // Process Internal Storage telemetry
+    val updateStorage = {
+        try {
+            val path = android.os.Environment.getDataDirectory()
+            val stat = android.os.StatFs(path.path)
+            val blockSize = stat.blockSizeLong
+            val totalBlocks = stat.blockCountLong
+            val availBlocks = stat.availableBlocksLong
+            val totalBytes = totalBlocks * blockSize
+            val usedBytes = (totalBlocks - availBlocks) * blockSize
+            storageUsedPercent = if (totalBytes > 0) ((usedBytes.toDouble() / totalBytes.toDouble()) * 100.0).toFloat().coerceIn(0f, 100f) else 50f
+            val usedGb = usedBytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
+            storageDisplayGb = "%.1fG".format(usedGb)
+        } catch (_: Exception) {
+            storageUsedPercent = 50f
+            storageDisplayGb = "—"
+        }
+    }
+
     // Periodic polling loop — the /proc and /sys reads are file I/O, so they
     // run on the IO dispatcher instead of blocking the main thread every tick
     LaunchedEffect(Unit) {
@@ -157,6 +180,7 @@ fun VitalsWidget(
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 updateCpu()
                 updateRam()
+                updateStorage()
                 temperature = getCpuTemp()
             }
             delay(2500)
@@ -167,73 +191,117 @@ fun VitalsWidget(
     val cpuColor = if (cpuUsage > 85f) Color(0xFFDD5555) else if (cpuUsage > 65f) Color(0xFFE6A23C) else accent
     val ramColor = if (ramUsedPercent > 90f) Color(0xFFDD5555) else if (ramUsedPercent > 75f) Color(0xFFE6A23C) else accent
     val tempColor = if (temperature > 75f) Color(0xFFDD5555) else if (temperature > 60f) Color(0xFFE6A23C) else accent
+    val storageColor = if (storageUsedPercent > 90f) Color(0xFFDD5555) else if (storageUsedPercent > 75f) Color(0xFFE6A23C) else accent
 
-    Column(
-        modifier = modifier.padding(start = 14.dp, end = 14.dp, top = 22.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.Center
+    data class VitalItem(
+        val id: String,
+        val label: String,
+        val displayValue: String,
+        val valuePercent: Float,
+        val activeColor: Color
+    )
+
+    val enabledItems = remember(vitalsElements, cpuUsage, ramUsedPercent, ramDisplayGb, temperature, storageUsedPercent, storageDisplayGb, cpuColor, ramColor, tempColor, storageColor) {
+        vitalsElements.mapNotNull { id ->
+            when (id.uppercase()) {
+                "CPU" -> VitalItem("CPU", "CPU", "%.0f%%".format(cpuUsage), cpuUsage, cpuColor)
+                "RAM" -> VitalItem("RAM", "RAM", ramDisplayGb, ramUsedPercent, ramColor)
+                "TEMP" -> VitalItem("TEMP", "TEMP", "%.0f°".format(temperature), (temperature / 100f * 100f).coerceIn(0f, 100f), tempColor)
+                "STORAGE" -> VitalItem("STORAGE", "DISK", storageDisplayGb, storageUsedPercent, storageColor)
+                else -> null
+            }
+        }.ifEmpty {
+            listOf(
+                VitalItem("CPU", "CPU", "%.0f%%".format(cpuUsage), cpuUsage, cpuColor),
+                VitalItem("RAM", "RAM", ramDisplayGb, ramUsedPercent, ramColor),
+                VitalItem("TEMP", "TEMP", "%.0f°".format(temperature), (temperature / 100f * 100f).coerceIn(0f, 100f), tempColor)
+            )
+        }
+    }
+
+    BoxWithConstraints(
+        modifier = modifier.padding(start = 10.dp, end = 10.dp, top = 22.dp, bottom = 8.dp)
     ) {
         if (asBars) {
             Column(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
+                verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically)
             ) {
-                BarGauge(
-                    value = cpuUsage,
-                    label = "CPU",
-                    displayValue = "%.0f%%".format(cpuUsage),
-                    activeColor = cpuColor,
-                    isDayMode = isDayMode,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                BarGauge(
-                    value = ramUsedPercent,
-                    label = "RAM",
-                    displayValue = ramDisplayGb,
-                    activeColor = ramColor,
-                    isDayMode = isDayMode,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                BarGauge(
-                    value = temperature,
-                    label = "TEMP",
-                    displayValue = "%.0f°".format(temperature),
-                    activeColor = tempColor,
-                    isDayMode = isDayMode,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                enabledItems.forEach { item ->
+                    BarGauge(
+                        value = item.valuePercent,
+                        label = item.label,
+                        displayValue = item.displayValue,
+                        activeColor = item.activeColor,
+                        isDayMode = isDayMode,
+                        customContentColor = customContentColor,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         } else {
-            Row(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                DialGauge(
-                    value = cpuUsage,
-                    label = "CPU",
-                    displayValue = "%.0f%%".format(cpuUsage),
-                    activeColor = cpuColor,
-                    isDayMode = isDayMode,
-                    modifier = Modifier.weight(1f).fillMaxHeight()
-                )
-
-                DialGauge(
-                    value = ramUsedPercent,
-                    label = "RAM",
-                    displayValue = ramDisplayGb,
-                    activeColor = ramColor,
-                    isDayMode = isDayMode,
-                    modifier = Modifier.weight(1f).fillMaxHeight()
-                )
-
-                DialGauge(
-                    value = temperature,
-                    label = "TEMP",
-                    displayValue = "%.0f°".format(temperature),
-                    activeColor = tempColor,
-                    isDayMode = isDayMode,
-                    modifier = Modifier.weight(1f).fillMaxHeight()
-                )
+            // Adaptive Dial Layout:
+            // If 4 items and tall/narrow (width < 180dp and height >= 140dp), use 2x2 grid.
+            // Otherwise, single horizontal row with equal weight per gauge.
+            val useGrid = enabledItems.size == 4 && maxWidth < 180.dp && maxHeight >= 140.dp
+            if (useGrid) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (i in 0..1) {
+                            val item = enabledItems[i]
+                            DialGauge(
+                                value = item.valuePercent,
+                                label = item.label,
+                                displayValue = item.displayValue,
+                                activeColor = item.activeColor,
+                                isDayMode = isDayMode,
+                                customContentColor = customContentColor,
+                                modifier = Modifier.weight(1f).fillMaxHeight()
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (i in 2..3) {
+                            val item = enabledItems[i]
+                            DialGauge(
+                                value = item.valuePercent,
+                                label = item.label,
+                                displayValue = item.displayValue,
+                                activeColor = item.activeColor,
+                                isDayMode = isDayMode,
+                                customContentColor = customContentColor,
+                                modifier = Modifier.weight(1f).fillMaxHeight()
+                            )
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    enabledItems.forEach { item ->
+                        DialGauge(
+                            value = item.valuePercent,
+                            label = item.label,
+                            displayValue = item.displayValue,
+                            activeColor = item.activeColor,
+                            isDayMode = isDayMode,
+                            customContentColor = customContentColor,
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                        )
+                    }
+                }
             }
         }
     }
@@ -246,11 +314,12 @@ private fun BarGauge(
     displayValue: String,
     activeColor: Color,
     isDayMode: Boolean,
+    customContentColor: Color? = null,
     modifier: Modifier = Modifier
 ) {
-    val trackColor = if (isDayMode) Color(0xFFD6D6D6) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
-    val contentColor = if (isDayMode) Color(0xFF111111) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground
-    val labelColor = if (isDayMode) Color(0xFF666666) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
+    val trackColor = customContentColor?.copy(alpha = 0.20f) ?: if (isDayMode) Color(0xFFD6D6D6) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
+    val contentColor = customContentColor ?: if (isDayMode) Color(0xFF111111) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground
+    val labelColor = customContentColor?.copy(alpha = 0.55f) ?: if (isDayMode) Color(0xFF666666) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
 
     Column(
         modifier = modifier,
@@ -302,11 +371,12 @@ private fun DialGauge(
     displayValue: String,
     activeColor: Color,
     isDayMode: Boolean,
+    customContentColor: Color? = null,
     modifier: Modifier = Modifier
 ) {
-    val trackColor = if (isDayMode) Color(0xFFD6D6D6) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
-    val contentColor = if (isDayMode) Color(0xFF111111) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground
-    val labelColor = if (isDayMode) Color(0xFF666666) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
+    val trackColor = customContentColor?.copy(alpha = 0.20f) ?: if (isDayMode) Color(0xFFD6D6D6) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
+    val contentColor = customContentColor ?: if (isDayMode) Color(0xFF111111) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground
+    val labelColor = customContentColor?.copy(alpha = 0.55f) ?: if (isDayMode) Color(0xFF666666) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
 
     BoxWithConstraints(
         modifier = modifier,

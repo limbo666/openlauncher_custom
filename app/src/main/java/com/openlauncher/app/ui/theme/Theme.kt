@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.luminance
 import com.openlauncher.app.data.AppFont
 
 val LocalDayMode = staticCompositionLocalOf { false }
+val LocalIsCustomMode = staticCompositionLocalOf { false }
 
 @Composable
 fun OpenLauncherTheme(
@@ -21,6 +22,7 @@ fun OpenLauncherTheme(
     textScale: Float  = 1.0f,
     appFont: AppFont  = AppFont.JETBRAINS_MONO,
     isDayMode: Boolean = false,
+    isCustom: Boolean = false,
     useCustomBg: Boolean = false,
     content: @Composable () -> Unit
 ) {
@@ -54,7 +56,10 @@ fun OpenLauncherTheme(
         onSurfaceVariant = TextMuted,
         outline          = DividerGray
     )
-    CompositionLocalProvider(LocalDayMode provides isDayMode) {
+    CompositionLocalProvider(
+        LocalDayMode provides isDayMode,
+        LocalIsCustomMode provides isCustom
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography  = launcherTypography(fontBold, textScale, appFont.toFontFamily()),

@@ -1,6 +1,8 @@
 package com.openlauncher.app.ui.widget
 
+import android.content.Intent
 import android.media.MediaMetadata
+import android.provider.Settings
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -14,8 +16,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
@@ -60,6 +62,7 @@ fun NowPlayingWidget(
     modifier: Modifier = Modifier,
     isEditing: Boolean = false,
     isDayMode: Boolean = false,
+    customContentColor: Color? = null,
     hardwareRadio: com.openlauncher.app.viewmodel.LauncherViewModel.HardwareRadioState? = null,
     onLaunchHardwareRadio: () -> Unit = {},
     onStopHardwareRadio: () -> Unit = {},
@@ -103,6 +106,7 @@ fun NowPlayingWidget(
                 RadioDeck(
                     accent = accent,
                     isDayMode = isDayMode,
+                    customContentColor = customContentColor,
                     hardwareRadio = hardwareRadio,
                     onLaunchHardwareRadio = onLaunchHardwareRadio,
                     onStopHardwareRadio = onStopHardwareRadio,
@@ -123,6 +127,7 @@ fun NowPlayingWidget(
                 hasContent = hasContent,
                 isEditing = isEditing,
                 isDayMode = isDayMode,
+                customContentColor = customContentColor,
                 isConnected = isConnected,
                 hasCarPlay = hasCarPlay,
                 hasAutoApp = hasAutoApp,
@@ -136,50 +141,31 @@ fun NowPlayingWidget(
             )
         }
 
-        // 2. FLOATING MULTI-SOURCE SELECTOR (Top-Right, always overlayed)
-        var menuExpanded by remember { mutableStateOf(false) }
-        val selectorIconColor = if (isDayMode) Color.Black.copy(alpha = 0.4f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
+        // 2. VISIBLE SOURCE SELECTOR (Top-Right): PLAYER | RADIO
+        val segActiveBg   = if (isDayMode) Color(0xFF222222) else Color(0xFFDDDDDD)
+        val segActiveText = if (isDayMode) Color.White else Color(0xFF111111)
+        val segInactiveBg = if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF1A1A1A)
+        val segDimText    = if (isDayMode) Color(0xFF777777) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+        val segBorder     = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
         
-        Box(
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(end = 4.dp, top = 4.dp)
+                .padding(end = 4.dp, top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            IconButton(
-                onClick = { menuExpanded = true },
-                modifier = Modifier.size(24.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Source Selector",
-                    tint = selectorIconColor,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-            val dropdownBg   = if (isDayMode) Color(0xFFF0F0F0) else MaterialTheme.colorScheme.background
-            val dropdownText = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false },
-                modifier = Modifier.background(dropdownBg)
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Any Player", color = dropdownText, fontSize = 11.sp) },
-                    onClick = {
-                        selectedSource = "Any Player"
-                        menuExpanded = false
-                    },
-                    leadingIcon = { Icon(Icons.Default.MusicNote, null, tint = accent, modifier = Modifier.size(14.dp)) }
-                )
-                DropdownMenuItem(
-                    text = { Text("FM/AM Radio", color = dropdownText, fontSize = 11.sp) },
-                    onClick = {
-                        selectedSource = "FM/AM Radio"
-                        menuExpanded = false
-                    },
-                    leadingIcon = { Icon(Icons.Default.Radio, null, tint = accent, modifier = Modifier.size(14.dp)) }
-                )
-            }
+            SourceTab(
+                label = "PLAYER", selected = selectedSource != "FM/AM Radio",
+                accent = accent, activeBg = segActiveBg, inactiveBg = segInactiveBg,
+                activeText = segActiveText, dimText = segDimText, border = segBorder,
+                onClick = { selectedSource = "Any Player" }
+            )
+            SourceTab(
+                label = "RADIO", selected = selectedSource == "FM/AM Radio",
+                accent = accent, activeBg = segActiveBg, inactiveBg = segInactiveBg,
+                activeText = segActiveText, dimText = segDimText, border = segBorder,
+                onClick = { selectedSource = "FM/AM Radio" }
+            )
         }
     }
 }
@@ -196,6 +182,7 @@ fun NowPlayingWidget(
 private fun RadioDeck(
     accent: Color,
     isDayMode: Boolean,
+    customContentColor: Color? = null,
     hardwareRadio: com.openlauncher.app.viewmodel.LauncherViewModel.HardwareRadioState?,
     onLaunchHardwareRadio: () -> Unit,
     onStopHardwareRadio: () -> Unit,
@@ -207,9 +194,10 @@ private fun RadioDeck(
     onAssignRadio: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val contentColor = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val dimColor     = if (isDayMode) Color(0xFF444444) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-    val borderColor  = if (isDayMode) Color(0xFF777777) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
+    val isLightMode  = isDayMode || (customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f)
+    val contentColor = customContentColor ?: if (isLightMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
+    val dimColor     = customContentColor?.copy(alpha = 0.60f) ?: if (isLightMode) Color(0xFF444444) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val borderColor  = customContentColor?.copy(alpha = 0.25f) ?: if (isLightMode) Color(0xFF777777) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
 
     if (hardwareRadio == null) {
         // No real tuner detected — be honest about it instead of simulating one
@@ -476,6 +464,39 @@ private fun RadioDeck(
 }
 
 @Composable
+private fun SourceTab(
+    label: String,
+    selected: Boolean,
+    accent: Color,
+    activeBg: Color,
+    inactiveBg: Color,
+    activeText: Color,
+    dimText: Color,
+    border: Color,
+    onClick: () -> Unit
+) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .height(20.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(if (selected) activeBg else inactiveBg)
+            .border(1.dp, if (selected) accent.copy(alpha = 0.7f) else border, RoundedCornerShape(3.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp)
+    ) {
+        Text(
+            label,
+            color = if (selected) activeText else dimText,
+            fontSize = 7.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp
+        )
+    }
+}
+
+@Composable
 private fun RadioFlatButton(
     label: String,
     enabled: Boolean,
@@ -517,6 +538,7 @@ private fun StandardMinimalPlayer(
     hasContent: Boolean,
     isEditing: Boolean,
     isDayMode: Boolean,
+    customContentColor: Color? = null,
     isConnected: Boolean,
     hasCarPlay: Boolean,
     hasAutoApp: Boolean,
@@ -531,10 +553,11 @@ private fun StandardMinimalPlayer(
     val context = LocalContext.current
     
     // UI Theme colors
-    val idleIconColor = if (isDayMode) Color(0xFF555555) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
-    val idleTextColor = if (isDayMode) Color(0xFF555555) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
-    val contentTextColor = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val subTextColor = if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
+    val isLightMode      = isDayMode || (customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f)
+    val idleIconColor    = customContentColor?.copy(alpha = 0.45f) ?: if (isLightMode) Color(0xFF555555) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
+    val idleTextColor    = customContentColor?.copy(alpha = 0.45f) ?: if (isLightMode) Color(0xFF555555) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
+    val contentTextColor = customContentColor ?: if (isLightMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
+    val subTextColor     = customContentColor?.copy(alpha = 0.60f) ?: if (isLightMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
 
     Box(modifier = modifier) {
         if (!hasContent) {
@@ -542,60 +565,94 @@ private fun StandardMinimalPlayer(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                if (hasCarPlay || hasAutoApp) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (hasCarPlay) {
+                when {
+                    !isConnected -> {
+                        // Notification access is the root cause — point the user at it
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.NotificationsOff, null, tint = idleIconColor, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.height(6.dp))
+                            Text("MEDIA CONTROLS NEED ACCESS", color = idleTextColor, fontSize = 7.sp, letterSpacing = 1.sp)
+                            Spacer(Modifier.height(8.dp))
                             Box(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .let { if (!isEditing) it.clickable { onLaunchCarPlay() } else it }
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        runCatching {
+                                            context.startActivity(
+                                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            )
+                                        }
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
                             ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(Icons.Default.PhoneAndroid, null, tint = accent.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
-                                    Text("CARPLAY", color = accent.copy(alpha = 0.6f), fontSize = 8.sp, letterSpacing = 2.sp)
-                                }
+                                Text("GRANT NOTIFICATION ACCESS", color = accent, fontSize = 7.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
                             }
                         }
-                        if (hasCarPlay && hasAutoApp) {
-                            androidx.compose.material3.VerticalDivider(
-                                modifier = Modifier.fillMaxHeight().padding(vertical = 16.dp),
-                                color = if (isDayMode) Color(0xFFBBBBBB) else Color(0xFF1E1E1E)
-                            )
-                        }
-                        if (hasAutoApp) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .let { if (!isEditing) it.clickable { onLaunchAndroidAuto() } else it }
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    }
+                    hasCarPlay || hasAutoApp -> {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (hasCarPlay) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .let { if (!isEditing) it.clickable { onLaunchCarPlay() } else it }
                                 ) {
-                                    Icon(Icons.Default.DirectionsCar, null, tint = accent.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
-                                    Text("ANDROID AUTO", color = accent.copy(alpha = 0.6f), fontSize = 8.sp, letterSpacing = 2.sp)
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.PhoneAndroid, null, tint = accent.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
+                                        Text("CARPLAY", color = accent.copy(alpha = 0.6f), fontSize = 8.sp, letterSpacing = 2.sp)
+                                    }
+                                }
+                            }
+                            if (hasCarPlay && hasAutoApp) {
+                                androidx.compose.material3.VerticalDivider(
+                                    modifier = Modifier.fillMaxHeight().padding(vertical = 16.dp),
+                                    color = if (isDayMode) Color(0xFFBBBBBB) else Color(0xFF1E1E1E)
+                                )
+                            }
+                            if (hasAutoApp) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .let { if (!isEditing) it.clickable { onLaunchAndroidAuto() } else it }
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.DirectionsCar, null, tint = accent.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
+                                        Text("ANDROID AUTO", color = accent.copy(alpha = 0.6f), fontSize = 8.sp, letterSpacing = 2.sp)
+                                    }
                                 }
                             }
                         }
                     }
-                } else {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(Icons.Default.MusicNote, null, tint = idleIconColor, modifier = Modifier.size(24.dp))
-                        Text("NO MEDIA PLAYING", color = idleTextColor, fontSize = 7.sp, letterSpacing = 1.sp)
+                    else -> {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.MusicNote, null, tint = idleIconColor, modifier = Modifier.size(24.dp))
+                            Text("START YOUR PLAYER", color = idleTextColor, fontSize = 7.sp, letterSpacing = 1.sp)
+                            Text("No active media session found", color = subTextColor, fontSize = 6.sp, letterSpacing = 0.5.sp)
+                        }
                     }
                 }
             }
@@ -613,25 +670,32 @@ private fun StandardMinimalPlayer(
             }
 
             // Draw Album Art as background with smooth blur overlay if present
-            val hasAlbumArt = nonNullState.albumArt != null
-            val useDarkTheme = hasAlbumArt || !isDayMode
+            val hasAlbumArt = nonNullState.albumArt != null || nonNullState.artUri != null
+            val useDarkTheme = hasAlbumArt || (!isLightMode)
 
-            val currentTextColor = if (hasAlbumArt) Color.White else if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-            val currentSubTextColor = if (hasAlbumArt) Color.White.copy(alpha = 0.6f) else if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-            val currentProgressColor = if (useDarkTheme) accent else if (isDayMode) Color(0xFF111111) else accent
+            val currentTextColor = if (hasAlbumArt) Color.White else (customContentColor ?: if (isLightMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground)
+            val currentSubTextColor = if (hasAlbumArt) Color.White.copy(alpha = 0.6f) else (customContentColor?.copy(alpha = 0.6f) ?: if (isLightMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+            val currentProgressColor = if (useDarkTheme) accent else if (isLightMode) Color(0xFF111111) else accent
             val currentProgressTrack = currentTextColor.copy(alpha = 0.15f)
             val currentIconColor = currentTextColor.copy(alpha = 0.75f)
-            val currentPlayBgColor = if (useDarkTheme) accent.copy(alpha = 0.9f) else if (isDayMode) Color(0xFF111111) else accent.copy(alpha = 0.9f)
+            val currentPlayBgColor = if (useDarkTheme) accent.copy(alpha = 0.9f) else if (isLightMode) Color(0xFF111111) else accent.copy(alpha = 0.9f)
             val currentPlayIconColor = if (useDarkTheme) Color.Black else Color.White
 
             if (hasAlbumArt) {
-                // Prefer the full-resolution art URI when the source app provides
-                // one — the metadata bitmap is often a downscaled notification
-                // thumbnail that looks soft stretched across the widget. Falls back
-                // to the bitmap if the URI fails to load, and renders with high
-                // filter quality so upscaling stays smooth either way.
+                // Prefer the full-resolution art URI when the source app provides one.
+                // Key the request by title so a radio app that reuses a stable URI (and
+                // swaps the image under it) still loads fresh art per station.
+                val artRequest = remember(nonNullState.artUri, nonNullState.title) {
+                    nonNullState.artUri?.let { uri ->
+                        coil.request.ImageRequest.Builder(context)
+                            .data(uri)
+                            .memoryCacheKey("$uri#${nonNullState.title.hashCode()}")
+                            .diskCacheKey("$uri#${nonNullState.title.hashCode()}")
+                            .build()
+                    }
+                }
                 coil.compose.AsyncImage(
-                    model = nonNullState.artUri ?: nonNullState.albumArt,
+                    model = artRequest ?: nonNullState.albumArt,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     filterQuality = androidx.compose.ui.graphics.FilterQuality.High,

@@ -29,7 +29,9 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -42,8 +44,14 @@ import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.ui.theme.LocalDayMode
 import kotlin.math.roundToInt
 
-private val ICON_SIZE   = 22.dp
-private val SLOT_SIZE   = 52.dp
+// Menubar sizing is user-configurable (AppSettings.sidebarWidth / sidebarIconScale).
+// These are the unscaled base dimensions the scale multiplies from.
+private const val BASE_ICON_SIZE_DP        = 22f
+private const val BASE_NATIVE_ICON_SIZE_DP = 26f
+private const val BASE_NATIVE_BITMAP_PX    = 44f
+private const val MIN_BAR_SIZE             = 40
+private const val MAX_BAR_SIZE             = 120
+private const val MIN_SLOT_SIZE            = 36
 
 @Composable
 fun Sidebar(
@@ -61,11 +69,15 @@ fun Sidebar(
 ) {
     val isDayMode    = LocalDayMode.current
     val accent       = Color(settings.accentColor)
-    val sidebarBg    = if (isDayMode) Color(0xFFE0E0E0) else Color.Black.copy(alpha = 0.4f)
+    val sidebarBg    = if (isDayMode) Color(0xFFE0E0E0) else MaterialTheme.colorScheme.background.copy(alpha = 0.7f)
     val iconInactive = if (isDayMode) Color(0xFF777777) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
     val dividerColor = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
     val density      = LocalDensity.current
-    val slotSizePx   = with(density) { SLOT_SIZE.toPx() }
+    val barSize      = settings.sidebarWidth.coerceIn(MIN_BAR_SIZE, MAX_BAR_SIZE).dp
+    val slotSize     = (settings.sidebarWidth - 4).coerceAtLeast(MIN_SLOT_SIZE).dp
+    val iconScale    = settings.sidebarIconScale.coerceIn(0.6f, 1.8f)
+    val iconSize     = (BASE_ICON_SIZE_DP * iconScale).dp
+    val slotSizePx   = with(density) { slotSize.toPx() }
 
     var actionSheetSlot by remember { mutableStateOf<Int?>(null) }
     var iconPickerSlot  by remember { mutableStateOf<Int?>(null) }
@@ -101,14 +113,10 @@ fun Sidebar(
                 isDragging      = isDragging,
                 dragTranslation = translation,
                 isHorizontal    = isHorizontal,
+                slotSize        = slotSize,
+                iconScale       = iconScale,
                 onClick         = { onShortcutClick(index) },
-                onLongPress     = {
-                    if (shortcut.packageName.isNotEmpty()) {
-                        actionSheetSlot = index
-                    } else {
-                        onShortcutLongPress(index)
-                    }
-                },
+                onLongPress     = { actionSheetSlot = index },
                 onDragStart = {
                     draggingIndex = index
                     dragOffsetPx  = 0f
@@ -133,6 +141,8 @@ fun Sidebar(
             accent       = accent,
             iconInactive = iconInactive,
             isHorizontal = isHorizontal,
+            slotSize     = slotSize,
+            iconSize     = iconSize,
             onClick      = { onNavigate(NavDestination.APP_LIBRARY) }
         )
         NavButton(
@@ -142,6 +152,8 @@ fun Sidebar(
             accent       = accent,
             iconInactive = iconInactive,
             isHorizontal = isHorizontal,
+            slotSize     = slotSize,
+            iconSize     = iconSize,
             onClick      = { onNavigate(NavDestination.SETTINGS) }
         )
         NavButton(
@@ -151,6 +163,8 @@ fun Sidebar(
             accent       = accent,
             iconInactive = iconInactive,
             isHorizontal = isHorizontal,
+            slotSize     = slotSize,
+            iconSize     = iconSize,
             onClick      = { onNavigate(NavDestination.HOME) }
         )
     }
@@ -159,7 +173,7 @@ fun Sidebar(
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(barSize)
                 .background(sidebarBg)
         ) {
             // Shortcuts centred, inset past the edge-pinned nav buttons and
@@ -184,20 +198,20 @@ fun Sidebar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (!settings.bottomBarShortcutsRight) {
-                    NavButton(Icons.Default.Home,     "Home",     currentDest == NavDestination.HOME,        accent, iconInactive, true) { onNavigate(NavDestination.HOME) }
-                    NavButton(Icons.Default.Settings, "Settings", currentDest == NavDestination.SETTINGS,    accent, iconInactive, true) { onNavigate(NavDestination.SETTINGS) }
-                    NavButton(Icons.Default.Apps,     "Apps",     currentDest == NavDestination.APP_LIBRARY, accent, iconInactive, true) { onNavigate(NavDestination.APP_LIBRARY) }
+                    NavButton(Icons.Default.Home,     "Home",     currentDest == NavDestination.HOME,        accent, iconInactive, true, slotSize, iconSize) { onNavigate(NavDestination.HOME) }
+                    NavButton(Icons.Default.Settings, "Settings", currentDest == NavDestination.SETTINGS,    accent, iconInactive, true, slotSize, iconSize) { onNavigate(NavDestination.SETTINGS) }
+                    NavButton(Icons.Default.Apps,     "Apps",     currentDest == NavDestination.APP_LIBRARY, accent, iconInactive, true, slotSize, iconSize) { onNavigate(NavDestination.APP_LIBRARY) }
                 } else {
-                    NavButton(Icons.Default.Apps,     "Apps",     currentDest == NavDestination.APP_LIBRARY, accent, iconInactive, true) { onNavigate(NavDestination.APP_LIBRARY) }
-                    NavButton(Icons.Default.Settings, "Settings", currentDest == NavDestination.SETTINGS,    accent, iconInactive, true) { onNavigate(NavDestination.SETTINGS) }
-                    NavButton(Icons.Default.Home,     "Home",     currentDest == NavDestination.HOME,        accent, iconInactive, true) { onNavigate(NavDestination.HOME) }
+                    NavButton(Icons.Default.Apps,     "Apps",     currentDest == NavDestination.APP_LIBRARY, accent, iconInactive, true, slotSize, iconSize) { onNavigate(NavDestination.APP_LIBRARY) }
+                    NavButton(Icons.Default.Settings, "Settings", currentDest == NavDestination.SETTINGS,    accent, iconInactive, true, slotSize, iconSize) { onNavigate(NavDestination.SETTINGS) }
+                    NavButton(Icons.Default.Home,     "Home",     currentDest == NavDestination.HOME,        accent, iconInactive, true, slotSize, iconSize) { onNavigate(NavDestination.HOME) }
                 }
             }
         }
     } else {
         Column(
             modifier = modifier
-                .width(56.dp)
+                .width(barSize)
                 .fillMaxHeight()
                 .background(sidebarBg),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -221,8 +235,15 @@ fun Sidebar(
 
     // ── Action sheet dialog ──────────────────────────────────────────────────
     actionSheetSlot?.let { slot ->
+        val shortcut = settings.shortcuts.getOrNull(slot)
+        val hasApp = shortcut?.packageName?.isNotEmpty() == true
         ShortcutActionDialog(
             accent      = accent,
+            hasApp      = hasApp,
+            onLaunchApp = {
+                actionSheetSlot = null
+                onShortcutClick(slot)
+            },
             onChangeApp = {
                 actionSheetSlot = null
                 onShortcutLongPress(slot)
@@ -263,12 +284,17 @@ private fun ShortcutSlot(
     isDragging: Boolean,
     dragTranslation: Float,
     isHorizontal: Boolean,
+    slotSize: Dp,
+    iconScale: Float,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
     onDragStart: () -> Unit,
     onDragDelta: (Float) -> Unit,
     onDragEnd: () -> Unit
 ) {
+    val iconSize       = (BASE_ICON_SIZE_DP * iconScale).dp
+    val nativeIconSize = (BASE_NATIVE_ICON_SIZE_DP * iconScale).dp
+
     val currentOnClick      by rememberUpdatedState(onClick)
     val currentOnLongPress  by rememberUpdatedState(onLongPress)
     val currentOnDragStart  by rememberUpdatedState(onDragStart)
@@ -279,8 +305,8 @@ private fun ShortcutSlot(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .then(
-                if (isHorizontal) Modifier.fillMaxHeight().width(SLOT_SIZE)
-                else              Modifier.fillMaxWidth().height(SLOT_SIZE)
+                if (isHorizontal) Modifier.fillMaxHeight().width(slotSize)
+                else              Modifier.fillMaxWidth().height(slotSize)
             )
             .zIndex(if (isDragging) 1f else 0f)
             .graphicsLayer {
@@ -327,7 +353,7 @@ private fun ShortcutSlot(
                 )
             }
     ) {
-        val iconInactive = if (LocalDayMode.current) Color(0xFF777777) else Color(0xFF3A3A3A)
+        val iconInactive = if (LocalDayMode.current) Color(0xFF777777) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f)
         val override = shortcut.customIconOverride
         when {
             override != null && override != DefaultShortcutIcon.NONE -> {
@@ -335,18 +361,21 @@ private fun ShortcutSlot(
                     imageVector        = override.toIcon(),
                     contentDescription = shortcut.label,
                     tint               = iconInactive,
-                    modifier           = Modifier.size(ICON_SIZE)
+                    modifier           = Modifier.size(iconSize)
                 )
             }
             resolvedIcon != null -> {
                 // Cache per icon — every slot recomposes each drag frame, and an
                 // un-remembered toBitmap allocated a fresh bitmap per slot per frame
-                val bmp = remember(resolvedIcon) { resolvedIcon.toBitmap(44, 44) }
+                val bmp = remember(resolvedIcon, iconScale) {
+                    val px = (BASE_NATIVE_BITMAP_PX * iconScale).roundToInt().coerceAtLeast(1)
+                    resolvedIcon.toBitmap(px, px)
+                }
                 Icon(
                     painter            = BitmapPainter(bmp.asImageBitmap()),
                     contentDescription = shortcut.label,
                     tint               = Color.Unspecified,
-                    modifier           = Modifier.size(26.dp)
+                    modifier           = Modifier.size(nativeIconSize)
                 )
             }
             shortcut.isDefault -> {
@@ -354,15 +383,15 @@ private fun ShortcutSlot(
                     imageVector        = shortcut.defaultIcon.toIcon(),
                     contentDescription = shortcut.label,
                     tint               = iconInactive,
-                    modifier           = Modifier.size(ICON_SIZE)
+                    modifier           = Modifier.size(iconSize)
                 )
             }
             else -> {
                 Icon(
                     imageVector        = Icons.Default.Add,
                     contentDescription = "Add shortcut",
-                    tint               = if (LocalDayMode.current) Color(0xFFBBBBBB) else Color(0xFF252525),
-                    modifier           = Modifier.size(ICON_SIZE)
+                    tint               = if (LocalDayMode.current) Color(0xFFBBBBBB) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
+                    modifier           = Modifier.size(iconSize)
                 )
             }
         }
@@ -372,25 +401,43 @@ private fun ShortcutSlot(
 @Composable
 private fun ShortcutActionDialog(
     accent: Color,
+    hasApp: Boolean = false,
+    onLaunchApp: () -> Unit = {},
     onChangeApp: () -> Unit,
     onCustomizeIcon: () -> Unit,
     onRemove: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val isDayMode = LocalDayMode.current
+    val accentLum = 0.299f * accent.red + 0.587f * accent.green + 0.114f * accent.blue
+    val effectiveAccent = if (isDayMode && accentLum > 0.65f) Color(0xFF111111)
+                          else if (!isDayMode && accentLum < 0.25f) Color(0xFFEEEEEE)
+                          else accent
+
+    val dialogBg = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF111111)
+    val dialogBorder = if (isDayMode) Color(0xFFDDE1E5) else Color(0xFF1E1E1E)
+    val dividerColor = if (isDayMode) Color(0xFFF1F3F5) else Color(0xFF1A1A1A)
+    val actionTint = if (isDayMode) Color(0xFF111111) else effectiveAccent
+    val removeTint = if (isDayMode) Color(0xFFE03131) else Color(0xFFFF6B6B)
+
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color(0xFF111111))
-                .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(4.dp))
-                .padding(vertical = 4.dp)
-                .width(180.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(dialogBg)
+                .border(1.dp, dialogBorder, RoundedCornerShape(8.dp))
+                .padding(vertical = 6.dp)
+                .width(220.dp)
         ) {
-            ActionRow("CHANGE APP",     Icons.Default.SwapHoriz, accent, onChangeApp)
-            HorizontalDivider(color = Color(0xFF1A1A1A))
-            ActionRow("CUSTOMIZE ICON", Icons.Default.Palette,   accent, onCustomizeIcon)
-            HorizontalDivider(color = Color(0xFF1A1A1A))
-            ActionRow("REMOVE",         Icons.Default.Delete,     Color(0xFF993333), onRemove)
+            if (hasApp) {
+                ActionRow("OPEN APP", Icons.Default.Launch, actionTint, onLaunchApp)
+                HorizontalDivider(color = dividerColor)
+            }
+            ActionRow(if (hasApp) "CHANGE APP" else "ASSIGN APP", Icons.Default.SwapHoriz, actionTint, onChangeApp)
+            HorizontalDivider(color = dividerColor)
+            ActionRow("CUSTOMIZE ICON", Icons.Default.Palette, actionTint, onCustomizeIcon)
+            HorizontalDivider(color = dividerColor)
+            ActionRow("REMOVE", Icons.Default.Delete, removeTint, onRemove)
         }
     }
 }
@@ -406,7 +453,7 @@ private fun ActionRow(label: String, icon: ImageVector, tint: Color, onClick: ()
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(16.dp))
-        Text(label, color = tint, fontSize = 10.sp, letterSpacing = 1.sp)
+        Text(label, color = tint, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
     }
 }
 
@@ -418,20 +465,35 @@ private fun IconPickerDialog(
     onPick: (DefaultShortcutIcon?) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val isDayMode = LocalDayMode.current
+    val accentLum = 0.299f * accent.red + 0.587f * accent.green + 0.114f * accent.blue
+    val effectiveAccent = if (isDayMode && accentLum > 0.65f) Color(0xFF111111)
+                          else if (!isDayMode && accentLum < 0.25f) Color(0xFFEEEEEE)
+                          else accent
+
+    val dialogBg = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF111111)
+    val dialogBorder = if (isDayMode) Color(0xFFDDE1E5) else Color(0xFF1E1E1E)
+    val headerColor = if (isDayMode) Color(0xFF495057) else Color(0xFF888888)
+    val dividerColor = if (isDayMode) Color(0xFFF1F3F5) else Color(0xFF1A1A1A)
+    val unselectedBoxBg = if (isDayMode) Color(0xFFF8F9FA) else Color(0xFF1A1A1A)
+    val unselectedBoxBorder = if (isDayMode) Color(0xFFCED4DA) else Color(0xFF282828)
+    val unselectedIconTint = if (isDayMode) Color(0xFF495057) else Color(0xFF888888)
+
     val vectorOptions = DefaultShortcutIcon.entries.filter { it != DefaultShortcutIcon.NONE }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color(0xFF111111))
-                .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(4.dp))
-                .padding(12.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(dialogBg)
+                .border(1.dp, dialogBorder, RoundedCornerShape(8.dp))
+                .padding(14.dp)
         ) {
             Text(
                 "CHOOSE ICON",
-                color         = Color(0xFF888888),
+                color         = headerColor,
                 fontSize      = 9.sp,
+                fontWeight    = FontWeight.Bold,
                 letterSpacing = 2.sp,
                 modifier      = Modifier.padding(bottom = 10.dp)
             )
@@ -440,28 +502,35 @@ private fun IconPickerDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (currentOverride == null) accent.copy(alpha = 0.15f) else Color.Transparent)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (currentOverride == null) effectiveAccent.copy(alpha = if (isDayMode) 0.10f else 0.18f) else Color.Transparent)
+                        .border(1.dp, if (currentOverride == null) effectiveAccent else Color.Transparent, RoundedCornerShape(6.dp))
                         .clickable { onPick(null) }
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(Icons.Default.Apps, null, tint = if (currentOverride == null) accent else Color(0xFF666666), modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.Apps,
+                        null,
+                        tint = if (currentOverride == null) effectiveAccent else unselectedIconTint,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Text(
                         "NATIVE APP ICON",
-                        color         = if (currentOverride == null) accent else Color(0xFF888888),
+                        color         = if (currentOverride == null) effectiveAccent else (if (isDayMode) Color(0xFF333333) else Color(0xFF888888)),
                         fontSize      = 9.sp,
+                        fontWeight    = if (currentOverride == null) FontWeight.Bold else FontWeight.Normal,
                         letterSpacing = 1.sp
                     )
                 }
-                HorizontalDivider(color = Color(0xFF1A1A1A), modifier = Modifier.padding(vertical = 6.dp))
+                HorizontalDivider(color = dividerColor, modifier = Modifier.padding(vertical = 8.dp))
             }
 
             LazyVerticalGrid(
                 columns               = GridCells.Fixed(5),
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalArrangement   = Arrangement.spacedBy(5.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement   = Arrangement.spacedBy(6.dp),
                 modifier              = Modifier.heightIn(max = 300.dp)
             ) {
                 items(vectorOptions) { iconOption ->
@@ -470,14 +539,22 @@ private fun IconPickerDialog(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .aspectRatio(1f)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (isSelected) accent.copy(alpha = 0.18f) else Color(0xFF1A1A1A))
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(
+                                if (isSelected) effectiveAccent.copy(alpha = if (isDayMode) 0.12f else 0.22f)
+                                else unselectedBoxBg
+                            )
+                            .border(
+                                1.dp,
+                                if (isSelected) effectiveAccent else unselectedBoxBorder,
+                                RoundedCornerShape(6.dp)
+                            )
                             .clickable { onPick(iconOption) }
                     ) {
                         Icon(
                             imageVector        = iconOption.toIcon(),
                             contentDescription = iconOption.name,
-                            tint               = if (isSelected) accent else Color(0xFF888888),
+                            tint               = if (isSelected) effectiveAccent else unselectedIconTint,
                             modifier           = Modifier.size(20.dp)
                         )
                     }
@@ -495,6 +572,8 @@ private fun NavButton(
     accent: Color,
     iconInactive: Color,
     isHorizontal: Boolean = false,
+    slotSize: Dp = 52.dp,
+    iconSize: Dp = 22.dp,
     onClick: () -> Unit
 ) {
     val isDayMode = LocalDayMode.current
@@ -504,8 +583,8 @@ private fun NavButton(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .then(
-                if (isHorizontal) Modifier.fillMaxHeight().width(SLOT_SIZE)
-                else              Modifier.fillMaxWidth().height(SLOT_SIZE)
+                if (isHorizontal) Modifier.fillMaxHeight().width(slotSize)
+                else              Modifier.fillMaxWidth().height(slotSize)
             )
             .background(if (isActive) activeBg else Color.Transparent)
             .clickable(onClick = onClick)
@@ -514,7 +593,7 @@ private fun NavButton(
             imageVector        = icon,
             contentDescription = label,
             tint               = if (isActive) activeIconColor else iconInactive,
-            modifier           = Modifier.size(ICON_SIZE)
+            modifier           = Modifier.size(iconSize)
         )
     }
 }
@@ -529,21 +608,36 @@ fun DefaultShortcutIcon.toIcon(): ImageVector = when (this) {
     DefaultShortcutIcon.CAR         -> Icons.Default.DirectionsCar
     DefaultShortcutIcon.GAS_STATION -> Icons.Default.LocalGasStation
     DefaultShortcutIcon.DASHBOARD   -> Icons.Default.Speed
+    DefaultShortcutIcon.PARKING     -> Icons.Default.LocalParking
+    DefaultShortcutIcon.EV_STATION  -> Icons.Default.EvStation
+    DefaultShortcutIcon.SPEEDOMETER -> Icons.Default.Speed
+    DefaultShortcutIcon.COMPASS     -> Icons.Default.Explore
+    DefaultShortcutIcon.EXPLORE     -> Icons.Default.Explore
     // Audio & media
     DefaultShortcutIcon.MUSIC       -> Icons.Default.MusicNote
     DefaultShortcutIcon.SPEAKER     -> Icons.Default.Speaker
     DefaultShortcutIcon.HEADSET     -> Icons.Default.Headset
     DefaultShortcutIcon.EQUALIZER   -> Icons.Default.Equalizer
     DefaultShortcutIcon.VOLUME_UP   -> Icons.Default.VolumeUp
-    // Connectivity
+    DefaultShortcutIcon.PLAY        -> Icons.Default.PlayArrow
+    DefaultShortcutIcon.PAUSE       -> Icons.Default.Pause
+    DefaultShortcutIcon.MIC         -> Icons.Default.Mic
+    // Connectivity & utility
     DefaultShortcutIcon.BLUETOOTH   -> Icons.Default.Bluetooth
     DefaultShortcutIcon.WIFI        -> Icons.Default.Wifi
+    DefaultShortcutIcon.USB         -> Icons.Default.Usb
+    DefaultShortcutIcon.CLOUD       -> Icons.Default.Cloud
+    DefaultShortcutIcon.STORE       -> Icons.Default.Store
+    DefaultShortcutIcon.GAMEPAD     -> Icons.Default.Gamepad
+    DefaultShortcutIcon.CALCULATOR  -> Icons.Default.Calculate
+    DefaultShortcutIcon.NOTIFICATIONS -> Icons.Default.Notifications
+    DefaultShortcutIcon.REFRESH     -> Icons.Default.Refresh
     // Lighting & climate
     DefaultShortcutIcon.LIGHTBULB   -> Icons.Default.Lightbulb
     DefaultShortcutIcon.BRIGHTNESS  -> Icons.Default.BrightnessHigh
     DefaultShortcutIcon.AC          -> Icons.Default.AcUnit
     DefaultShortcutIcon.THERMOSTAT  -> Icons.Default.Thermostat
-    // General utility
+    // General utility & car
     DefaultShortcutIcon.TV          -> Icons.Default.Tv
     DefaultShortcutIcon.VIDEOCAM    -> Icons.Default.Videocam
     DefaultShortcutIcon.STAR        -> Icons.Default.Star
@@ -552,6 +646,12 @@ fun DefaultShortcutIcon.toIcon(): ImageVector = when (this) {
     DefaultShortcutIcon.LOCK        -> Icons.Default.Lock
     DefaultShortcutIcon.SETTINGS    -> Icons.Default.Settings
     DefaultShortcutIcon.FAVORITE    -> Icons.Default.Favorite
+    DefaultShortcutIcon.BATTERY     -> Icons.Default.BatteryFull
+    DefaultShortcutIcon.POWER       -> Icons.Default.PowerSettingsNew
+    DefaultShortcutIcon.SHIELD      -> Icons.Default.Shield
+    DefaultShortcutIcon.WRENCH      -> Icons.Default.Build
+    DefaultShortcutIcon.WARNING     -> Icons.Default.Warning
+    DefaultShortcutIcon.INFO        -> Icons.Default.Info
     // Web / location
     DefaultShortcutIcon.GLOBE       -> Icons.Default.Language
     DefaultShortcutIcon.NONE        -> Icons.Default.Apps

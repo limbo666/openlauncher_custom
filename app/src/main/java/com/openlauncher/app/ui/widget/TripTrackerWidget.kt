@@ -31,21 +31,23 @@ fun TripTrackerWidget(
     isMetric: Boolean,
     accent: Color,
     isDayMode: Boolean = false,
+    customContentColor: Color? = null,
     modifier: Modifier = Modifier
 ) {
     // Master design system colors aligned with Vitals, Compass, Clock, and Altimeter
-    val displayColor = if (isDayMode) Color(0xFF111111) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground
-    val dimDisplayColor = if (isDayMode) Color(0xFF111111).copy(alpha = 0.08f) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
+    val isLightMode = isDayMode || (customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f)
+    val displayColor = customContentColor ?: if (isLightMode) Color(0xFF111111) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground
+    val dimDisplayColor = (customContentColor ?: if (isLightMode) Color(0xFF111111) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground).copy(alpha = 0.10f)
     
     val lcdBg = Color.Transparent
-    val lcdBorder = if (isDayMode) Color(0xFFCCCCCC) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+    val lcdBorder = customContentColor?.copy(alpha = 0.22f) ?: if (isLightMode) Color(0xFFCCCCCC) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
     
-    val labelColor = if (isDayMode) Color(0xFF888888) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
+    val labelColor = customContentColor?.copy(alpha = 0.60f) ?: if (isLightMode) Color(0xFF888888) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
     
     // Safety accents mapped elegantly to the dynamic accent color
     val activeAccent = accent
     val teRed = Color(0xFFFF2D55) // Still useful for Reset/Stopped indicator
-    val teGrey = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF2E3238)
+    val teGrey = if (isLightMode) Color(0xFFCCCCCC) else Color(0xFF2E3238)
 
     var isRunning by rememberSaveable { mutableStateOf(false) }
     var driveTimeSeconds by rememberSaveable { mutableLongStateOf(0L) }

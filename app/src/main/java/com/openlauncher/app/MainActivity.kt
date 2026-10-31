@@ -1,7 +1,9 @@
 package com.openlauncher.app
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,6 +44,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun checkAndRequestLocationPermission() {
+        val fineGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!fineGranted && !coarseGranted) {
+            locationPermissions.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        } else {
+            vm.startLocationUpdates()
+        }
+    }
+
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -52,12 +69,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemBars()
+        if (hasFocus) {
+            hideSystemBars()
+            vm.startLocationUpdates()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hideSystemBars()
+        checkAndRequestLocationPermission()
 
         setContent {
             val settingsLoaded by vm.settingsLoaded.collectAsStateWithLifecycle()
@@ -67,26 +88,38 @@ class MainActivity : ComponentActivity() {
             val appsLoading by vm.appsLoading.collectAsStateWithLifecycle()
             val nowPlaying  by vm.nowPlaying.collectAsStateWithLifecycle()
             val weather     by vm.weather.collectAsStateWithLifecycle()
+            val isWeatherRefreshing by vm.isWeatherRefreshing.collectAsStateWithLifecycle()
             val location    by vm.location.collectAsStateWithLifecycle()
             val bearing     by vm.compassBearing.collectAsStateWithLifecycle()
             val isWifi      by vm.isWifi.collectAsStateWithLifecycle()
             val isData      by vm.isData.collectAsStateWithLifecycle()
+            val isOnline    by vm.isOnline.collectAsStateWithLifecycle()
+            val isBluetoothOn by vm.isBluetoothOn.collectAsStateWithLifecycle()
+            val isBluetoothConnected by vm.isBluetoothConnected.collectAsStateWithLifecycle()
             val isDayModeVM by vm.isDayMode.collectAsStateWithLifecycle()
+            val isScreenBlanked by vm.isScreenBlanked.collectAsStateWithLifecycle()
             val hardwareRadio by vm.hardwareRadio.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
+            val isCustom = settings.dayNightMode == DayNightMode.CUSTOM
             val isDayMode = if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
             val pickerSlot      by vm.shortcutPickerSlot.collectAsStateWithLifecycle()
             val appPickerTarget by vm.appPickerTarget.collectAsStateWithLifecycle()
 
             val accent         = Color(settings.accentColor)
-            val bg             = if (settings.useCustomBackgroundColor) {
+            val bg             = if (isCustom && settings.useCustomBackgroundColor) {
                 Color(settings.backgroundColor)
             } else {
                 if (isDayMode) Color(0xFFEEEEEE) else Color.Black
             }
-            val textColor      = if (isDayMode) Color(0xFF111111) else Color(settings.fontColor)
+            val textColor      = if (isDayMode) {
+                Color(0xFF111111)
+            } else if (isCustom) {
+                Color(settings.fontColor)
+            } else {
+                Color.White
+            }
             val bgGradientEnd  = Color(settings.gradientEndColor)
-            val bgBrush        = if (settings.useCustomBackgroundColor && settings.useGradient) {
+            val bgBrush        = if (isCustom && settings.useCustomBackgroundColor && settings.useGradient) {
                 val colors = listOf(bg, bgGradientEnd)
                 when (settings.gradientDirection) {
                     GradientDirection.TOP_TO_BOTTOM -> androidx.compose.ui.graphics.Brush.verticalGradient(colors)
@@ -113,7 +146,8 @@ class MainActivity : ComponentActivity() {
                     textScale  = settings.textScale,
                     appFont    = settings.appFont,
                     isDayMode  = isDayMode,
-                    useCustomBg = settings.useCustomBackgroundColor
+                    isCustom   = isCustom,
+                    useCustomBg = isCustom && settings.useCustomBackgroundColor
                 ) {
                 if (!settings.onboardingCompleted) {
                     OnboardingScreen(
@@ -163,9 +197,11 @@ class MainActivity : ComponentActivity() {
                                         vm.navigate(dest)
                                     },
                                     onShortcutClick = { slot ->
-                                        val shortcut = settings.shortcuts[slot]
-                                        if (shortcut.packageName.isNotEmpty()) {
+                                        val shortcut = settings.shortcuts.getOrNull(slot)
+                                        if (shortcut != null && shortcut.packageName.isNotEmpty()) {
                                             vm.launchApp(shortcut.packageName)
+                                        } else {
+                                            vm.startShortcutPicker(slot)
                                         }
                                     },
                                     onShortcutLongPress  = { slot -> vm.startShortcutPicker(slot) },
@@ -196,7 +232,12 @@ class MainActivity : ComponentActivity() {
                                         bearing             = bearing,
                                         isWifi              = isWifi,
                                         isData              = isData,
+                                        isOnline            = isOnline,
+                                        isBluetoothOn       = isBluetoothOn,
+                                        isBluetoothConnected = isBluetoothConnected,
                                         isDayMode           = isDayMode,
+                                        isWeatherRefreshing = isWeatherRefreshing,
+                                        onRefreshWeather    = { vm.refreshWeather() },
                                         onPlayPause         = vm::playPause,
                                         onNext              = vm::skipNext,
                                         onPrev              = vm::skipPrev,
@@ -220,6 +261,8 @@ class MainActivity : ComponentActivity() {
                                         onSetClockStyle     = { style -> vm.updateSettings { copy(clockStyle = style) } },
                                         onSetVitalsAsBars   = { asBars -> vm.updateSettings { copy(vitalsAsBars = asBars) } },
                                         onSetSpeedometerDigitalOnly = { digital -> vm.updateSettings { copy(speedometerDigitalOnly = digital) } },
+                                         onSetAppShortcutCount = { count -> vm.updateSettings { copy(appShortcutCount = count) } },
+                                         onSetSoundboardButtonCount = { count -> vm.updateSettings { copy(soundboardButtonCount = count) } },
                                         onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(idx, pad) },
                                         hardwareRadio         = hardwareRadio,
                                         onLaunchHardwareRadio = { vm.launchHardwareRadioApp() },
@@ -229,7 +272,26 @@ class MainActivity : ComponentActivity() {
                                         onRadioCycleFm        = { vm.radioCycleFm() },
                                         onRadioSwitchAm       = { vm.radioSwitchAm() },
                                         onRadioTune           = { band, freq -> vm.radioTune(band, freq) },
-                                        onAssignRadio         = { vm.startRadioPicker() }
+                                        onAssignRadio         = { vm.startRadioPicker() },
+                                        isScreenBlanked       = isScreenBlanked,
+                                        onToggleScreenBlanked = { vm.toggleScreenBlanked() },
+                                        installedApps         = apps,
+                                        onLaunchApp           = { pkg -> vm.launchApp(pkg) },
+                                        onSetWidgetBgColor    = { id, color -> vm.setWidgetBgColor(id, color) },
+                                        onSetWidgetBgMode     = { id, mode -> vm.setWidgetBgMode(id, mode) },
+                                        onSetAppShortcutPackage = { slot, pkg -> vm.setAppShortcutPackage(slot, pkg) },
+                                        onToggleDayNight      = { vm.toggleDayNightMode() },
+                                        onToggleQuickActionButton = { id -> vm.toggleQuickActionButton(id) },
+                                        onResetQuickActionButtons = { vm.resetQuickActionButtons() },
+                                        onToggleVitalsElement = { id -> vm.toggleVitalsElement(id) },
+                                        onResetVitalsElements = { vm.resetVitalsElements() },
+                                        onToggleWidgetTitle   = { id -> vm.toggleWidgetTitle(id) },
+                                        onZeroAltimeter       = { roll, pitch -> vm.zeroAltimeter(roll, pitch) },
+                                        onResetAltimeterZero  = { vm.resetAltimeterZero() },
+                                        onSetAdvancedWeatherIcons = { advanced -> vm.setAdvancedWeatherIcons(advanced) },
+                                        onSelectObdAdapter    = { address, name ->
+                                            vm.updateSettings { copy(obdDeviceAddress = address, obdDeviceName = name) }
+                                        }
                                     )
 
                                     NavDestination.APP_LIBRARY -> AppLibraryScreen(
@@ -245,9 +307,16 @@ class MainActivity : ComponentActivity() {
                                             else -> "CHOOSE CARPLAY APP"
                                         },
                                         accent              = accent,
+                                        selectedAppPackages = settings.selectedAppPackages,
+                                        toolsAppPackages    = settings.toolsAppPackages,
+                                        currentFilter       = settings.appDrawerFilter,
+                                        onFilterChange      = { filter -> vm.updateSettings { copy(appDrawerFilter = filter) } },
                                         onAppClick          = { app -> vm.launchApp(app.packageName) },
                                         onPickerSelect      = { slot, app -> vm.assignShortcut(slot, app) },
-                                        onCarPlaySelect     = { app -> vm.assignPickerApp(app) }
+                                        onCarPlaySelect     = { app -> vm.assignPickerApp(app) },
+                                        onToggleSelectedApp = vm::toggleSelectedApp,
+                                        onToggleToolsApp    = vm::toggleToolsApp,
+                                        onUninstallApp      = { pkg -> vm.uninstallApp(this@MainActivity, pkg) }
                                     )
 
                                     NavDestination.SETTINGS -> SettingsScreen(
@@ -295,6 +364,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vm.refreshConnectivity()
+        vm.refreshBluetoothStatus()
         vm.refreshMedia()
     }
 
@@ -305,6 +375,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        vm.startLocationUpdates()
+        checkAndRequestLocationPermission()
     }
 }

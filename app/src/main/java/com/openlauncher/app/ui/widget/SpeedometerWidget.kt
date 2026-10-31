@@ -25,6 +25,7 @@ fun SpeedometerWidget(
     accent: Color,
     isDayMode: Boolean = false,
     digitalOnly: Boolean = false,
+    customContentColor: Color? = null,
     modifier: Modifier = Modifier
 ) {
     val maxSpeed     = if (isMetric) 200f else 124f
@@ -34,15 +35,16 @@ fun SpeedometerWidget(
     val tickAlphaMaj = if (isDayMode) 0.50f else 0.28f
     val tickAlphaMin = if (isDayMode) 0.25f else 0.13f
 
-    val contentColor = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
+    val contentColor = customContentColor ?: if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
     val subAlpha     = if (isDayMode) 0.55f else 0.32f
-    val tickBaseColor = if (isDayMode) Color(0xFF222222) else MaterialTheme.colorScheme.onBackground
+    val tickBaseColor = customContentColor ?: if (isDayMode) Color(0xFF222222) else MaterialTheme.colorScheme.onBackground
 
-    Box(
-        modifier         = modifier,
+    BoxWithConstraints(
+        modifier         = modifier.padding(top = 10.dp, bottom = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         if (digitalOnly) {
+            val numFontSize = minOf(maxWidth.value * 0.40f, maxHeight.value * 0.45f).coerceIn(24f, 54f).sp
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
@@ -51,9 +53,10 @@ fun SpeedometerWidget(
                 Text(
                     text          = "%.0f".format(speedDisplay),
                     color         = contentColor,
-                    fontSize      = 54.sp,
+                    fontSize      = numFontSize,
                     fontWeight    = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                    letterSpacing = (-1.5).sp
+                    letterSpacing = (-1.5).sp,
+                    maxLines      = 1
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
@@ -61,15 +64,19 @@ fun SpeedometerWidget(
                     color         = contentColor.copy(alpha = subAlpha * 1.5f),
                     fontSize      = 10.sp,
                     fontWeight    = androidx.compose.ui.text.font.FontWeight.Bold,
-                    letterSpacing = 2.sp
+                    letterSpacing = 2.sp,
+                    maxLines      = 1
                 )
             }
         } else {
+            val speedFontSize = minOf(maxWidth.value * 0.28f, maxHeight.value * 0.30f).coerceIn(20f, 38f).sp
+            val unitFontSize = if (maxWidth < 120.dp) 7.5.sp else 8.5.sp
+
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val cx    = size.width  / 2f
                 val cy    = size.height / 2f
-                val arcR  = minOf(size.width, size.height) * 0.37f
-                val trackW = arcR * 0.13f
+                val arcR  = minOf(size.width, size.height) * 0.39f
+                val trackW = arcR * 0.12f
                 val startAngle    = 150f
                 val sweepTotal    = 240f
                 val progressSweep = (speedDisplay / maxSpeed).coerceIn(0f, 1f) * sweepTotal
@@ -103,8 +110,8 @@ fun SpeedometerWidget(
                     val angle   = startAngle + i * (sweepTotal / 10f)
                     val rad     = Math.toRadians(angle.toDouble())
                     val isMajor = i % 2 == 0
-                    val outerR  = arcR - trackW / 2f - 3.dp.toPx()
-                    val innerR  = outerR - if (isMajor) 7.dp.toPx() else 4.dp.toPx()
+                    val outerR  = arcR - trackW / 2f - 2.5.dp.toPx()
+                    val innerR  = outerR - if (isMajor) 6.dp.toPx() else 3.5.dp.toPx()
                     drawLine(
                         color       = tickBaseColor.copy(alpha = if (isMajor) tickAlphaMaj else tickAlphaMin),
                         start       = Offset(cx + (outerR * cos(rad)).toFloat(), cy + (outerR * sin(rad)).toFloat()),
@@ -116,19 +123,22 @@ fun SpeedometerWidget(
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier            = Modifier.offset(y = (-4).dp)
+                verticalArrangement = Arrangement.Center,
+                modifier            = Modifier.offset(y = (-2).dp)
             ) {
                 Text(
                     text          = "%.0f".format(speedDisplay),
                     color         = contentColor,
-                    fontSize      = 34.sp,
-                    letterSpacing = (-1).sp
+                    fontSize      = speedFontSize,
+                    letterSpacing = (-1).sp,
+                    maxLines      = 1
                 )
                 Text(
                     text          = unitLabel,
                     color         = contentColor.copy(alpha = subAlpha),
-                    fontSize      = 8.sp,
-                    letterSpacing = 2.sp
+                    fontSize      = unitFontSize,
+                    letterSpacing = 1.5.sp,
+                    maxLines      = 1
                 )
             }
         }

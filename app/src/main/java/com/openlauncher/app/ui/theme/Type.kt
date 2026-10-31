@@ -24,10 +24,60 @@ val SourceCodePro = FontFamily(
     Font(R.font.source_code_pro_bold,    FontWeight.Bold),
 )
 
+val CalSans = FontFamily(
+    Font(R.font.calsans_regular, FontWeight.Normal),
+    Font(R.font.calsans_regular, FontWeight.Medium),
+    Font(R.font.calsans_regular, FontWeight.SemiBold),
+    Font(R.font.calsans_regular, FontWeight.Bold)
+)
+
+val FugazOne = FontFamily(
+    Font(R.font.fugazone_regular, FontWeight.Normal),
+    Font(R.font.fugazone_regular, FontWeight.Medium),
+    Font(R.font.fugazone_regular, FontWeight.SemiBold),
+    Font(R.font.fugazone_regular, FontWeight.Bold)
+)
+
+val Geom = FontFamily(
+    Font(R.font.geom_variable, FontWeight.Normal),
+    Font(R.font.geom_variable, FontWeight.Medium),
+    Font(R.font.geom_variable, FontWeight.SemiBold),
+    Font(R.font.geom_variable, FontWeight.Bold)
+)
+
+val NotoSansDisplay = FontFamily(
+    Font(R.font.notosansdisplay_regular,  FontWeight.Normal),
+    Font(R.font.notosansdisplay_semibold, FontWeight.Medium),
+    Font(R.font.notosansdisplay_semibold, FontWeight.SemiBold),
+    Font(R.font.notosansdisplay_semibold, FontWeight.Bold)
+)
+
+val Roboto = FontFamily(
+    Font(R.font.roboto_bold,  FontWeight.Normal),
+    Font(R.font.roboto_bold,  FontWeight.Medium),
+    Font(R.font.roboto_bold,  FontWeight.SemiBold),
+    Font(R.font.roboto_bold,  FontWeight.Bold),
+    Font(R.font.roboto_black, FontWeight.Black)
+)
+
+val FontAwesomeRegular = FontFamily(
+    Font(R.font.fa_regular_400, FontWeight.Normal)
+)
+
+val FontAwesomeSolid = FontFamily(
+    Font(R.font.fa_solid_900, FontWeight.Normal),
+    Font(R.font.fa_solid_900, FontWeight.Bold)
+)
+
 fun AppFont.toFontFamily(): FontFamily = when (this) {
-    AppFont.SYSTEM          -> FontFamily.Default
-    AppFont.JETBRAINS_MONO  -> JetBrainsMono
-    AppFont.SOURCE_CODE_PRO -> SourceCodePro
+    AppFont.SYSTEM            -> FontFamily.Default
+    AppFont.JETBRAINS_MONO    -> JetBrainsMono
+    AppFont.SOURCE_CODE_PRO   -> SourceCodePro
+    AppFont.CAL_SANS          -> CalSans
+    AppFont.FUGAZ_ONE         -> FugazOne
+    AppFont.GEOM              -> Geom
+    AppFont.NOTO_SANS_DISPLAY -> NotoSansDisplay
+    AppFont.ROBOTO            -> Roboto
 }
 
 fun launcherTypography(bold: Boolean, scale: Float, fontFamily: FontFamily = FontFamily.Default): Typography {

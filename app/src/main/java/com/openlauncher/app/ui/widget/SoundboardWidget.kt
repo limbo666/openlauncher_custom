@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -39,85 +40,185 @@ fun SoundboardWidget(
     pads: List<SoundPadConfig>,
     accent: Color,
     isDayMode: Boolean = false,
+    customContentColor: Color? = null,
+    buttonCount: Int = 6,
     isEditing: Boolean = false,
     onUpdatePad: (index: Int, pad: SoundPadConfig) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context      = LocalContext.current
-    val contentColor = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val dimColor     = if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-    val borderColor  = if (isDayMode) Color(0xFFE5E7EB) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
+    val isLightMode  = isDayMode || (customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f)
+    val contentColor = customContentColor ?: if (isLightMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
+    val dimColor     = customContentColor?.copy(alpha = 0.55f) ?: if (isLightMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val borderColor  = customContentColor?.copy(alpha = 0.25f) ?: if (isLightMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
 
     var activePadIndex by remember { mutableStateOf<Int?>(null) }
     var assigningIndex by remember { mutableStateOf<Int?>(null) }
 
-    val safePads = remember(pads) {
-        if (pads.size >= 6) pads.take(6)
-        else pads + List(6 - pads.size) { SoundPadConfig("+", synthType = "") }
+    val count = buttonCount.coerceIn(1, 6)
+    val safePads = remember(pads, count) {
+        if (pads.size >= count) pads.take(count)
+        else pads + List(count - pads.size) { SoundPadConfig("+", synthType = "") }
     }
 
-    // Outer grid Column with top padding = 22.dp to leave room for card header label "SOUNDBOARD"
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(start = 10.dp, end = 10.dp, top = 22.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        repeat(2) { row ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                repeat(3) { col ->
-                    val idx = row * 3 + col
-                    val pad = safePads[idx]
-                    val isActive = activePadIndex == idx
-                    val hasCustomAudio = pad.audioUri.isNotEmpty()
+    // Outer grid with top padding = 22.dp to leave room for card header label "SOUNDBOARD"
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val isTall = maxHeight > maxWidth * 1.3f
+        val isWide = maxWidth > maxHeight * 2.2f
 
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .border(
-                                1.dp,
-                                if (isActive) accent else borderColor,
-                                RoundedCornerShape(3.dp)
-                            )
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(if (isActive) accent.copy(alpha = 0.12f) else Color.Transparent)
-                            .then(
-                                if (!isEditing) Modifier.combinedClickable(
-                                    onClick = {
-                                        if (pad.label == "+" || (pad.audioUri.isEmpty() && pad.synthType.isEmpty())) {
-                                            assigningIndex = idx
-                                        } else {
-                                            activePadIndex = idx
-                                            playSoundPad(
-                                                context = context,
-                                                pad = pad,
-                                                onDone = { activePadIndex = null }
-                                            )
-                                        }
-                                    },
-                                    onLongClick = { assigningIndex = idx }
-                                ) else Modifier
-                            ),
-                        contentAlignment = Alignment.Center
+        val cols = when (count) {
+            1 -> 1
+            2 -> if (isTall) 1 else 2
+            3 -> if (isTall) 1 else 3
+            4 -> if (isWide) 4 else if (isTall) 1 else 2
+            5 -> 3
+            else -> 3
+        }
+        val padWidth = (maxWidth - 20.dp - (6.dp * (cols - 1))) / cols
+        val isNarrowPad = padWidth < 70.dp
+
+        val baseFontSize = when {
+            count == 1 -> 14.sp
+            count == 2 -> 12.sp
+            count <= 4 -> 10.sp
+            !isNarrowPad -> 9.sp
+            else -> null
+        }
+
+        val renderPad: @Composable (Int, Modifier) -> Unit = { idx, padModifier ->
+            val pad = safePads[idx]
+            val isActive = activePadIndex == idx
+            SoundPadButton(
+                idx = idx,
+                pad = pad,
+                isActive = isActive,
+                isLightMode = isLightMode,
+                isNarrowPad = isNarrowPad,
+                accent = accent,
+                borderColor = borderColor,
+                contentColor = contentColor,
+                dimColor = dimColor,
+                isEditing = isEditing,
+                overrideFontSize = baseFontSize,
+                onPlay = {
+                    activePadIndex = idx
+                    playSoundPad(
+                        context = context,
+                        pad = pad,
+                        onDone = { activePadIndex = null }
+                    )
+                },
+                onAssign = { assigningIndex = idx },
+                modifier = padModifier
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 10.dp, end = 10.dp, top = 22.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            when (count) {
+                1 -> {
+                    renderPad(0, Modifier.fillMaxSize())
+                }
+                2 -> {
+                    if (isTall) {
+                        repeat(2) { idx ->
+                            renderPad(idx, Modifier.fillMaxWidth().weight(1f))
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            repeat(2) { idx ->
+                                renderPad(idx, Modifier.fillMaxHeight().weight(1f))
+                            }
+                        }
+                    }
+                }
+                3 -> {
+                    if (isTall) {
+                        repeat(3) { idx ->
+                            renderPad(idx, Modifier.fillMaxWidth().weight(1f))
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            repeat(3) { idx ->
+                                renderPad(idx, Modifier.fillMaxHeight().weight(1f))
+                            }
+                        }
+                    }
+                }
+                4 -> {
+                    if (isWide) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            repeat(4) { idx ->
+                                renderPad(idx, Modifier.fillMaxHeight().weight(1f))
+                            }
+                        }
+                    } else if (isTall) {
+                        repeat(4) { idx ->
+                            renderPad(idx, Modifier.fillMaxWidth().weight(1f))
+                        }
+                    } else {
+                        // 2x2 grid
+                        Row(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            renderPad(0, Modifier.fillMaxHeight().weight(1f))
+                            renderPad(1, Modifier.fillMaxHeight().weight(1f))
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            renderPad(2, Modifier.fillMaxHeight().weight(1f))
+                            renderPad(3, Modifier.fillMaxHeight().weight(1f))
+                        }
+                    }
+                }
+                5 -> {
+                    // Row 1: 3 pads, Row 2: 2 pads
+                    Row(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        val isPlus = pad.label == "+"
-                        Text(
-                            text = pad.label,
-                            color = if (isActive) accent else if (isPlus) dimColor else contentColor,
-                            fontSize = if (isPlus) 16.sp else 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center
-                        )
+                        for (idx in 0..2) {
+                            renderPad(idx, Modifier.fillMaxHeight().weight(1f))
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (idx in 3..4) {
+                            renderPad(idx, Modifier.fillMaxHeight().weight(1f))
+                        }
+                    }
+                }
+                else -> { // count == 6
+                    repeat(2) { row ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            repeat(3) { col ->
+                                val idx = row * 3 + col
+                                renderPad(idx, Modifier.fillMaxHeight().weight(1f))
+                            }
+                        }
                     }
                 }
             }
@@ -138,6 +239,75 @@ fun SoundboardWidget(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SoundPadButton(
+    idx: Int,
+    pad: SoundPadConfig,
+    isActive: Boolean,
+    isLightMode: Boolean,
+    isNarrowPad: Boolean,
+    accent: Color,
+    borderColor: Color,
+    contentColor: Color,
+    dimColor: Color,
+    isEditing: Boolean,
+    onPlay: () -> Unit,
+    onAssign: () -> Unit,
+    modifier: Modifier = Modifier,
+    overrideFontSize: androidx.compose.ui.unit.TextUnit? = null
+) {
+    Box(
+        modifier = modifier
+            .border(
+                1.dp,
+                if (isActive) accent else borderColor,
+                RoundedCornerShape(3.dp)
+            )
+            .clip(RoundedCornerShape(3.dp))
+            .background(if (isActive) accent.copy(alpha = 0.18f) else (if (isLightMode) Color(0x10000000) else Color(0x10FFFFFF)))
+            .then(
+                if (!isEditing) Modifier.combinedClickable(
+                    onClick = {
+                        if (pad.label == "+" || (pad.audioUri.isEmpty() && pad.synthType.isEmpty())) {
+                            onAssign()
+                        } else {
+                            onPlay()
+                        }
+                    },
+                    onLongClick = onAssign
+                ) else Modifier
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        val isPlus = pad.label == "+"
+        val displayLabel = if (isPlus) "+" else pad.label.replace('_', '\n')
+        val padFontSize = overrideFontSize ?: when {
+            isPlus -> 16.sp
+            !isNarrowPad -> 9.sp
+            displayLabel.length <= 4 -> 8.5.sp
+            displayLabel.length <= 7 -> 7.5.sp
+            else -> 6.5.sp
+        }
+
+        val hasMultiLine = displayLabel.contains('\n')
+        val padMaxLines = if (hasMultiLine || isNarrowPad) 2 else 1
+
+        Text(
+            text = displayLabel,
+            color = if (isActive) accent else if (isPlus) dimColor else contentColor,
+            fontSize = padFontSize,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = if (isNarrowPad) 0.sp else 0.4.sp,
+            maxLines = padMaxLines,
+            lineHeight = if (padMaxLines > 1) (padFontSize.value + 1.5f).sp else padFontSize,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 2.dp)
+        )
+    }
+}
+
 @Composable
 private fun PadAssignDialog(
     pad: SoundPadConfig,
@@ -147,11 +317,16 @@ private fun PadAssignDialog(
     onSave: (SoundPadConfig) -> Unit
 ) {
     val context    = LocalContext.current
-    val menuBg     = if (isDayMode) Color(0xFFF0F0F0) else MaterialTheme.colorScheme.background
-    val menuBorder = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
+    val accentLum = 0.299f * accent.red + 0.587f * accent.green + 0.114f * accent.blue
+    val effectiveAccent = if (isDayMode && accentLum > 0.65f) Color(0xFF111111)
+                          else if (!isDayMode && accentLum < 0.25f) Color(0xFFEEEEEE)
+                          else accent
+
+    val menuBg     = if (isDayMode) Color(0xFFFFFFFF) else MaterialTheme.colorScheme.background
+    val menuBorder = if (isDayMode) Color(0xFFDDE1E5) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
     val contentColor = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val dimColor   = if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-    val fieldBorder = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f)
+    val dimColor   = if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val fieldBorder = if (isDayMode) Color(0xFFCED4DA) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f)
 
     var labelText   by remember { mutableStateOf(pad.label) }
     var synthType   by remember { mutableStateOf(pad.synthType) }
@@ -175,9 +350,9 @@ private fun PadAssignDialog(
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(menuBg)
-                .border(1.dp, menuBorder, RoundedCornerShape(6.dp))
+                .border(1.dp, menuBorder, RoundedCornerShape(8.dp))
                 .padding(18.dp)
                 .width(340.dp), // Fixed size: increased from 220dp to 340dp for landscape headunit displays
             verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -203,7 +378,7 @@ private fun PadAssignDialog(
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace
                     ),
-                    cursorBrush = SolidColor(accent),
+                    cursorBrush = SolidColor(effectiveAccent),
                     modifier = Modifier
                         .fillMaxWidth()
                         .border(1.dp, fieldBorder, RoundedCornerShape(2.dp))
@@ -214,39 +389,46 @@ private fun PadAssignDialog(
             // Preloaded Audio Selector (replaces old raw waveform synth generation)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("PRELOADED AUDIO", color = dimColor, fontSize = 7.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.5.sp)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    val preloadedSounds = listOf(
-                        "mario_jump" to "mario_jump",
-                        "mario_coin" to "mario_coin",
-                        "boom" to "boom",
-                        "loud_fart" to "loud_fart"
-                    )
-                    preloadedSounds.forEach { (type, chipLabel) ->
-                        val active = synthType == type && audioUri.isEmpty()
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(28.dp)
-                                .border(1.dp, if (active) accent else fieldBorder, RoundedCornerShape(3.dp))
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (active) accent.copy(alpha = 0.12f) else Color.Transparent)
-                                .clickable { 
-                                    synthType = type
-                                    audioUri = ""
-                                    labelText = type
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                chipLabel,
-                                color = if (active) accent else dimColor,
-                                fontSize = 8.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
+                val preloadedSounds = listOf(
+                    Triple("whats_up_doc", "doc", "whats_up_doc"),
+                    Triple("adhimahadi_arnold_ill_be_back_8276", "be back", "be_back"),
+                    Triple("a_few_moments_later", "later", "later"),
+                    Triple("stamataaaaaaa", "stamata", "stamata"),
+                    Triple("dragon_studio_cute_cat_meow_472372", "meow", "meow"),
+                    Triple("universfield_wah_wah_horn_117724", "wah wah", "wah_wah"),
+                    Triple("rooster", "rooster", "rooster"),
+                    Triple("spring_boing", "boing", "boing"),
+                    Triple("attention_chime", "chime", "chime")
+                )
+                preloadedSounds.chunked(3).forEach { rowItems ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        rowItems.forEach { (type, chipLabel, padLabel) ->
+                            val active = synthType == type && audioUri.isEmpty()
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(28.dp)
+                                    .border(1.dp, if (active) effectiveAccent else fieldBorder, RoundedCornerShape(3.dp))
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(if (active) effectiveAccent.copy(alpha = if (isDayMode) 0.12f else 0.20f) else Color.Transparent)
+                                    .clickable { 
+                                        synthType = type
+                                        audioUri = ""
+                                        labelText = padLabel
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    chipLabel,
+                                    color = if (active) effectiveAccent else dimColor,
+                                    fontSize = 8.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
@@ -263,15 +445,15 @@ private fun PadAssignDialog(
                         onClick = { filePicker.launch(arrayOf("audio/*")) },
                         modifier = Modifier.weight(1f).height(30.dp),
                         shape = RoundedCornerShape(2.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = accent),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, if (audioUri.isNotEmpty()) accent else fieldBorder),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = effectiveAccent),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (audioUri.isNotEmpty()) effectiveAccent else fieldBorder),
                         contentPadding = PaddingValues(horizontal = 8.dp)
                     ) {
-                        Icon(Icons.Default.AudioFile, null, tint = accent, modifier = Modifier.size(12.dp))
+                        Icon(Icons.Default.AudioFile, null, tint = effectiveAccent, modifier = Modifier.size(12.dp))
                         Spacer(Modifier.width(4.dp))
                         Text(
                             if (audioUri.isNotEmpty()) "CUSTOM FILE ASSIGNED" else "PICK AUDIO FILE",
-                            color = accent,
+                            color = effectiveAccent,
                             fontSize = 7.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
@@ -342,10 +524,13 @@ private fun PadAssignDialog(
                     },
                     modifier = Modifier.weight(1f).height(32.dp),
                     shape = RoundedCornerShape(2.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = accent),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = effectiveAccent,
+                        contentColor = if (effectiveAccent.luminance() > 0.5f) Color.Black else Color.White
+                    ),
                     contentPadding = PaddingValues(0.dp)
                 ) {
-                    Text("SAVE SOUND", color = if (isDayMode) Color.White else Color.Black, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    Text("SAVE SOUND", color = if (effectiveAccent.luminance() > 0.5f) Color.Black else Color.White, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -386,9 +571,11 @@ private fun playSoundPad(context: android.content.Context, pad: SoundPadConfig, 
                 if (resId == 0) {
                     // Fallback mapping for legacy synth types saved in user settings
                     resName = when (resName) {
-                        "horn", "beep", "alert" -> "mario_jump"
-                        "kick", "snare", "bass" -> "mario_coin"
-                        else -> "mario_jump"
+                        "horn", "beep", "alert", "mario_jump", "jump" -> "whats_up_doc"
+                        "kick", "snare", "bass", "mario_coin", "coin" -> "adhimahadi_arnold_ill_be_back_8276"
+                        "boom" -> "a_few_moments_later"
+                        "loud_fart", "fart" -> "stamataaaaaaa"
+                        else -> "whats_up_doc"
                     }
                     resId = context.resources.getIdentifier(resName, "raw", context.packageName)
                 }

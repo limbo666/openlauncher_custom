@@ -12,9 +12,22 @@ android {
     defaultConfig {
         applicationId  = "com.openlauncher.app"
         minSdk         = 21
-        targetSdk      = 36
-        versionCode    = 6
-        versionName    = "0.0.5"
+        targetSdk      = 34
+        versionCode    = 11
+        versionName    = "0.0.10"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("openlauncher-release.jks")
+            storePassword = "openlauncher123"
+            keyAlias = "openlauncher"
+            keyPassword = "openlauncher123"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = true
+        }
     }
 
     buildTypes {
@@ -23,6 +36,7 @@ android {
         }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -68,6 +82,10 @@ dependencies {
 
     // Image loading
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("io.coil-kt:coil-svg:2.7.0")
+
+    // Lottie animation (Meteocons)
+    implementation("com.airbnb.android:lottie-compose:6.6.2")
 
     // Permissions
     implementation("com.google.accompanist:accompanist-permissions:0.37.3")

@@ -5,23 +5,36 @@ import androidx.compose.ui.graphics.toArgb
 
 enum class ClockStyle { DIGITAL, ANALOG }
 enum class UnitSystem { METRIC, IMPERIAL }
-enum class AppFont { SYSTEM, JETBRAINS_MONO, SOURCE_CODE_PRO }
-enum class DayNightMode { DARK, LIGHT, AUTO, SYSTEM }
+enum class AppFont {
+    SYSTEM,
+    JETBRAINS_MONO,
+    SOURCE_CODE_PRO,
+    CAL_SANS,
+    FUGAZ_ONE,
+    GEOM,
+    NOTO_SANS_DISPLAY,
+    ROBOTO
+}
+enum class DayNightMode { DARK, LIGHT, CUSTOM, AUTO, SYSTEM }
+enum class AppDrawerFilter { SELECTED, TOOLS, USER, SYSTEM, ALL }
 enum class SidebarPosition { LEFT, RIGHT, BOTTOM }
 enum class GradientDirection { TOP_TO_BOTTOM, LEFT_TO_RIGHT, DIAGONAL, RADIAL }
+enum class WeatherProvider { WTTR_IN, OPEN_METEO }
+enum class WidgetBgMode { DEFAULT, FOLLOW_THEME, CUSTOM }
 
 enum class DefaultShortcutIcon {
     NONE,
     // Navigation & vehicle
     RADIO, CAMERA, PHONE, MAP, NAVIGATION, CAR, GAS_STATION, DASHBOARD,
     // Audio & media
-    MUSIC, SPEAKER, HEADSET, EQUALIZER, VOLUME_UP,
-    // Connectivity
-    BLUETOOTH, WIFI,
+    MUSIC, SPEAKER, HEADSET, EQUALIZER, VOLUME_UP, PLAY, PAUSE, MIC,
+    // Connectivity & utility
+    BLUETOOTH, WIFI, USB, CLOUD, STORE, GAMEPAD, CALCULATOR, NOTIFICATIONS, REFRESH,
     // Lighting & climate
     LIGHTBULB, BRIGHTNESS, AC, THERMOSTAT,
-    // General utility
+    // General utility & car
     TV, VIDEOCAM, STAR, MESSAGE, TIMER, LOCK, SETTINGS, FAVORITE,
+    BATTERY, POWER, SHIELD, WRENCH, PARKING, EV_STATION, WARNING, INFO, EXPLORE, SPEEDOMETER, COMPASS,
     // Web / location
     GLOBE
 }
@@ -33,12 +46,15 @@ data class SoundPadConfig(
 )
 
 fun defaultSoundboardPads() = listOf(
-    SoundPadConfig("mario_jump",   synthType = "mario_jump"),
-    SoundPadConfig("mario_coin",   synthType = "mario_coin"),
-    SoundPadConfig("boom",         synthType = "boom"),
-    SoundPadConfig("loud_fart",    synthType = "loud_fart"),
-    SoundPadConfig("+",            synthType = ""),
-    SoundPadConfig("+",            synthType = "")
+    SoundPadConfig("whats_up_doc", synthType = "whats_up_doc"),
+    SoundPadConfig("be_back",      synthType = "adhimahadi_arnold_ill_be_back_8276"),
+    SoundPadConfig("later",        synthType = "a_few_moments_later"),
+    SoundPadConfig("stamata",      synthType = "stamataaaaaaa"),
+    SoundPadConfig("meow",         synthType = "dragon_studio_cute_cat_meow_472372"),
+    SoundPadConfig("wah_wah",      synthType = "universfield_wah_wah_horn_117724"),
+    SoundPadConfig("rooster",      synthType = "rooster"),
+    SoundPadConfig("boing",        synthType = "spring_boing"),
+    SoundPadConfig("chime",        synthType = "attention_chime")
 )
 
 data class ShortcutConfig(
@@ -50,23 +66,31 @@ data class ShortcutConfig(
     val customIconOverride: DefaultShortcutIcon? = null
 )
 
-const val GRID_COLS = 3
-const val GRID_ROWS = 2
+const val GRID_COLS = 6
+const val GRID_ROWS = 4
 
 data class WidgetConfig(
-    val id: String,          // "CLOCK" | "WEATHER" | "TELEMETRY" | "NOW_PLAYING"
+    val id: String,          // "CLOCK" | "WEATHER" | "TELEMETRY" | "NOW_PLAYING" | "VOLUME" | "QUICK_ACTIONS" | "APP_SHORTCUTS"
     val gridX: Int,          // column 0..(GRID_COLS-1)
     val gridY: Int,          // row    0..(GRID_ROWS-1)
-    val spanX: Int = 1,
-    val spanY: Int = 1,
-    val enabled: Boolean = true
-)
+    val spanX: Int = 2,
+    val spanY: Int = 2,
+    val enabled: Boolean = true,
+    val bgMode: WidgetBgMode = WidgetBgMode.DEFAULT,
+    val customBgColor: Long? = null,
+    val showTitle: Boolean? = true
+) {
+    val isTitleVisible: Boolean get() = showTitle != false
+}
 
 data class AppSettings(
     val vehicleName: String = "MY CAR",
     val accentColor: Int = Color.White.toArgb(),
     val backgroundColor: Int = Color.Black.toArgb(),
     val fontColor: Int = Color.White.toArgb(),
+    val tileColorDark: Int = Color.Black.toArgb(),
+    val tileColorLight: Int = Color.White.toArgb(),
+    val tileAlpha: Float = 0.65f,
     val wallpaperUri: String = "",
     val fontBold: Boolean = false,
     val textScale: Float = 1.2f,
@@ -86,25 +110,55 @@ data class AppSettings(
     val gradientEndColor: Int = Color.Black.toArgb(),
     val wallpaperDim: Float = 0.55f,
     val sidebarPosition: SidebarPosition = SidebarPosition.LEFT,
+    val sidebarWidth: Int = 56,
+    val sidebarIconScale: Float = 1.0f,
     val bottomBarShortcutsRight: Boolean = false,
-    val showAltimeter: Boolean = false,
-    val showSpeedometer: Boolean = false,
+    val showAltimeter: Boolean = true,
+    val showSpeedometer: Boolean = true,
     val dayNightMode: DayNightMode = DayNightMode.DARK,
     val showPip: Boolean = false,
     val pipAppPackage: String = "",
     // Head unit's radio app — mirrored & controlled via its MediaSession
     val radioPackage: String = "",
-    val onboardingCompleted: Boolean = false,
-    val showVitals: Boolean = false,
+    val onboardingCompleted: Boolean = true,
+    val showVitals: Boolean = true,
     val showTripTracker: Boolean = false,
     val compassOffset: Float = 0f,
-    val showSoundboard: Boolean = false,
+    val altimeterRollOffset: Float = 0f,
+    val altimeterPitchOffset: Float = 0f,
+    val showSoundboard: Boolean = true,
     val soundboardPads: List<SoundPadConfig> = defaultSoundboardPads(),
     val vitalsAsBars: Boolean = false,
+    val vitalsElements: List<String> = defaultVitalsElements(),
     val speedometerDigitalOnly: Boolean = false,
     val gradientDirection: GradientDirection = GradientDirection.DIAGONAL,
-    val useCustomBackgroundColor: Boolean = false
+    val useCustomBackgroundColor: Boolean = false,
+    val showVolume: Boolean = true,
+    val showQuickActions: Boolean = true,
+    val showAppShortcuts: Boolean = true,
+    val appWidgetPackages: List<String> = listOf("", "", "", ""),
+    val quickActionButtons: List<String> = defaultQuickActionButtons(),
+    val selectedAppPackages: List<String> = emptyList(),
+    val toolsAppPackages: List<String> = emptyList(),
+    val appDrawerFilter: AppDrawerFilter = AppDrawerFilter.USER,
+    val weatherUseGps: Boolean = true,
+    val weatherCustomLocation: String = "Athens",
+    val weatherProvider: WeatherProvider = WeatherProvider.OPEN_METEO,
+    val weatherForecastDays: Int = 5,
+    val advancedWeatherIcons: Boolean = true,
+    val showStatusIcons: Boolean = true,
+    val appShortcutCount: Int = 4,
+    val soundboardButtonCount: Int = 6,
+    val showObd: Boolean = false,
+    val obdDeviceAddress: String = "",
+    val obdDeviceName: String = "",
+    val preferredMediaPackage: String = "",
+    val lastMediaPackage: String = "",
+    val autoLaunchMedia: Boolean = true
 )
+
+fun defaultQuickActionButtons() = listOf("BLUETOOTH", "WIFI", "BLACKOUT", "MUTE", "SETTINGS")
+fun defaultVitalsElements() = listOf("CPU", "RAM", "TEMP")
 
 fun defaultShortcuts() = listOf(
     ShortcutConfig(label = "Radio", isDefault = true, defaultIcon = DefaultShortcutIcon.RADIO),
@@ -114,10 +168,18 @@ fun defaultShortcuts() = listOf(
 )
 
 fun defaultWidgetLayout() = listOf(
-    WidgetConfig("CLOCK",       gridX = 0, gridY = 0, spanX = 1, spanY = 1),
-    WidgetConfig("WEATHER",     gridX = 1, gridY = 0, spanX = 1, spanY = 1),
-    WidgetConfig("TELEMETRY",   gridX = 2, gridY = 0, spanX = 1, spanY = 2),
-    WidgetConfig("NOW_PLAYING", gridX = 0, gridY = 1, spanX = 2, spanY = 1)
+    WidgetConfig("CLOCK",         gridX = 0, gridY = 0, spanX = 1, spanY = 1),
+    WidgetConfig("TELEMETRY",     gridX = 1, gridY = 0, spanX = 1, spanY = 1),
+    WidgetConfig("QUICK_ACTIONS", gridX = 2, gridY = 0, spanX = 2, spanY = 1),
+    WidgetConfig("VITALS",        gridX = 4, gridY = 0, spanX = 2, spanY = 1),
+    WidgetConfig("NOW_PLAYING",   gridX = 0, gridY = 1, spanX = 2, spanY = 2),
+    WidgetConfig("SPEEDOMETER",   gridX = 2, gridY = 1, spanX = 1, spanY = 1),
+    WidgetConfig("ALTIMETER",     gridX = 3, gridY = 1, spanX = 1, spanY = 1),
+    WidgetConfig("WEATHER",       gridX = 4, gridY = 1, spanX = 2, spanY = 2),
+    WidgetConfig("VOLUME",        gridX = 2, gridY = 2, spanX = 2, spanY = 1),
+    WidgetConfig("SOUNDBOARD",    gridX = 0, gridY = 3, spanX = 1, spanY = 1),
+    WidgetConfig("APP_SHORTCUTS", gridX = 2, gridY = 3, spanX = 2, spanY = 1),
+    WidgetConfig("OBD",           gridX = 4, gridY = 3, spanX = 2, spanY = 1)
 )
 
 fun AppSettings.activeWidgetIds(): Set<String> = buildSet {
@@ -130,6 +192,10 @@ fun AppSettings.activeWidgetIds(): Set<String> = buildSet {
     if (showVitals) add("VITALS")
     if (showTripTracker) add("TRIP_TRACKER")
     if (showSoundboard) add("SOUNDBOARD")
+    if (showVolume) add("VOLUME")
+    if (showQuickActions) add("QUICK_ACTIONS")
+    if (showAppShortcuts) add("APP_SHORTCUTS")
+    if (showObd) add("OBD")
 }
 
 /**

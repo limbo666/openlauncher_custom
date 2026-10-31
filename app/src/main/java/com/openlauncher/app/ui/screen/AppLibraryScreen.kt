@@ -1,15 +1,23 @@
 package com.openlauncher.app.ui.screen
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,15 +30,20 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.platform.LocalTextInputService
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.graphics.drawable.toBitmap
+import com.openlauncher.app.data.AppDrawerFilter
 import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.ui.theme.LocalDayMode
+import com.openlauncher.app.ui.theme.accentOnSurface
+import com.openlauncher.app.ui.theme.contentColorOn
 
-private enum class AppFilter { USER, SYSTEM, ALL }
+private typealias AppFilter = AppDrawerFilter
 
 private val TILE_RADIUS = RoundedCornerShape(4.dp)
 
@@ -43,13 +56,22 @@ fun AppLibraryScreen(
     isCarPlayPickerMode: Boolean,
     carPlayPickerLabel: String = "CHOOSE CARPLAY APP",
     accent: Color,
+    selectedAppPackages: List<String> = emptyList(),
+    toolsAppPackages: List<String> = emptyList(),
+    currentFilter: AppDrawerFilter = AppDrawerFilter.USER,
+    onFilterChange: (AppDrawerFilter) -> Unit = {},
     onAppClick: (AppInfo) -> Unit,
     onPickerSelect: (Int, AppInfo) -> Unit,
     onCarPlaySelect: (AppInfo) -> Unit,
+    onToggleSelectedApp: (String) -> Unit = {},
+    onToggleToolsApp: (String) -> Unit = {},
+    onUninstallApp: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isDayMode     = LocalDayMode.current
     val screenBg      = MaterialTheme.colorScheme.background
+    val selectedChipContainer = accentOnSurface(accent, screenBg)
+    val selectedChipLabel     = contentColorOn(selectedChipContainer)
     val headerColor   = MaterialTheme.colorScheme.onBackground
     val placeholderC  = if (isDayMode) Color(0xFF999999) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
     val dividerColor  = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)
@@ -58,18 +80,21 @@ fun AppLibraryScreen(
     val fieldBorderU  = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f)
 
     val anyPickerMode = isPickerMode || isCarPlayPickerMode
-    var query     by remember { mutableStateOf("") }
-    var appFilter by remember { mutableStateOf(AppFilter.USER) }
+    var query         by remember { mutableStateOf("") }
+    var appFilter     by remember(currentFilter) { mutableStateOf(currentFilter) }
+    var appForManagement by remember { mutableStateOf<AppInfo?>(null) }
 
-    val filtered = remember(apps, query, appFilter, anyPickerMode) {
+    val filtered = remember(apps, query, appFilter, anyPickerMode, selectedAppPackages, toolsAppPackages) {
         val byName = if (query.isBlank()) apps
                      else apps.filter { it.appName.contains(query, ignoreCase = true) }
         // In picker mode always show everything so shortcuts can be set to any app
         if (anyPickerMode) byName
         else when (appFilter) {
-            AppFilter.USER   -> byName.filter { !it.isSystemApp }
-            AppFilter.SYSTEM -> byName.filter { it.isSystemApp }
-            AppFilter.ALL    -> byName
+            AppFilter.SELECTED -> byName.filter { it.packageName in selectedAppPackages }
+            AppFilter.TOOLS    -> byName.filter { it.packageName in toolsAppPackages }
+            AppFilter.USER     -> byName.filter { !it.isSystemApp }
+            AppFilter.SYSTEM   -> byName.filter { it.isSystemApp }
+            AppFilter.ALL      -> byName
         }
     }
 
@@ -98,21 +123,26 @@ fun AppLibraryScreen(
                     AppFilter.entries.forEach { filter ->
                         FilterChip(
                             selected = appFilter == filter,
-                            onClick  = { appFilter = filter },
+                            onClick  = { 
+                                appFilter = filter
+                                onFilterChange(filter)
+                            },
                             label    = {
                                 Text(
                                     when (filter) {
-                                        AppFilter.USER   -> "Installed"
-                                        AppFilter.SYSTEM -> "System"
-                                        AppFilter.ALL    -> "All"
+                                        AppFilter.SELECTED -> "Selected"
+                                        AppFilter.TOOLS    -> "Tools"
+                                        AppFilter.USER     -> "Installed"
+                                        AppFilter.SYSTEM   -> "System"
+                                        AppFilter.ALL      -> "All"
                                     },
                                     fontSize = 9.sp,
                                     letterSpacing = 0.5.sp
                                 )
                             },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = accent,
-                                selectedLabelColor     = Color.Black,
+                                selectedContainerColor = selectedChipContainer,
+                                selectedLabelColor     = selectedChipLabel,
                                 labelColor             = placeholderC
                             )
                         )
@@ -163,7 +193,18 @@ fun AppLibraryScreen(
 
         if (filtered.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No apps found", color = emptyColor, letterSpacing = 1.sp, fontSize = 12.sp)
+                val emptyMessage = when (appFilter) {
+                    AppFilter.SELECTED -> "No apps in Selected\nLong-press any app to add it"
+                    AppFilter.TOOLS    -> "No apps in Tools\nLong-press any app to add it"
+                    else               -> "No apps found"
+                }
+                Text(
+                    text = emptyMessage,
+                    color = emptyColor,
+                    letterSpacing = 1.sp,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center
+                )
             }
             return@Column
         }
@@ -178,65 +219,301 @@ fun AppLibraryScreen(
         ) {
             items(filtered, key = { it.packageName }) { app ->
                 AppTile(
-                    app     = app,
-                    accent  = accent,
-                    onClick = {
+                    app         = app,
+                    accent      = accent,
+                    isSelected  = app.packageName in selectedAppPackages,
+                    isTool      = app.packageName in toolsAppPackages,
+                    onClick     = {
                         when {
-                            isCarPlayPickerMode            -> onCarPlaySelect(app)
+                            isCarPlayPickerMode                -> onCarPlaySelect(app)
                             isPickerMode && pickerSlot != null -> onPickerSelect(pickerSlot, app)
-                            else                           -> onAppClick(app)
+                            else                               -> onAppClick(app)
                         }
-                    }
+                    },
+                    onLongClick = if (!anyPickerMode) {
+                        { appForManagement = app }
+                    } else null
                 )
             }
         }
     }
+
+    // ── Long-press App Management Dialog ──────────────────────────────────────
+    appForManagement?.let { app ->
+        AppManagementDialog(
+            app              = app,
+            isSelected       = app.packageName in selectedAppPackages,
+            isTool           = app.packageName in toolsAppPackages,
+            accent           = accent,
+            onToggleSelected = { onToggleSelectedApp(app.packageName) },
+            onToggleTools    = { onToggleToolsApp(app.packageName) },
+            onUninstall      = { onUninstallApp(app.packageName) },
+            onDismiss        = { appForManagement = null }
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppTile(
     app: AppInfo,
     accent: Color,
-    onClick: () -> Unit
+    isSelected: Boolean,
+    isTool: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     val isDayMode  = LocalDayMode.current
     val tileBg     = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF0B0B0B)
     val tileBorder = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF1A1A1A)
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+
+    Box(
         modifier = Modifier
             .aspectRatio(1f)
             .clip(TILE_RADIUS)
             .background(tileBg)
             .border(1.dp, tileBorder, TILE_RADIUS)
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
             .padding(7.dp)
     ) {
-        val bmp = remember(app.packageName) {
-            try { app.icon.toBitmap(80, 80) } catch (_: Exception) { null }
-        }
-        if (bmp != null) {
-            androidx.compose.foundation.Image(
-                painter            = BitmapPainter(bmp.asImageBitmap()),
-                contentDescription = app.appName,
-                modifier           = Modifier.size(40.dp)
-            )
-        } else {
-            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-                Text(app.appName.take(1).uppercase(), color = accent, fontSize = 18.sp)
+        // Star or Tool badge in top-right corner
+        if (isSelected || isTool) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(1.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = "Selected",
+                        tint = accent,
+                        modifier = Modifier.size(10.dp)
+                    )
+                }
+                if (isTool) {
+                    Icon(
+                        imageVector = Icons.Default.Build,
+                        contentDescription = "Tool",
+                        tint = accent,
+                        modifier = Modifier.size(9.dp)
+                    )
+                }
             }
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text          = app.appName.uppercase(),
-            style         = MaterialTheme.typography.labelSmall,
-            color         = if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-            maxLines      = 1,
-            overflow      = TextOverflow.Ellipsis,
-            textAlign     = TextAlign.Center,
-            letterSpacing = 1.sp,
-            fontSize      = 8.sp
-        )
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            val bmp = remember(app.packageName) {
+                try { app.icon.toBitmap(80, 80) } catch (_: Exception) { null }
+            }
+            if (bmp != null) {
+                androidx.compose.foundation.Image(
+                    painter            = BitmapPainter(bmp.asImageBitmap()),
+                    contentDescription = app.appName,
+                    modifier           = Modifier.size(40.dp)
+                )
+            } else {
+                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    Text(app.appName.take(1).uppercase(), color = accent, fontSize = 18.sp)
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text          = app.appName.uppercase(),
+                style         = MaterialTheme.typography.labelSmall,
+                color         = if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                maxLines      = 1,
+                overflow      = TextOverflow.Ellipsis,
+                textAlign     = TextAlign.Center,
+                letterSpacing = 1.sp,
+                fontSize      = 8.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun AppManagementDialog(
+    app: AppInfo,
+    isSelected: Boolean,
+    isTool: Boolean,
+    accent: Color,
+    onToggleSelected: () -> Unit,
+    onToggleTools: () -> Unit,
+    onUninstall: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isDayMode = LocalDayMode.current
+    val accentLum = 0.299f * accent.red + 0.587f * accent.green + 0.114f * accent.blue
+    val effectiveAccent = if (isDayMode && accentLum > 0.65f) Color(0xFF111111)
+                          else if (!isDayMode && accentLum < 0.25f) Color(0xFFEEEEEE)
+                          else accent
+
+    val dialogBg = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF141414)
+    val cardBorder = if (isDayMode) Color(0xFFE2E8F0) else Color(0xFF262626)
+    val textPrimary = if (isDayMode) Color(0xFF111111) else Color.White
+    val textSecondary = if (isDayMode) Color(0xFF666666) else Color(0xFF888888)
+    val activeRowBg = if (isDayMode) Color(0xFFF1F3F5) else effectiveAccent.copy(alpha = 0.15f)
+    val activeRowBorder = if (isDayMode) Color(0xFFCED4DA) else effectiveAccent.copy(alpha = 0.45f)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .width(320.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(dialogBg)
+                .border(1.dp, cardBorder, RoundedCornerShape(12.dp))
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            val bmp = remember(app.packageName) {
+                try { app.icon.toBitmap(96, 96) } catch (_: Exception) { null }
+            }
+            if (bmp != null) {
+                androidx.compose.foundation.Image(
+                    painter = BitmapPainter(bmp.asImageBitmap()),
+                    contentDescription = app.appName,
+                    modifier = Modifier.size(52.dp)
+                )
+            } else {
+                Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+                    Text(app.appName.take(1).uppercase(), color = effectiveAccent, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = app.appName,
+                color = textPrimary,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = app.packageName,
+                color = textSecondary,
+                fontSize = 10.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(Modifier.height(14.dp))
+            HorizontalDivider(color = cardBorder)
+            Spacer(Modifier.height(10.dp))
+
+            // Option 1: Toggle Selected
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (isSelected) activeRowBg else Color.Transparent)
+                    .border(1.dp, if (isSelected) activeRowBorder else Color.Transparent, RoundedCornerShape(6.dp))
+                    .clickable {
+                        onToggleSelected()
+                        onDismiss()
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Default.Star else Icons.Default.StarBorder,
+                    contentDescription = null,
+                    tint = if (isSelected) effectiveAccent else textSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = if (isSelected) "Remove from Selected" else "Add to Selected",
+                    color = if (isSelected) effectiveAccent else textPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                )
+            }
+
+            // Option 2: Toggle Tools
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (isTool) activeRowBg else Color.Transparent)
+                    .border(1.dp, if (isTool) activeRowBorder else Color.Transparent, RoundedCornerShape(6.dp))
+                    .clickable {
+                        onToggleTools()
+                        onDismiss()
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Build,
+                    contentDescription = null,
+                    tint = if (isTool) effectiveAccent else textSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = if (isTool) "Remove from Tools" else "Add to Tools",
+                    color = if (isTool) effectiveAccent else textPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = if (isTool) FontWeight.SemiBold else FontWeight.Normal
+                )
+            }
+
+            // Option 3: Uninstall (for non-system apps)
+            if (!app.isSystemApp) {
+                val deleteTint = if (isDayMode) Color(0xFFD32F2F) else Color(0xFFFF5252)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            onUninstall()
+                            onDismiss()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = null,
+                        tint = deleteTint,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Uninstall App",
+                        color = deleteTint,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider(color = cardBorder)
+            Spacer(Modifier.height(6.dp))
+
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text(
+                    "CLOSE",
+                    color = effectiveAccent,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    letterSpacing = 1.sp
+                )
+            }
+        }
     }
 }

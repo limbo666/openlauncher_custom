@@ -25,6 +25,7 @@ fun ClockWidget(
     style: ClockStyle,
     accent: Color,
     isDayMode: Boolean = false,
+    customContentColor: Color? = null,
     modifier: Modifier = Modifier
 ) {
     var calendar by remember { mutableStateOf(Calendar.getInstance()) }
@@ -36,13 +37,13 @@ fun ClockWidget(
         }
     }
 
-    val contentColor = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val subColor     = if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val contentColor = customContentColor ?: if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
+    val subColor     = customContentColor?.copy(alpha = 0.6f) ?: if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
 
     Box(modifier = modifier) {
         when (style) {
             ClockStyle.DIGITAL -> DigitalClock(calendar, contentColor, subColor)
-            ClockStyle.ANALOG  -> AnalogClock(calendar, accent, isDayMode)
+            ClockStyle.ANALOG  -> AnalogClock(calendar, accent, isDayMode, customContentColor)
         }
     }
 }
@@ -52,35 +53,60 @@ private fun DigitalClock(cal: Calendar, contentColor: Color, subColor: Color) {
     val hour   = cal.get(Calendar.HOUR_OF_DAY)
     val minute = cal.get(Calendar.MINUTE)
 
-    Column(
-        modifier            = Modifier.fillMaxSize().padding(start = 14.dp, bottom = 14.dp),
-        verticalArrangement = Arrangement.Bottom,
-        horizontalAlignment = Alignment.Start
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        Text(
-            text          = "%02d:%02d".format(hour, minute),
-            color         = contentColor,
-            fontSize      = 48.sp,
-            fontWeight    = androidx.compose.ui.text.font.FontWeight.Light,
-            letterSpacing = 1.sp
-        )
-        Text(
-            text     = buildDateString(cal),
-            color    = subColor,
-            fontSize = 12.sp
-        )
+        val availW = (maxWidth - 4.dp).coerceAtLeast(40.dp).value
+        val availH = (maxHeight - 4.dp).coerceAtLeast(30.dp).value
+        // Responsively constrain by both width and height to strictly prevent line wrapping
+        val timeFontSize = minOf(availW / 3.0f, availH * 0.40f).coerceIn(16f, 52f).sp
+
+        val dateText = when {
+            maxWidth < 130.dp -> shortDateString(cal)
+            maxWidth < 190.dp -> compactDateString(cal)
+            else              -> buildDateString(cal)
+        }
+        val dateFontSize = if (maxWidth < 130.dp) 9.sp else if (maxWidth < 190.dp) 10.5.sp else 12.sp
+
+        Column(
+            modifier            = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Bottom,
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(
+                text          = "%02d:%02d".format(hour, minute),
+                color         = contentColor,
+                fontSize      = timeFontSize,
+                fontWeight    = androidx.compose.ui.text.font.FontWeight.Light,
+                letterSpacing = 1.sp,
+                maxLines      = 1,
+                softWrap      = false
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text          = dateText,
+                color         = subColor,
+                fontSize      = dateFontSize,
+                maxLines      = 1,
+                softWrap      = false
+            )
+        }
     }
 }
 
 @Composable
-private fun AnalogClock(cal: Calendar, accent: Color, isDayMode: Boolean = false) {
+private fun AnalogClock(cal: Calendar, accent: Color, isDayMode: Boolean = false, customContentColor: Color? = null) {
     val hour   = cal.get(Calendar.HOUR).toFloat()
     val minute = cal.get(Calendar.MINUTE).toFloat()
     val second = cal.get(Calendar.SECOND).toFloat()
 
-    val ringColor = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF2A2A2A)
-    val minuteHandColor = if (isDayMode) Color(0xFF222222) else MaterialTheme.colorScheme.onBackground
-    val pivotBg = if (isDayMode) Color(0xFFEEEEEE) else Color(0xFF1E1E1E)
+    val ringColor = customContentColor?.copy(alpha = 0.25f) ?: if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF2A2A2A)
+    val minuteHandColor = customContentColor ?: if (isDayMode) Color(0xFF222222) else MaterialTheme.colorScheme.onBackground
+    val pivotBg = if (customContentColor != null) {
+        if (customContentColor == Color(0xFF111111)) Color(0xFFDDDDDD) else Color(0xFF1E1E1E)
+    } else {
+        if (isDayMode) Color(0xFFEEEEEE) else Color(0xFF1E1E1E)
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -175,6 +201,12 @@ private fun AnalogClock(cal: Calendar, accent: Color, isDayMode: Boolean = false
 private fun shortDateString(cal: Calendar): String {
     val days   = arrayOf("SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT")
     return "${days[cal.get(Calendar.DAY_OF_WEEK) - 1]} ${cal.get(Calendar.DAY_OF_MONTH)}"
+}
+
+private fun compactDateString(cal: Calendar): String {
+    val days   = arrayOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+    val months = arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    return "${days[cal.get(Calendar.DAY_OF_WEEK) - 1]}, ${months[cal.get(Calendar.MONTH)]} ${cal.get(Calendar.DAY_OF_MONTH)}"
 }
 
 private fun buildDateString(cal: Calendar): String {

@@ -11,5 +11,16 @@ data class NowPlayingState(
     // preferred over the (often downscaled) metadata bitmap
     val artUri: String? = null,
     val isPlaying: Boolean,
-    val controller: MediaController?
+    val controller: MediaController?,
+    val actions: Long = 0,
+    val customActions: List<MediaAction> = emptyList(),
+    val ratingStyle: Int = 0,
+    val userRating: android.media.Rating? = null
+)
+
+data class MediaAction(
+    val id: String,
+    val label: String,
+    val icon: Int,
+    val active: Boolean? = null
 )

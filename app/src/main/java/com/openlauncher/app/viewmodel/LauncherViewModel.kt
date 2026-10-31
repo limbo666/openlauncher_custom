@@ -1,11 +1,17 @@
 package com.openlauncher.app.viewmodel
 
 import android.app.Application
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.database.ContentObserver
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -21,8 +27,12 @@ import com.openlauncher.app.data.SettingsRepository
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.SoundPadConfig
 import com.openlauncher.app.data.WeatherApi
+import com.openlauncher.app.data.WeatherProvider
+import com.openlauncher.app.data.WidgetBgMode
 import com.openlauncher.app.data.activeWidgetIds
 import com.openlauncher.app.data.computeWidgetMove
+import com.openlauncher.app.data.defaultQuickActionButtons
+import com.openlauncher.app.data.defaultVitalsElements
 import com.openlauncher.app.data.defaultShortcuts
 import com.openlauncher.app.util.SunriseSunset
 import com.openlauncher.app.model.AppInfo
@@ -30,8 +40,11 @@ import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.service.MediaListenerService
+import com.openlauncher.app.util.FileLog
 import com.openlauncher.app.util.LocationCompassManager
 import com.openlauncher.app.util.LocationData
+import com.openlauncher.app.util.musicStartupPackage
+import com.openlauncher.app.util.selectMediaSession
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -48,6 +61,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         .onEach { _settingsLoaded.value = true }
         .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
 
+    init {
+        viewModelScope.launch {
+            settings
+                .map { it.advancedWeatherIcons }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { advanced ->
+                    _weather.value = _weather.value?.remap(advanced)
+                }
+        }
+    }
+
     fun updateSettings(block: AppSettings.() -> AppSettings) {
         viewModelScope.launch { settingsRepo.updateSettings { it.block() } }
     }
@@ -55,6 +80,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun resetSettings() {
         viewModelScope.launch { settingsRepo.resetToDefaults() }
     }
+
+    // ── Screen Blanking / Night Blackout ───────────────────────────────────────
+    private val _isScreenBlanked = MutableStateFlow(false)
+    val isScreenBlanked: StateFlow<Boolean> = _isScreenBlanked
+    fun toggleScreenBlanked() { _isScreenBlanked.value = !_isScreenBlanked.value }
+    fun setScreenBlanked(blanked: Boolean) { _isScreenBlanked.value = blanked }
 
     // ── Navigation ────────────────────────────────────────────────────────────
     private val _nav = MutableStateFlow(NavDestination.HOME)
@@ -75,7 +106,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         updateSettings {
             copy(shortcuts = shortcuts.toMutableList().also { list ->
                 while (list.size <= slot) list.add(ShortcutConfig())
-                list[slot] = ShortcutConfig(packageName = app.packageName, label = app.appName)
+                val existing = list[slot]
+                list[slot] = existing.copy(
+                    packageName = app.packageName,
+                    label = app.appName,
+                    customIconOverride = existing.customIconOverride ?: if (existing.defaultIcon != DefaultShortcutIcon.NONE) existing.defaultIcon else null
+                )
             })
         }
         _shortcutPickerSlot.value = null
@@ -190,7 +226,22 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         updateSettings {
             val activeIds = activeWidgetIds()
             var layout    = widgetLayout
-            var cell      = freeCellIn(layout, activeIds)
+
+            val defaultSpan = when (id) {
+                "VOLUME"        -> 2 to 1
+                "QUICK_ACTIONS" -> 2 to 1
+                "APP_SHORTCUTS" -> 2 to 1
+                "OBD"           -> 2 to 2
+                "NOW_PLAYING"   -> 4 to 2
+                "TELEMETRY"     -> 2 to 4
+                "TRIP_TRACKER"  -> 4 to 2
+                "SOUNDBOARD"    -> 4 to 2
+                else            -> 2 to 2
+            }
+
+            var cell = freeAreaIn(layout, activeIds, defaultSpan.first, defaultSpan.second)
+                ?: freeAreaIn(layout, activeIds, 2, 1)
+                ?: freeCellIn(layout, activeIds)
 
             // If grid is full, shrink the largest multi-cell widget by one span to make room
             if (cell == null) {
@@ -210,29 +261,41 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val cell_ = cell ?: return@updateSettings this
 
             val withShow = when (id) {
-                "CLOCK"       -> copy(showClock = true)
-                "WEATHER"     -> copy(showWeather = true)
-                "NOW_PLAYING" -> copy(showNowPlaying = true)
-                "TELEMETRY"   -> copy(showTelemetry = true)
-                "ALTIMETER"   -> copy(showAltimeter = true)
-                "SPEEDOMETER" -> copy(showSpeedometer = true)
-                "VITALS"      -> copy(showVitals = true)
-                "TRIP_TRACKER" -> copy(showTripTracker = true)
-                "SOUNDBOARD"  -> copy(showSoundboard = true)
-                else          -> this
+                "CLOCK"         -> copy(showClock = true)
+                "WEATHER"       -> copy(showWeather = true)
+                "NOW_PLAYING"   -> copy(showNowPlaying = true)
+                "TELEMETRY"     -> copy(showTelemetry = true)
+                "ALTIMETER"     -> copy(showAltimeter = true)
+                "SPEEDOMETER"   -> copy(showSpeedometer = true)
+                "VITALS"        -> copy(showVitals = true)
+                "TRIP_TRACKER"  -> copy(showTripTracker = true)
+                "SOUNDBOARD"    -> copy(showSoundboard = true)
+                "VOLUME"        -> copy(showVolume = true)
+                "QUICK_ACTIONS" -> copy(showQuickActions = true)
+                "APP_SHORTCUTS" -> copy(showAppShortcuts = true)
+                "OBD"           -> copy(showObd = true)
+                else            -> this
             }
             val idx       = layout.indexOfFirst { it.id == id }
             val newLayout = if (idx >= 0) layout.toMutableList().also { list ->
                 val w = list[idx]
                 // Try to keep the widget's previous span; if no free area fits it,
-                // fall back to 1×1 at the free cell so it can't overlap neighbors
+                // fall back to defaultSpan or 1×1 at the free cell so it can't overlap neighbors
                 val area = if (w.spanX > 1 || w.spanY > 1) freeAreaIn(layout, activeIds, w.spanX, w.spanY) else null
                 list[idx] = if (area != null)
                     w.copy(enabled = true, gridX = area.first, gridY = area.second)
                 else
-                    w.copy(enabled = true, gridX = cell_.first, gridY = cell_.second, spanX = 1, spanY = 1)
+                    w.copy(
+                        enabled = true,
+                        gridX = cell_.first,
+                        gridY = cell_.second,
+                        spanX = (defaultSpan.first.coerceAtMost(GRID_COLS - cell_.first)).coerceAtLeast(1),
+                        spanY = (defaultSpan.second.coerceAtMost(GRID_ROWS - cell_.second)).coerceAtLeast(1)
+                    )
             } else {
-                layout + com.openlauncher.app.data.WidgetConfig(id, cell_.first, cell_.second)
+                val spanX = (defaultSpan.first.coerceAtMost(GRID_COLS - cell_.first)).coerceAtLeast(1)
+                val spanY = (defaultSpan.second.coerceAtMost(GRID_ROWS - cell_.second)).coerceAtLeast(1)
+                layout + com.openlauncher.app.data.WidgetConfig(id, cell_.first, cell_.second, spanX, spanY)
             }
             withShow.copy(widgetLayout = newLayout)
         }
@@ -241,17 +304,121 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun removeWidget(id: String) {
         updateSettings {
             when (id) {
-                "CLOCK"       -> copy(showClock = false)
-                "WEATHER"     -> copy(showWeather = false)
-                "NOW_PLAYING" -> copy(showNowPlaying = false)
-                "TELEMETRY"   -> copy(showTelemetry = false)
-                "ALTIMETER"   -> copy(showAltimeter = false)
-                "SPEEDOMETER" -> copy(showSpeedometer = false)
-                "VITALS"      -> copy(showVitals = false)
-                "TRIP_TRACKER" -> copy(showTripTracker = false)
-                "SOUNDBOARD"  -> copy(showSoundboard = false)
-                else          -> this
+                "CLOCK"         -> copy(showClock = false)
+                "WEATHER"       -> copy(showWeather = false)
+                "NOW_PLAYING"   -> copy(showNowPlaying = false)
+                "TELEMETRY"     -> copy(showTelemetry = false)
+                "ALTIMETER"     -> copy(showAltimeter = false)
+                "SPEEDOMETER"   -> copy(showSpeedometer = false)
+                "VITALS"        -> copy(showVitals = false)
+                "TRIP_TRACKER"  -> copy(showTripTracker = false)
+                "SOUNDBOARD"    -> copy(showSoundboard = false)
+                "VOLUME"        -> copy(showVolume = false)
+                "QUICK_ACTIONS" -> copy(showQuickActions = false)
+                "APP_SHORTCUTS" -> copy(showAppShortcuts = false)
+                "OBD"           -> copy(showObd = false)
+                else            -> this
             }
+        }
+    }
+
+    fun setWidgetBgColor(id: String, color: Long?) {
+        updateSettings {
+            copy(widgetLayout = widgetLayout.map { w ->
+                if (w.id == id) w.copy(
+                    customBgColor = color,
+                    bgMode = if (color != null) WidgetBgMode.CUSTOM else WidgetBgMode.DEFAULT
+                ) else w
+            })
+        }
+    }
+
+    fun setWidgetBgMode(id: String, mode: WidgetBgMode) {
+        updateSettings {
+            copy(widgetLayout = widgetLayout.map { w ->
+                if (w.id == id) w.copy(bgMode = mode) else w
+            })
+        }
+    }
+
+    fun toggleWidgetTitle(id: String) {
+        updateSettings {
+            copy(widgetLayout = widgetLayout.map { w ->
+                if (w.id == id) w.copy(showTitle = !w.isTitleVisible) else w
+            })
+        }
+    }
+
+    fun zeroAltimeter(currentRoll: Float, currentPitch: Float) {
+        updateSettings {
+            copy(altimeterRollOffset = currentRoll, altimeterPitchOffset = currentPitch)
+        }
+    }
+
+    fun resetAltimeterZero() {
+        updateSettings {
+            copy(altimeterRollOffset = 0f, altimeterPitchOffset = 0f)
+        }
+    }
+
+    fun setAppShortcutPackage(slotIndex: Int, packageName: String) {
+        updateSettings {
+            val list = appWidgetPackages.toMutableList()
+            while (list.size <= slotIndex) list.add("")
+            list[slotIndex] = packageName
+            copy(appWidgetPackages = list)
+        }
+    }
+
+    fun toggleQuickActionButton(actionId: String) {
+        updateSettings {
+            val list = (quickActionButtons.mapNotNull { (it as? Any)?.toString() }).toMutableList()
+            if (actionId in list) {
+                if (list.size > 1) {
+                    list.remove(actionId)
+                }
+            } else {
+                list.add(actionId)
+            }
+            copy(quickActionButtons = list)
+        }
+    }
+
+    fun resetQuickActionButtons() {
+        updateSettings {
+            copy(quickActionButtons = defaultQuickActionButtons())
+        }
+    }
+
+    fun toggleVitalsElement(elementId: String) {
+        updateSettings {
+            val list = (vitalsElements.mapNotNull { (it as? Any)?.toString() }).toMutableList()
+            if (elementId in list) {
+                if (list.size > 1) {
+                    list.remove(elementId)
+                }
+            } else {
+                list.add(elementId)
+            }
+            copy(vitalsElements = list)
+        }
+    }
+
+    fun resetVitalsElements() {
+        updateSettings {
+            copy(vitalsElements = defaultVitalsElements())
+        }
+    }
+
+    fun toggleDayNightMode() {
+        updateSettings {
+            val next = when (dayNightMode) {
+                DayNightMode.LIGHT  -> DayNightMode.DARK
+                DayNightMode.DARK   -> DayNightMode.CUSTOM
+                DayNightMode.CUSTOM -> DayNightMode.LIGHT
+                else                -> DayNightMode.LIGHT  // AUTO / SYSTEM → restart cycle at Light
+            }
+            copy(dayNightMode = next)
         }
     }
 
@@ -352,19 +519,41 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     // ── Now Playing ───────────────────────────────────────────────────────────
-    val nowPlaying: StateFlow<NowPlayingState?> = MediaListenerService.nowPlaying
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val nowPlaying: StateFlow<NowPlayingState?> = combine(
+        MediaListenerService.sessions,
+        settings
+    ) { sessions, s ->
+        selectMediaSession(
+            sessions,
+            musicStartupPackage(s.preferredMediaPackage, s.lastMediaPackage),
+            { it.controller?.packageName.orEmpty() },
+            { it.isPlaying }
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    fun playPause() { nowPlaying.value?.controller?.also { ctrl ->
-        val state = ctrl.playbackState?.state
-        if (state == android.media.session.PlaybackState.STATE_PLAYING)
-            ctrl.transportControls?.pause()
-        else
-            ctrl.transportControls?.play()
-    }}
+    fun playPause() {
+        val ctrl = nowPlaying.value?.controller
+        val state = ctrl?.playbackState?.state
+        FileLog.log("MediaAction", "playPause pkg=${ctrl?.packageName ?: "none"} hasController=${ctrl != null} state=$state")
+        ctrl?.also {
+            if (state == android.media.session.PlaybackState.STATE_PLAYING)
+                it.transportControls?.pause()
+            else
+                it.transportControls?.play()
+        }
+    }
 
-    fun skipNext() { nowPlaying.value?.controller?.transportControls?.skipToNext() }
-    fun skipPrev() { nowPlaying.value?.controller?.transportControls?.skipToPrevious() }
+    fun skipNext() {
+        val ctrl = nowPlaying.value?.controller
+        FileLog.log("MediaAction", "skipNext pkg=${ctrl?.packageName ?: "none"} hasController=${ctrl != null} actions=${ctrl?.playbackState?.actions}")
+        ctrl?.transportControls?.skipToNext()
+    }
+
+    fun skipPrev() {
+        val ctrl = nowPlaying.value?.controller
+        FileLog.log("MediaAction", "skipPrev pkg=${ctrl?.packageName ?: "none"} hasController=${ctrl != null} actions=${ctrl?.playbackState?.actions}")
+        ctrl?.transportControls?.skipToPrevious()
+    }
 
     // ── Weather ───────────────────────────────────────────────────────────────
     private val _weather = MutableStateFlow<WeatherState?>(null)
@@ -373,37 +562,91 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val _weatherError = MutableStateFlow<String?>(null)
     val weatherError: StateFlow<String?> = _weatherError
 
+    private val _isWeatherRefreshing = MutableStateFlow(false)
+    val isWeatherRefreshing: StateFlow<Boolean> = _isWeatherRefreshing
+
+    private var lastRefreshEpochMs = 0L
     private var weatherJob: Job? = null
 
-    fun fetchWeather(lat: Double, lon: Double, metric: Boolean) {
+    fun fetchWeather() {
         weatherJob?.cancel()
         weatherJob = viewModelScope.launch {
+            _isWeatherRefreshing.value = true
             try {
-                // Always request celsius — the state stores celsius and the widget
-                // converts for display, so requesting fahrenheit just round-tripped
-                // the value through two lossy conversions
-                val resp = WeatherApi.service.getForecast(lat, lon, temperatureUnit = "celsius")
-                resp.currentWeather?.let { cw ->
+                val s = settings.value
+                val loc = locationMgr.location.value
+                val gpsLat = loc?.latitude
+                val gpsLon = loc?.longitude
+                val isDay = isDayMode.value
+                val state = WeatherApi.fetchWeather(
+                    useGps = s.weatherUseGps,
+                    customLocation = s.weatherCustomLocation,
+                    gpsLat = gpsLat,
+                    gpsLon = gpsLon,
+                    provider = s.weatherProvider,
+                    isDay = isDay,
+                    advancedIcons = s.advancedWeatherIcons
+                )
+                _weather.value = state.copy(isOffline = false)
+                _weatherError.value = null
+                _isOnline.value = true
+            } catch (e: Exception) {
+                android.util.Log.e("WeatherApi", "Weather fetch failed: ${e.javaClass.simpleName}: ${e.message}", e)
+                _weatherError.value = e.message
+                if (_weather.value != null) {
+                    _weather.value = _weather.value?.copy(isOffline = true)
+                } else {
                     _weather.value = WeatherState(
-                        temperatureCelsius = cw.temperature,
-                        weatherCode       = cw.weathercode,
-                        windspeedKmh      = cw.windspeed,
-                        isDay             = cw.isDay == 1
+                        temperatureCelsius = 0.0,
+                        weatherCode = 0,
+                        isOffline = true
                     )
                 }
-                _weatherError.value = null
-            } catch (e: Exception) {
-                _weatherError.value = e.message
+            } finally {
+                _isWeatherRefreshing.value = false
             }
         }
     }
 
+    fun setWeatherUseGps(enabled: Boolean) {
+        updateSettings { copy(weatherUseGps = enabled) }
+        fetchWeather()
+    }
+
+    fun setWeatherCustomLocation(location: String) {
+        updateSettings { copy(weatherCustomLocation = location) }
+        fetchWeather()
+    }
+
+    fun setWeatherProvider(provider: WeatherProvider) {
+        updateSettings { copy(weatherProvider = provider) }
+        fetchWeather()
+    }
+
+    fun setWeatherForecastDays(days: Int) {
+        updateSettings { copy(weatherForecastDays = days.coerceIn(3, 7)) }
+    }
+
+    fun setAdvancedWeatherIcons(enabled: Boolean) {
+        updateSettings { copy(advancedWeatherIcons = enabled) }
+    }
+
+    fun refreshWeather(force: Boolean = false): Boolean {
+        val now = System.currentTimeMillis()
+        val isOffline = !isOnline.value || _weather.value == null || _weather.value?.isOffline == true
+        val cooldownMs = if (isOffline) 5_000L else 30_000L
+        if (!force && now - lastRefreshEpochMs < cooldownMs && lastRefreshEpochMs > 0L) {
+            return false // Cooldown active
+        }
+        lastRefreshEpochMs = now
+        locationMgr.refreshLocation()
+        fetchWeather()
+        return true
+    }
+
     // ── Location & Compass ────────────────────────────────────────────────────
     val location: StateFlow<LocationData?> = locationMgr.location
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
     val compassBearing: StateFlow<Float> = locationMgr.bearing
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
 
     // Re-evaluated every minute: a parked car produces no location updates
     // (minDistance filters), so AUTO mode must also flip on time alone.
@@ -413,6 +656,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         when (s.dayNightMode) {
             DayNightMode.DARK   -> false
             DayNightMode.LIGHT  -> true
+            DayNightMode.CUSTOM -> false
             DayNightMode.AUTO   -> if (loc != null) SunriseSunset.isDay(loc.latitude, loc.longitude) else false
             DayNightMode.SYSTEM -> false // placeholder — overridden in MainActivity via isSystemInDarkTheme()
         }
@@ -421,11 +665,59 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun startLocationUpdates() = locationMgr.start()
     fun stopLocationUpdates()  = locationMgr.stop()
 
-    // ── Connectivity ──────────────────────────────────────────────────────────
+    // ── Connectivity & Bluetooth ──────────────────────────────────────────────
     private val _isWifi = MutableStateFlow(false)
     private val _isData = MutableStateFlow(false)
+    private val _isOnline = MutableStateFlow(true)
     val isWifi: StateFlow<Boolean> = _isWifi
     val isData: StateFlow<Boolean> = _isData
+    val isOnline: StateFlow<Boolean> = _isOnline
+
+    private val _isBluetoothOn = MutableStateFlow(false)
+    private val _isBluetoothConnected = MutableStateFlow(false)
+    val isBluetoothOn: StateFlow<Boolean> = _isBluetoothOn
+    val isBluetoothConnected: StateFlow<Boolean> = _isBluetoothConnected
+
+    fun toggleSelectedApp(packageName: String) {
+        updateSettings {
+            val list = selectedAppPackages.toMutableList()
+            if (packageName in list) list.remove(packageName) else list.add(packageName)
+            copy(selectedAppPackages = list)
+        }
+    }
+
+    fun toggleToolsApp(packageName: String) {
+        updateSettings {
+            val list = toolsAppPackages.toMutableList()
+            if (packageName in list) list.remove(packageName) else list.add(packageName)
+            copy(toolsAppPackages = list)
+        }
+    }
+
+    fun uninstallApp(context: Context, packageName: String) {
+        android.util.Log.d("LauncherVM", "uninstallApp called for $packageName")
+        try {
+            val intent = Intent(Intent.ACTION_DELETE).apply {
+                data = Uri.fromParts("package", packageName, null)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            android.util.Log.d("LauncherVM", "startActivity ACTION_DELETE succeeded for $packageName")
+        } catch (e: Exception) {
+            android.util.Log.e("LauncherVM", "ACTION_DELETE failed, trying ACTION_UNINSTALL_PACKAGE", e)
+            try {
+                val fallbackIntent = Intent(Intent.ACTION_UNINSTALL_PACKAGE).apply {
+                    data = Uri.fromParts("package", packageName, null)
+                    putExtra(Intent.EXTRA_RETURN_RESULT, false)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(fallbackIntent)
+                android.util.Log.d("LauncherVM", "startActivity ACTION_UNINSTALL_PACKAGE succeeded for $packageName")
+            } catch (e2: Exception) {
+                android.util.Log.e("LauncherVM", "Both uninstall intents failed", e2)
+            }
+        }
+    }
 
     fun refreshMedia() {
         MediaListenerService.requestRefresh()
@@ -535,7 +827,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val station = (if (match != null) text.replace(match.value, "") else text)
             .trim(' ', '-', '|', '/', '•')
             .takeIf { it.isNotBlank() }
-        return HardwareRadioState(band = band, freq = rawFreq ?: "—", stationName = station, canTune = false)
+        val result = HardwareRadioState(band = band, freq = rawFreq ?: "—", stationName = station, canTune = false)
+        FileLog.log("Radio", "pkg=$pkg text=\"$text\" band=$band freq=${rawFreq ?: "—"} station=${station ?: "null"}")
+        return result
     }
 
     // MCU backend wins when present; otherwise mirror the radio app's session
@@ -587,8 +881,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     // Seek routes to the MCU when that backend is live, otherwise to the radio
     // app's MediaSession — skip next/prev is how these apps expose seek.
-    fun radioSeekUp()   { if (mcuActive) sendMcuBytes(0x02, 0x0f) else radioSessionController()?.transportControls?.skipToNext() }
-    fun radioSeekDown() { if (mcuActive) sendMcuBytes(0x02, 0x0e) else radioSessionController()?.transportControls?.skipToPrevious() }
+    fun radioSeekUp() {
+        FileLog.log("Radio", "seekUp mcu=$mcuActive")
+        if (mcuActive) sendMcuBytes(0x02, 0x0f) else radioSessionController()?.transportControls?.skipToNext()
+    }
+    fun radioSeekDown() {
+        FileLog.log("Radio", "seekDown mcu=$mcuActive")
+        if (mcuActive) sendMcuBytes(0x02, 0x0e) else radioSessionController()?.transportControls?.skipToPrevious()
+    }
     // Band switching and direct tuning only exist on the MCU backend
     fun radioCycleFm()  { if (mcuActive) sendMcuBytes(0x02, 0x1e) }
     fun radioSwitchAm() { if (mcuActive) sendMcuBytes(0x02, 0x1f) }
@@ -596,11 +896,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun radioStop()     { sendMcuBytes(0x01, 0x63) }
 
     fun stopHardwareRadioApp() {
+        FileLog.log("Radio", "powerOff mcu=$mcuActive")
         if (mcuActive) radioStop()
         else radioSessionController()?.transportControls?.pause()
     }
 
     fun launchHardwareRadioApp() {
+        FileLog.log("Radio", "powerOn mcu=$hasSzchoicewayMcu assignedPkg=${settings.value.radioPackage.ifEmpty { "auto" }}")
         if (hasSzchoicewayMcu) radioStart()
         val pkg = settings.value.radioPackage.ifEmpty {
             when {
@@ -625,11 +927,33 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun refreshConnectivity() {
-        val cm = getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val app = getApplication<Application>()
+        val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        if (cm == null) {
+            _isOnline.value = true
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val caps = cm.getNetworkCapabilities(cm.activeNetwork)
-            _isWifi.value = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
-            _isData.value = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+            val net = cm.activeNetwork
+            val caps = cm.getNetworkCapabilities(net)
+            val hasWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            val hasCell = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+            val hasEth  = caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
+            val hasVpn  = caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+            val hasBt   = caps?.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) == true
+            val hasInternet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+
+            // Legacy fallback for headunits / local hotspots where caps may be null
+            @Suppress("DEPRECATION")
+            val legacyInfo = cm.activeNetworkInfo
+            @Suppress("DEPRECATION")
+            val legacyConnected = legacyInfo?.isConnected == true
+            @Suppress("DEPRECATION")
+            val legacyType = legacyInfo?.type
+
+            _isWifi.value = hasWifi || (legacyConnected && legacyType == ConnectivityManager.TYPE_WIFI)
+            _isData.value = hasCell || (legacyConnected && legacyType == ConnectivityManager.TYPE_MOBILE)
+            _isOnline.value = hasInternet || hasWifi || hasCell || hasEth || hasVpn || hasBt || legacyConnected
         } else {
             // activeNetwork requires API 23 — legacy path for Android 5.x head units
             @Suppress("DEPRECATION")
@@ -640,32 +964,145 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val type = info?.type
             _isWifi.value = connected && type == ConnectivityManager.TYPE_WIFI
             _isData.value = connected && type == ConnectivityManager.TYPE_MOBILE
+            _isOnline.value = connected
         }
     }
+
+    fun refreshBluetoothStatus() {
+        runCatching {
+            val adapter = BluetoothAdapter.getDefaultAdapter()
+            if (adapter == null) {
+                _isBluetoothOn.value = false
+                _isBluetoothConnected.value = false
+                return
+            }
+            val enabled = adapter.isEnabled
+            _isBluetoothOn.value = enabled
+            if (!enabled) {
+                _isBluetoothConnected.value = false
+                return
+            }
+            val a2dp = adapter.getProfileConnectionState(BluetoothProfile.A2DP) == BluetoothProfile.STATE_CONNECTED
+            val headset = adapter.getProfileConnectionState(BluetoothProfile.HEADSET) == BluetoothProfile.STATE_CONNECTED
+            _isBluetoothConnected.value = a2dp || headset
+        }.onFailure {
+            _isBluetoothOn.value = false
+            _isBluetoothConnected.value = false
+        }
+    }
+
+    private var statusReceiver: BroadcastReceiver? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onCleared() {
         super.onCleared()
         locationMgr.stop()
         radioObserver?.let { getApplication<Application>().contentResolver.unregisterContentObserver(it) }
         radioObserver = null
+        statusReceiver?.let {
+            runCatching { getApplication<Application>().unregisterReceiver(it) }
+            statusReceiver = null
+        }
+        networkCallback?.let {
+            val cm = getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            runCatching { cm?.unregisterNetworkCallback(it) }
+            networkCallback = null
+        }
     }
 
     init {
+        FileLog.init(getApplication())
+        FileLog.log("Radio", "szchoicewayMcu=$hasSzchoicewayMcu")
         loadInstalledApps()
         refreshConnectivity()
+        refreshBluetoothStatus()
+
+        // Listen for Bluetooth and Package changes
+        statusReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    BluetoothAdapter.ACTION_STATE_CHANGED,
+                    BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED,
+                    "android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED",
+                    "android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED" -> {
+                        refreshBluetoothStatus()
+                    }
+                    Intent.ACTION_PACKAGE_REMOVED,
+                    Intent.ACTION_PACKAGE_ADDED -> {
+                        loadInstalledApps()
+                    }
+                }
+            }
+        }
+        val btFilter = IntentFilter().apply {
+            addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
+            addAction(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED)
+            addAction("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED")
+            addAction("android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED")
+        }
+        runCatching { getApplication<Application>().registerReceiver(statusReceiver, btFilter) }
+
+        val pkgFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REMOVED)
+            addDataScheme("package")
+        }
+        runCatching { getApplication<Application>().registerReceiver(statusReceiver, pkgFilter) }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val cm = getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val cb = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) { refreshConnectivity() }
+                override fun onLost(network: Network) { refreshConnectivity() }
+                override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                    refreshConnectivity()
+                }
+            }
+            networkCallback = cb
+            runCatching { cm?.registerDefaultNetworkCallback(cb) }
+        }
+
+        // Periodic ticker: refresh connectivity and BT every 3 seconds to ensure real-time accuracy
+        viewModelScope.launch {
+            while (isActive) {
+                delay(3000L)
+                refreshConnectivity()
+                refreshBluetoothStatus()
+            }
+        }
+
         if (hasSzchoicewayMcu) startHardwareRadioObserver()
-        // Fetch weather on first location fix, then every 30 minutes.
-        // The minute ticker covers the parked case where no location updates arrive.
+        // Initial weather fetch once settings are loaded, on location updates, or every 30 minutes
         viewModelScope.launch {
             var lastFetchMs = 0L
+            var hadGpsWeather = false
             merge(
+                settingsLoaded.filter { it }.map { null },
                 locationMgr.location.filterNotNull(),
-                minuteTicker.mapNotNull { locationMgr.location.value }
+                minuteTicker.map { null }
             ).collect { loc ->
                 val now = System.currentTimeMillis()
-                if (now - lastFetchMs >= 30 * 60 * 1_000L) {
+                val isGpsFix = loc != null
+                val needsGpsUpgrade = isGpsFix && !hadGpsWeather && settings.value.weatherUseGps
+                if (needsGpsUpgrade || now - lastFetchMs >= 20 * 60 * 1_000L || _weather.value == null) {
                     lastFetchMs = now
-                    fetchWeather(loc.latitude, loc.longitude, settings.value.unitSystem.name == "METRIC")
+                    if (isGpsFix) hadGpsWeather = true
+                    fetchWeather()
+                }
+            }
+        }
+
+        // React immediately when network status changes
+        viewModelScope.launch {
+            isOnline.collect { online ->
+                if (!online) {
+                    _weather.value = _weather.value?.copy(isOffline = true) ?: WeatherState(
+                        temperatureCelsius = 0.0,
+                        weatherCode = 0,
+                        isOffline = true
+                    )
+                } else if (_weather.value?.isOffline == true || _weather.value == null) {
+                    fetchWeather()
                 }
             }
         }

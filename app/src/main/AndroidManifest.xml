@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Network for weather API -->
+    <!-- Network for weather API & connectivity controls -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+
+    <!-- Bluetooth toggles and connectivity -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!-- Broadcast permission for MCU head unit event service -->
     <uses-permission android:name="com.szchoiceway.permission.broadcast" />
@@ -21,6 +27,9 @@
     <!-- Media session control (requires notification access grant by user) -->
     <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL" />
 
+    <!-- Draw over other apps (PiP / floating window) — special appop, granted via Settings -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <!-- Wallpaper from gallery -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
@@ -28,6 +37,9 @@
 
     <!-- Query all packages required on API 30+ for getInstalledApplications -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <!-- Required on API 26+ to request app uninstallation -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
     <!-- Required on API 30+ so PackageManager returns ALL launcher apps -->
     <queries>
