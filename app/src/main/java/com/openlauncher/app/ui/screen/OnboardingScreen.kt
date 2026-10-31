@@ -11,6 +11,8 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -44,6 +46,7 @@ fun OnboardingScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "0.0.11"
 
     var currentStep by rememberSaveable { mutableStateOf(0) }
     var locationGranted by remember { mutableStateOf(false) }
@@ -90,11 +93,16 @@ fun OnboardingScreen(
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF070707))
     ) {
+        val compact = maxWidth < 700.dp || maxHeight < 480.dp
+        val brandPad = if (compact) 16.dp else 32.dp
+        val contentPad = if (compact) 16.dp else 48.dp
+        val brandWeight = if (compact) 0.32f else 0.4f
+        val contentWeight = if (compact) 0.68f else 0.6f
         // Aesthetic glowing background orb
         Box(
             modifier = Modifier
@@ -115,10 +123,10 @@ fun OnboardingScreen(
             // ── Left branding pane ──────────────────────────────────────────
             Column(
                 modifier = Modifier
-                    .weight(0.4f)
+                    .weight(brandWeight)
                     .fillMaxHeight()
                     .background(Color(0xFF0F0F0F))
-                    .padding(32.dp),
+                    .padding(brandPad),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -154,7 +162,7 @@ fun OnboardingScreen(
                 }
 
                 Text(
-                    text = "v0.0.5",
+                    text = "v$appVersion",
                     color = Color(0xFF333333),
                     fontSize = 9.sp,
                     letterSpacing = 1.sp
@@ -172,15 +180,17 @@ fun OnboardingScreen(
             // ── Right content wizard ────────────────────────────────────────
             Column(
                 modifier = Modifier
-                    .weight(0.6f)
+                    .weight(contentWeight)
                     .fillMaxHeight()
-                    .padding(48.dp),
+                    .padding(contentPad),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Active Step Content
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.CenterStart
+                // Active Step Content (scrollable so it fits small screens)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.Center
                 ) {
                     AnimatedContent(
                         targetState = currentStep,

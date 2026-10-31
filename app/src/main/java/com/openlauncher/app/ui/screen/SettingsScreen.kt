@@ -36,14 +36,18 @@ import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.UnitSystem
 import com.openlauncher.app.data.WeatherProvider
+import com.openlauncher.app.data.withWidgetContent
+import com.openlauncher.app.data.widgetContentFor
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.ui.theme.LocalIsCustomMode
+import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import com.openlauncher.app.ui.theme.accentOnSurface
 import com.openlauncher.app.ui.theme.contentColorOn
 import com.openlauncher.app.util.FileLog
+import com.openlauncher.app.util.SafeExport
 import com.openlauncher.app.util.SunriseSunset
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -63,6 +67,8 @@ fun SettingsScreen(
     accent: Color,
     onUpdate: (AppSettings.() -> AppSettings) -> Unit,
     onReset: () -> Unit,
+    onOpenDiagnostics: () -> Unit = {},
+    onOpenVolumeCalibration: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -71,8 +77,10 @@ fun SettingsScreen(
     var showBgPicker          by remember { mutableStateOf(false) }
     var showGradientEndPicker by remember { mutableStateOf(false) }
     var showFontColorPicker   by remember { mutableStateOf(false) }
+    var showHelpTextPicker    by remember { mutableStateOf(false) }
     var showTileDarkPicker    by remember { mutableStateOf(false) }
     var showTileLightPicker   by remember { mutableStateOf(false) }
+    var widgetContentPage     by remember { mutableStateOf(0) }
 
     // OpenDocument (not GetContent): only SAF document URIs carry a persistable
     // grant, so this is what actually keeps the wallpaper readable after reboot
@@ -86,6 +94,20 @@ fun SettingsScreen(
                 )
             }
             onUpdate { copy(wallpaperUri = it.toString()) }
+        }
+    }
+
+    // Car image for the "display animation" feature (same persistable SAF grant)
+    val carImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            onUpdate { copy(carImageUri = it.toString()) }
         }
     }
 
@@ -363,6 +385,34 @@ fun SettingsScreen(
 
                 SettingsDivider()
 
+                // Help Text Color row
+                SettingsRow(
+                    label    = "Help Text Color",
+                    sublabel = "Color for categories, explanations & widget secondary text (all themes)",
+                    icon     = Icons.Default.TextSnippet
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(settings.helpTextColor?.let { Color(it) } ?: if (isDayMode) Color(0xFF888888) else Color(0xFF444444))
+                                .border(1.dp, swatchBorderColor, RoundedCornerShape(8.dp))
+                                .clickable { showHelpTextPicker = true }
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        TextButton(
+                            onClick = { onUpdate { copy(helpTextColor = null) } },
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text("AUTO", color = accent, fontSize = 9.sp, letterSpacing = 1.sp)
+                        }
+                    }
+                }
+
+                SettingsDivider()
+
                 SettingsRow(label = "Use Gradient", sublabel = "Blend two colors as background", icon = Icons.Default.Gradient) {
                     Switch(checked = settings.useGradient,
                         onCheckedChange = { onUpdate { copy(useGradient = it, useCustomBackgroundColor = true) } },
@@ -516,8 +566,8 @@ fun SettingsScreen(
                 Slider(
                     value         = settings.textScale,
                     onValueChange = { onUpdate { copy(textScale = it) } },
-                    valueRange    = 0.8f..1.4f,
-                    steps         = 5,
+                    valueRange    = 0.8f..1.8f,
+                    steps         = 10,
                     colors        = sliderColors(accent),
                     modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
@@ -534,8 +584,8 @@ fun SettingsScreen(
                 Slider(
                     value         = settings.uiScale,
                     onValueChange = { onUpdate { copy(uiScale = it) } },
-                    valueRange    = 0.7f..1.5f,
-                    steps         = 7,
+                    valueRange    = 0.7f..1.8f,
+                    steps         = 11,
                     colors        = sliderColors(accent),
                     modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
@@ -708,13 +758,13 @@ fun SettingsScreen(
                     checked         = settings.showObd,
                     onCheckedChange = { on ->
                         onUpdate {
-                            val hasObd = widgetLayout.any { it.id == "OBD" }
-                            val newLayout = if (on && !hasObd) {
-                                widgetLayout + com.openlauncher.app.data.WidgetConfig("OBD", gridX = 4, gridY = 3, spanX = 2, spanY = 1)
-                            } else {
-                                widgetLayout
+                            val updated = widgetLayout.map { w ->
+                                if (w.id == "OBD") w.copy(enabled = on) else w
                             }
-                            copy(showObd = on, widgetLayout = newLayout)
+                            val layout = if (on && updated.none { it.id == "OBD" }) {
+                                updated + com.openlauncher.app.data.WidgetConfig("OBD", gridX = 4, gridY = 3, spanX = 2, spanY = 1)
+                            } else updated
+                            copy(showObd = on, widgetLayout = layout)
                         }
                     },
                     colors          = switchColors(accent)
@@ -854,10 +904,45 @@ fun SettingsScreen(
         // ── Widgets ───────────────────────────────────────────────────────────
         if (selectedCategory == "All" || selectedCategory == "Dashboard") {
         SettingsSection("Widgets") {
+            // Page selector — widget content is configured independently per page
+            SettingsRow(
+                label    = "Edit Content On",
+                sublabel = "Shortcuts, soundboard, quick actions & vitals content are stored per page",
+                icon     = Icons.Default.SwapHoriz
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
+                        .padding(2.dp)
+                ) {
+                    listOf(0 to "PAGE 1", 1 to "PAGE 2").forEach { (page, label) ->
+                        val selected = widgetContentPage == page
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (selected) accent else Color.Transparent)
+                                .clickable { widgetContentPage = page }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
+                                fontSize = 10.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+                }
+            }
+            SettingsDivider()
+
             // App Shortcuts Count (1..4)
             SettingsRow(
                 label    = "App Shortcuts Count",
-                sublabel = "${settings.appShortcutCount} ${if (settings.appShortcutCount == 1) "shortcut" else "shortcuts"} — icons expand to fill widget space",
+                sublabel = "${settings.widgetContentFor(widgetContentPage).appShortcutCount} ${if (settings.widgetContentFor(widgetContentPage).appShortcutCount == 1) "shortcut" else "shortcuts"} — icons expand to fill widget space",
                 icon     = Icons.Default.Apps
             ) {
                 Row(
@@ -867,12 +952,12 @@ fun SettingsScreen(
                         .padding(2.dp)
                 ) {
                     (1..4).forEach { count ->
-                        val selected = settings.appShortcutCount == count
+                        val selected = settings.widgetContentFor(widgetContentPage).appShortcutCount == count
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(if (selected) accent else Color.Transparent)
-                                .clickable { onUpdate { copy(appShortcutCount = count) } }
+                                .clickable { onUpdate { withWidgetContent(widgetContentPage) { it.copy(appShortcutCount = count) } } }
                                 .padding(horizontal = 10.dp, vertical = 5.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -892,7 +977,7 @@ fun SettingsScreen(
             // Soundboard Button Count (1, 2, 3, 4, 6)
             SettingsRow(
                 label    = "Soundboard Buttons",
-                sublabel = "${settings.soundboardButtonCount} sound pads — active buttons expand to take empty space",
+                sublabel = "${settings.widgetContentFor(widgetContentPage).soundboardButtonCount} sound pads — active buttons expand to take empty space",
                 icon     = Icons.Default.Piano
             ) {
                 Row(
@@ -902,12 +987,12 @@ fun SettingsScreen(
                         .padding(2.dp)
                 ) {
                     listOf(1, 2, 3, 4, 6).forEach { count ->
-                        val selected = settings.soundboardButtonCount == count
+                        val selected = settings.widgetContentFor(widgetContentPage).soundboardButtonCount == count
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(if (selected) accent else Color.Transparent)
-                                .clickable { onUpdate { copy(soundboardButtonCount = count) } }
+                                .clickable { onUpdate { withWidgetContent(widgetContentPage) { it.copy(soundboardButtonCount = count) } } }
                                 .padding(horizontal = 10.dp, vertical = 5.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -918,6 +1003,121 @@ fun SettingsScreen(
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
                             )
                         }
+                    }
+                }
+            }
+        }
+        }
+
+        // ── Home Pages (swipe left/right) ─────────────────────────────────────
+        if (selectedCategory == "All" || selectedCategory == "Dashboard") {
+        SettingsSection("Home Pages") {
+            SettingsRow(
+                label    = "Auto-Switch Pages",
+                sublabel = "Switch pages automatically by driving state (GPS speed)",
+                icon     = Icons.Default.SwapHoriz
+            ) {
+                Switch(
+                    checked         = settings.autoSwitchPages,
+                    onCheckedChange = { onUpdate { copy(autoSwitchPages = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+            SettingsDivider()
+            SettingsRow(
+                label    = "Driving Page",
+                sublabel = if (settings.autoSwitchPages) "Shown while moving — the other page shows while parked" else "Enable auto-switch to select",
+                icon     = Icons.Default.DirectionsCar
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
+                        .padding(2.dp)
+                ) {
+                    listOf(0 to "PAGE 1", 1 to "PAGE 2").forEach { (page, label) ->
+                        val selected = settings.drivingPage == page
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (selected) accent else Color.Transparent)
+                                .clickable { onUpdate { copy(drivingPage = page) } }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
+                                fontSize = 10.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+                }
+            }
+            SettingsDivider()
+            SettingsRow(
+                label    = "Switch Speed",
+                sublabel = "${"%.0f".format(settings.autoSwitchSpeedKmh)} km/h — counts as driving above this speed",
+                icon     = Icons.Default.Speed
+            ) {
+                Slider(
+                    value         = settings.autoSwitchSpeedKmh,
+                    onValueChange = { onUpdate { copy(autoSwitchSpeedKmh = it) } },
+                    valueRange    = 5f..20f,
+                    steps         = 14,
+                    colors        = sliderColors(accent),
+                    modifier      = Modifier.width(140.dp)
+                )
+            }
+            SettingsDivider()
+            SettingsRow(
+                label    = "Idle Time",
+                sublabel = "${"%.0f".format(settings.autoSwitchIdleSeconds)} s stopped before switching back to the parked page",
+                icon     = Icons.Default.Timer
+            ) {
+                Slider(
+                    value         = settings.autoSwitchIdleSeconds,
+                    onValueChange = { onUpdate { copy(autoSwitchIdleSeconds = it) } },
+                    valueRange    = 5f..30f,
+                    steps         = 24,
+                    colors        = sliderColors(accent),
+                    modifier      = Modifier.width(140.dp)
+                )
+            }
+        }
+        }
+
+        // ── Display Animation (car image) ──────────────────────────────────────
+        if (selectedCategory == "All" || selectedCategory == "Dashboard") {
+        SettingsSection("Display Animation") {
+            SettingsRow(
+                label    = "Display Animation",
+                sublabel = "Car image beside the vehicle name — drives across when moving, rests when stopped",
+                icon     = Icons.Default.DirectionsCar
+            ) {
+                Switch(
+                    checked         = settings.displayAnimation,
+                    onCheckedChange = { onUpdate { copy(displayAnimation = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+            if (settings.displayAnimation) {
+                SettingsDivider()
+                SettingsButton(
+                    label    = "Choose Car Image",
+                    sublabel = if (settings.carImageUri.isNotEmpty()) "Custom car image active" else "Select a PNG with transparency",
+                    icon     = Icons.Default.Image,
+                    accent   = accent,
+                    onClick  = { carImagePicker.launch(arrayOf("image/*")) }
+                )
+                if (settings.carImageUri.isNotEmpty()) {
+                    TextButton(
+                        onClick  = { onUpdate { copy(carImageUri = "") } },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("REMOVE CAR IMAGE", color = Color(0xFF993333), fontSize = 9.sp, letterSpacing = 1.sp)
                     }
                 }
             }
@@ -1171,15 +1371,9 @@ fun SettingsScreen(
             ) { uri ->
                 if (uri != null) {
                     coroutineScope.launch {
-                        try {
-                            val json = SettingsBackup.encode(settings)
-                            context.contentResolver.openOutputStream(uri)?.use { os ->
-                                os.bufferedWriter().use { it.write(json) }
-                            }
-                            backupStatusMessage = "Settings exported successfully"
-                        } catch (e: Exception) {
-                            backupStatusMessage = "Failed to export settings: ${e.message}"
-                        }
+                        val json = SettingsBackup.encode(settings)
+                        val err = SafeExport.write(context, uri, json, "settings_backup")
+                        backupStatusMessage = if (err == null) "Settings exported successfully" else "Export failed: $err"
                     }
                 }
             }
@@ -1405,6 +1599,22 @@ fun SettingsScreen(
 
         // ── Maintenance ──────────────────────────────────────────────────────
         SettingsSection("Maintenance") {
+            SettingsButton(
+                label    = "System Status",
+                sublabel = "Live status of permissions, sensors, network & screen",
+                icon     = Icons.Default.MonitorHeart,
+                accent   = accent,
+                onClick  = onOpenDiagnostics
+            )
+            SettingsDivider()
+            SettingsButton(
+                label    = "Volume Calibration",
+                sublabel = "Find which volume channel your head unit responds to (mute-probe wizard)",
+                icon     = Icons.Default.Tune,
+                accent   = accent,
+                onClick  = onOpenVolumeCalibration
+            )
+            SettingsDivider()
             val logScope = rememberCoroutineScope()
             val logExportLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.CreateDocument("text/plain")
@@ -1413,17 +1623,13 @@ fun SettingsScreen(
                     logScope.launch {
                         val text = FileLog.logFile()?.takeIf { it.exists() }?.readText()
                             ?: "No log data recorded yet.\n"
-                        runCatching {
-                            context.contentResolver.openOutputStream(uri)?.use { os ->
-                                os.bufferedWriter().use { it.write(text) }
-                            }
-                        }
+                        SafeExport.write(context, uri, text, "debug_log")
                     }
                 }
             }
             SettingsButton(
-                label    = "Export Diagnostics Log",
-                sublabel = "Save the app's debug log (artwork / radio / volume) to a file",
+                label    = "Export Debug Log",
+                sublabel = "Save the app's runtime event log (media / radio / volume) to a file",
                 icon     = Icons.Default.BugReport,
                 accent   = accent,
                 onClick  = {
@@ -1538,6 +1744,15 @@ fun SettingsScreen(
         )
     }
 
+    if (showHelpTextPicker) {
+        ColorPickerDialog(
+            title           = "Help Text Color",
+            initialColor    = settings.helpTextColor?.let { Color(it) } ?: Color(0xFF888888),
+            onColorSelected = { c -> onUpdate { copy(helpTextColor = c.toArgb()) } },
+            onDismiss       = { showHelpTextPicker = false }
+        )
+    }
+
     if (showTileDarkPicker) {
         ColorPickerDialog(
             title           = "Tile Color (Dark)",
@@ -1565,7 +1780,7 @@ private fun SettingsSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val isDayMode     = LocalDayMode.current
-    val sectionColor  = if (isDayMode) Color(0xFF888888) else Color(0xFF3A3A3A)
+    val sectionColor  = LocalHelpTextColor.current ?: if (isDayMode) Color(0xFF888888) else Color(0xFF3A3A3A)
     val dividerColor  = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF1E1E1E)
     Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
         Text(
@@ -1595,7 +1810,7 @@ private fun SettingsRow(
         isCustomMode -> MaterialTheme.colorScheme.onBackground
         else         -> Color(0xFFDDDDDD)
     }
-    val subColor    = if (isDayMode) Color(0xFF888888) else Color(0xFF444444)
+    val subColor    = LocalHelpTextColor.current ?: if (isDayMode) Color(0xFF888888) else Color(0xFF444444)
     val iconTint    = if (isDayMode) Color(0xFF777777) else MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
     Row(
         modifier = Modifier
@@ -1629,7 +1844,7 @@ private fun ColumnScope.SettingsButton(
         isCustomMode -> MaterialTheme.colorScheme.onBackground
         else         -> Color(0xFFDDDDDD)
     }
-    val subColor   = if (isDayMode) Color(0xFF888888) else Color(0xFF444444)
+    val subColor   = LocalHelpTextColor.current ?: if (isDayMode) Color(0xFF888888) else Color(0xFF444444)
     val chevronC   = if (isDayMode) Color(0xFFBBBBBB) else Color(0xFF2A2A2A)
     val iconTint   = if (isDayMode) Color(0xFF777777) else MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
     Row(

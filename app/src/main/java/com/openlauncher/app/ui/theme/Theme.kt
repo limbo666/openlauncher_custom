@@ -12,6 +12,7 @@ import com.openlauncher.app.data.AppFont
 
 val LocalDayMode = staticCompositionLocalOf { false }
 val LocalIsCustomMode = staticCompositionLocalOf { false }
+val LocalHelpTextColor = staticCompositionLocalOf<Color?> { null }
 
 @Composable
 fun OpenLauncherTheme(
@@ -24,6 +25,7 @@ fun OpenLauncherTheme(
     isDayMode: Boolean = false,
     isCustom: Boolean = false,
     useCustomBg: Boolean = false,
+    helpTextColor: Color? = null,
     content: @Composable () -> Unit
 ) {
     // Contrast-aware: the accent is user-chosen and can be any brightness,
@@ -58,7 +60,8 @@ fun OpenLauncherTheme(
     )
     CompositionLocalProvider(
         LocalDayMode provides isDayMode,
-        LocalIsCustomMode provides isCustom
+        LocalIsCustomMode provides isCustom,
+        LocalHelpTextColor provides helpTextColor
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

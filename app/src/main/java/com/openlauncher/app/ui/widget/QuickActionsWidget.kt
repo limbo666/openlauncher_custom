@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -33,7 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.defaultQuickActionButtons
 import com.openlauncher.app.util.FileLog
-import com.openlauncher.app.util.MuteState
+import com.openlauncher.app.util.VolumeController
 import kotlinx.coroutines.delay
 
 private data class QuickActionItem(
@@ -75,9 +76,7 @@ fun QuickActionsWidget(
         )
     }
     var isMuted by remember {
-        mutableStateOf(
-            runCatching { audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) == 0 }.getOrDefault(false)
-        )
+        mutableStateOf(VolumeController.level.value?.let { it == 0 } ?: false)
     }
 
     // Periodic state check to catch changes from notification drawer or settings
@@ -86,13 +85,13 @@ fun QuickActionsWidget(
             delay(2000L)
             isBtOn = runCatching { btAdapter?.isEnabled == true }.getOrDefault(false)
             isWifiOn = runCatching { wifiManager?.isWifiEnabled == true }.getOrDefault(false)
-            isMuted = runCatching { audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) == 0 }.getOrDefault(false)
+            isMuted = VolumeController.level.value?.let { it == 0 } ?: false
         }
     }
 
     val isLight = isDayMode || (customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f)
     val contentColor = customContentColor ?: if (isLight) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val subColor     = customContentColor?.copy(alpha = 0.6f) ?: if (isLight) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val subColor     = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.6f) ?: if (isLight) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
     val buttonBg     = if (customContentColor != null) {
         if (isLight) Color(0x1F000000) else Color(0x22FFFFFF)
     } else {
@@ -165,23 +164,10 @@ fun QuickActionsWidget(
     }
 
     val toggleMute: () -> Unit = {
-        runCatching {
-            val am = audioManager ?: return@runCatching
-            val curr = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-            if (curr > 0) {
-                MuteState.preMuteVolume = curr
-                am.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
-                isMuted = true
-                FileLog.log("Mute", "quickaction mute from=$curr")
-            } else {
-                val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-                val restore = if (MuteState.preMuteVolume > 0) MuteState.preMuteVolume else (max / 3).coerceAtLeast(1)
-                am.setStreamVolume(AudioManager.STREAM_MUSIC, restore, 0)
-                isMuted = false
-                FileLog.log("Mute", "quickaction unmute to=$restore prev=${MuteState.preMuteVolume}")
-                MuteState.preMuteVolume = -1
-            }
-        }
+        VolumeController.init(context)
+        VolumeController.toggleMute(context)
+        isMuted = VolumeController.level.value?.let { it == 0 } ?: false
+        FileLog.log("Mute", "quickaction toggle")
     }
 
     val openSettings: () -> Unit = {

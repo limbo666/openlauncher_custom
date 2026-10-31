@@ -14,12 +14,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Air
+import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.LocalGasStation
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,13 +35,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.window.Dialog
 import com.openlauncher.app.obd.ObdReading
 import com.openlauncher.app.obd.ObdSession
@@ -41,6 +52,7 @@ import com.openlauncher.app.obd.PairedAdapter
 import com.openlauncher.app.obd.hasBluetoothPermission
 import com.openlauncher.app.obd.pairedAdapters
 import com.openlauncher.app.ui.theme.LocalDayMode
+import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import kotlin.math.roundToInt
 
 /**
@@ -79,8 +91,8 @@ fun ObdWidget(
 
     val session by ObdSession.state.collectAsState()
     val contentColor = customContentColor ?: if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val labelColor = customContentColor?.copy(alpha = 0.65f) ?: if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.50f)
-    val dimColor = customContentColor?.copy(alpha = 0.45f) ?: if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
+    val labelColor = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.65f) ?: if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.50f)
+    val dimColor = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.45f) ?: if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
 
     if (picking) {
         AdapterPickerDialog(
@@ -112,6 +124,14 @@ fun ObdWidget(
     ) {
         val roomyH = maxHeight >= 130.dp
         val isNarrow = maxWidth < 180.dp
+        // Size-aware typography/glyphs so the grid uses whatever room the tile has
+        val valueSize = when {
+            maxHeight >= 220.dp -> 22.sp
+            maxHeight >= 160.dp -> 18.sp
+            else -> 15.sp
+        }
+        val labelSize = if (maxHeight >= 160.dp) 8.5.sp else 7.5.sp
+        val iconSize = if (maxHeight >= 160.dp) 13.dp else 11.dp
 
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -219,7 +239,11 @@ fun ObdWidget(
                             showSecondary = roomyH,
                             isNarrow = isNarrow,
                             contentColor = contentColor,
-                            labelColor = labelColor
+                            labelColor = labelColor,
+                            accent = accent,
+                            valueSize = valueSize,
+                            labelSize = labelSize,
+                            iconSize = iconSize
                         )
                     }
                 }
@@ -239,6 +263,8 @@ fun ObdWidget(
     }
 }
 
+private data class ObdMetric(val label: String, val value: String, val icon: ImageVector)
+
 @Composable
 private fun ObdMetricsGrid(
     reading: ObdReading,
@@ -246,7 +272,11 @@ private fun ObdMetricsGrid(
     showSecondary: Boolean,
     isNarrow: Boolean,
     contentColor: Color,
-    labelColor: Color
+    labelColor: Color,
+    accent: Color,
+    valueSize: TextUnit,
+    labelSize: TextUnit,
+    iconSize: Dp
 ) {
     fun temp(celsius: Int?): String = celsius?.let {
         if (metric) "$it°C" else "${(it * 9f / 5f + 32f).roundToInt()}°F"
@@ -258,45 +288,47 @@ private fun ObdMetricsGrid(
         if (metric) "$it km/h" else "${(it * 0.621371f).roundToInt()} mph"
     } ?: "—"
 
-    val primaryCells = listOf(
-        "RPM" to (reading.rpm?.toString() ?: "—"),
-        "COOLANT" to temp(reading.coolantC),
-        "BATTERY" to (reading.batteryVolts?.let { "%.1fV".format(it) } ?: "—"),
-        "SPEED" to speed
+    val primaryMetrics = listOf(
+        ObdMetric("RPM", reading.rpm?.toString() ?: "—", Icons.Default.Timeline),
+        ObdMetric("COOLANT", temp(reading.coolantC), Icons.Default.Thermostat),
+        ObdMetric("BATTERY", reading.batteryVolts?.let { "%.1fV".format(it) } ?: "—", Icons.Default.BatteryFull),
+        ObdMetric("SPEED", speed, Icons.Default.Speed)
     )
 
-    val secondaryCells = if (showSecondary) listOf(
-        "THROTTLE" to pct(reading.throttlePct),
-        "LOAD" to pct(reading.loadPct),
-        "FUEL" to pct(reading.fuelPct),
-        "INTAKE" to temp(reading.intakeC)
+    val secondaryMetrics = if (showSecondary) listOf(
+        ObdMetric("THROTTLE", pct(reading.throttlePct), Icons.Default.TrendingUp),
+        ObdMetric("LOAD", pct(reading.loadPct), Icons.Default.Memory),
+        ObdMetric("FUEL", pct(reading.fuelPct), Icons.Default.LocalGasStation),
+        ObdMetric("INTAKE", temp(reading.intakeC), Icons.Default.Air)
     ) else emptyList()
 
     val cols = if (isNarrow) 2 else 4
+    val rows = buildList {
+        addAll(primaryMetrics.chunked(cols))
+        if (showSecondary) addAll(secondaryMetrics.chunked(cols))
+    }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        primaryCells.chunked(cols).forEach { row ->
+        rows.forEach { row ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                row.forEach { (label, value) ->
-                    ObdCell(label, value, contentColor, labelColor, Modifier.weight(1f))
-                }
-            }
-        }
-        if (showSecondary) {
-            secondaryCells.chunked(cols).forEach { row ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    row.forEach { (label, value) ->
-                        ObdCell(label, value, contentColor, labelColor, Modifier.weight(1f))
-                    }
+                row.forEach { m ->
+                    ObdCell(
+                        metric = m,
+                        contentColor = contentColor,
+                        labelColor = labelColor,
+                        accent = accent,
+                        valueSize = valueSize,
+                        labelSize = labelSize,
+                        iconSize = iconSize,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -305,31 +337,42 @@ private fun ObdMetricsGrid(
 
 @Composable
 private fun ObdCell(
-    label: String,
-    value: String,
+    metric: ObdMetric,
     contentColor: Color,
     labelColor: Color,
+    accent: Color,
+    valueSize: TextUnit,
+    labelSize: TextUnit,
+    iconSize: Dp,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier,
-        horizontalAlignment = Alignment.Start
+        verticalArrangement = Arrangement.Center
     ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Icon(metric.icon, null, tint = accent, modifier = Modifier.size(iconSize))
+            Text(
+                text = metric.label,
+                fontSize = labelSize,
+                fontWeight = FontWeight.Bold,
+                color = labelColor,
+                letterSpacing = 0.8.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
         Text(
-            text = label,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            color = labelColor,
-            letterSpacing = 1.sp,
-            maxLines = 1
-        )
-        Text(
-            text = value,
-            fontSize = 17.sp,
+            text = metric.value,
+            fontSize = valueSize,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
             color = contentColor,
             maxLines = 1,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis
         )
     }

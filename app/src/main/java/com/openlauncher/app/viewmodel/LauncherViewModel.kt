@@ -19,6 +19,7 @@ import android.provider.Settings as AndroidSettings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openlauncher.app.data.AppSettings
+import com.openlauncher.app.data.ClockStyle
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.DefaultShortcutIcon
 import com.openlauncher.app.data.GRID_COLS
@@ -29,8 +30,10 @@ import com.openlauncher.app.data.SoundPadConfig
 import com.openlauncher.app.data.WeatherApi
 import com.openlauncher.app.data.WeatherProvider
 import com.openlauncher.app.data.WidgetBgMode
+import com.openlauncher.app.data.WidgetConfig
 import com.openlauncher.app.data.activeWidgetIds
 import com.openlauncher.app.data.computeWidgetMove
+import com.openlauncher.app.data.withWidgetContent
 import com.openlauncher.app.data.defaultQuickActionButtons
 import com.openlauncher.app.data.defaultVitalsElements
 import com.openlauncher.app.data.defaultShortcuts
@@ -42,6 +45,7 @@ import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.service.MediaListenerService
 import com.openlauncher.app.util.FileLog
 import com.openlauncher.app.util.LocationCompassManager
+import com.openlauncher.app.util.VolumeController
 import com.openlauncher.app.util.LocationData
 import com.openlauncher.app.util.musicStartupPackage
 import com.openlauncher.app.util.selectMediaSession
@@ -75,6 +79,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun updateSettings(block: AppSettings.() -> AppSettings) {
         viewModelScope.launch { settingsRepo.updateSettings { it.block() } }
+    }
+
+    fun setVolumeProtocol(id: String) {
+        VolumeController.setProtocol(id)
+        viewModelScope.launch { settingsRepo.updateSettings { it.copy(volumeProtocol = id) } }
     }
 
     fun resetSettings() {
@@ -193,9 +202,165 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun clearPipApp()          { updateSettings { copy(pipAppPackage = "") } }
     fun clearRadioApp()        { updateSettings { copy(radioPackage = "") } }
 
-    fun updateWidgetConfig(id: String, spanX: Int, spanY: Int) {
+    // ── Home pages (swipe left/right) ──────────────────────────────────────────
+    private fun AppSettings.layoutFor(page: Int): List<WidgetConfig> =
+        if (page == 0) widgetLayout else homePageAltLayout
+
+    private fun AppSettings.withLayout(page: Int, newLayout: List<WidgetConfig>): AppSettings =
+        if (page == 0) copy(widgetLayout = newLayout) else copy(homePageAltLayout = newLayout)
+
+    private fun AppSettings.withoutWidgetFlag(id: String): AppSettings = when (id) {
+        "CLOCK"         -> copy(showClock = false)
+        "WEATHER"       -> copy(showWeather = false)
+        "NOW_PLAYING"   -> copy(showNowPlaying = false)
+        "TELEMETRY"     -> copy(showTelemetry = false)
+        "ALTIMETER"     -> copy(showAltimeter = false)
+        "SPEEDOMETER"   -> copy(showSpeedometer = false)
+        "VITALS"        -> copy(showVitals = false)
+        "TRIP_TRACKER"  -> copy(showTripTracker = false)
+        "SOUNDBOARD"    -> copy(showSoundboard = false)
+        "VOLUME"        -> copy(showVolume = false)
+        "QUICK_ACTIONS" -> copy(showQuickActions = false)
+        "APP_SHORTCUTS" -> copy(showAppShortcuts = false)
+        "OBD"           -> copy(showObd = false)
+        else            -> this
+    }
+
+    // ── Auto page switching (driving detection via GPS speed) ─────────────────
+    private val _drivingState = MutableStateFlow<Boolean?>(null)
+    val drivingState: StateFlow<Boolean?> = _drivingState
+
+    private var manualPageOverride = false
+    private var aboveThresholdSince: Long? = null
+    private var belowThresholdSince: Long? = null
+
+    fun setHomePage(page: Int) {
+        manualPageOverride = true // user chose manually — hold until the next driving-state change
+        updateSettings { copy(homePage = page.coerceIn(0, 1)) }
+    }
+
+    private fun evaluateDrivingState(speedKmh: Float) {
+        val s = settings.value
+        if (!s.autoSwitchPages) {
+            aboveThresholdSince = null
+            belowThresholdSince = null
+            _drivingState.value = null
+            return
+        }
+        val now = System.currentTimeMillis()
+        val threshold = s.autoSwitchSpeedKmh
+        if (speedKmh >= threshold) {
+            belowThresholdSince = null
+            if (aboveThresholdSince == null) aboveThresholdSince = now
+            if (now - (aboveThresholdSince ?: now) >= 5000 && _drivingState.value != true) {
+                _drivingState.value = true
+                autoSwitchForDrivingState(true)
+            }
+        } else {
+            aboveThresholdSince = null
+            if (belowThresholdSince == null) belowThresholdSince = now
+            if (now - (belowThresholdSince ?: now) >= (s.autoSwitchIdleSeconds * 1000f).toLong() && _drivingState.value != false) {
+                _drivingState.value = false
+                autoSwitchForDrivingState(false)
+            }
+        }
+    }
+
+    private fun autoSwitchForDrivingState(driving: Boolean) {
+        val s = settings.value
+        if (!s.autoSwitchPages) return
+        if (manualPageOverride) {
+            manualPageOverride = false // respect the user's manual choice until the NEXT state change
+            return
+        }
+        val target = if (driving) s.drivingPage else (1 - s.drivingPage)
+        if (s.homePage != target) {
+            updateSettings { copy(homePage = target) }
+            FileLog.log("AutoSwitch", "state=${if (driving) "DRIVING" else "PARKED"} page=$target")
+        }
+    }
+
+    // ── Decorative "display animation" (car image) ──────────────────────────────
+    // Edge-triggered on steady↔moving transitions (GPS speed vs. the auto-switch
+    // threshold). RESTING = car fades in beside the name and holds ~10s;
+    // DRIVING = car drives left→right twice. The UI owns the actual fades/motion.
+    enum class CarPhase { HIDDEN, RESTING, DRIVING }
+
+    private val _carPhase = MutableStateFlow(CarPhase.HIDDEN)
+    val carPhase: StateFlow<CarPhase> = _carPhase
+
+    fun clearCarPhase() {
+        carRestingJob?.cancel()
+        carDrivingJob?.cancel()
+        _carPhase.value = CarPhase.HIDDEN
+    }
+
+    private var carMovingSince: Long? = null
+    private var carSteadySince: Long? = null
+    private var carLastMoving: Boolean = false
+    private var carRestingJob: Job? = null
+    private var carDrivingJob: Job? = null
+
+    // Small grace period before the drive animation fires, so it doesn't overlap
+    // the auto page switch (which itself waits ~5s above threshold).
+    private val CAR_MOVE_DEBOUNCE_MS   = 1_500L
+    private val CAR_STEADY_DEBOUNCE_MS = 1_000L
+    private val CAR_RESTING_HOLD_MS    = 10_000L
+    private val CAR_DRIVING_TIMEOUT_MS = 6_000L
+
+    private fun evaluateCarAnimation(speedKmh: Float) {
+        val s = settings.value
+        if (!s.displayAnimation) {
+            _carPhase.value = CarPhase.HIDDEN
+            carMovingSince = null
+            carSteadySince = null
+            carLastMoving = false
+            return
+        }
+        val moving = speedKmh >= s.autoSwitchSpeedKmh
+        val now = System.currentTimeMillis()
+
+        if (moving) {
+            carSteadySince = null
+            if (carMovingSince == null) carMovingSince = now
+            if (now - (carMovingSince ?: now) >= CAR_MOVE_DEBOUNCE_MS && carLastMoving != true) {
+                carLastMoving = true
+                triggerCarDriving()
+            }
+        } else {
+            carMovingSince = null
+            if (carSteadySince == null) carSteadySince = now
+            if (now - (carSteadySince ?: now) >= CAR_STEADY_DEBOUNCE_MS && carLastMoving != false) {
+                carLastMoving = false
+                triggerCarResting()
+            }
+        }
+    }
+
+    private fun triggerCarDriving() {
+        carRestingJob?.cancel()
+        carDrivingJob?.cancel()
+        _carPhase.value = CarPhase.DRIVING
+        // Safety net in case the UI never reports completion (e.g. user navigated away)
+        carDrivingJob = viewModelScope.launch {
+            delay(CAR_DRIVING_TIMEOUT_MS)
+            if (_carPhase.value == CarPhase.DRIVING) _carPhase.value = CarPhase.HIDDEN
+        }
+    }
+
+    private fun triggerCarResting() {
+        carDrivingJob?.cancel()
+        carRestingJob?.cancel()
+        _carPhase.value = CarPhase.RESTING
+        carRestingJob = viewModelScope.launch {
+            delay(CAR_RESTING_HOLD_MS)
+            if (_carPhase.value == CarPhase.RESTING) _carPhase.value = CarPhase.HIDDEN
+        }
+    }
+
+    fun updateWidgetConfig(page: Int = 0, id: String, spanX: Int, spanY: Int) {
         updateSettings {
-            val resized = widgetLayout.map { w ->
+            val resized = layoutFor(page).map { w ->
                 if (w.id == id) w.copy(
                     spanX = spanX.coerceIn(1, GRID_COLS - w.gridX),
                     spanY = spanY.coerceIn(1, GRID_ROWS - w.gridY)
@@ -207,25 +372,25 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val active    = resized.filter { it.enabled && it.id in activeIds }
             val inactive  = resized.filter { !it.enabled || it.id !in activeIds }
             val target    = active.find { it.id == id }
-            copy(widgetLayout = if (target != null)
+            withLayout(page, if (target != null)
                 computeWidgetMove(active, id, target.gridX, target.gridY) + inactive
             else resized)
         }
     }
 
-    fun moveWidgetConfig(id: String, gridX: Int, gridY: Int) {
+    fun moveWidgetConfig(page: Int = 0, id: String, gridX: Int, gridY: Int) {
         updateSettings {
             val activeIds = activeWidgetIds()
-            val active   = widgetLayout.filter { it.enabled && it.id in activeIds }
-            val inactive = widgetLayout.filter { !it.enabled || it.id !in activeIds }
-            copy(widgetLayout = computeWidgetMove(active, id, gridX, gridY) + inactive)
+            val active   = layoutFor(page).filter { it.enabled && it.id in activeIds }
+            val inactive = layoutFor(page).filter { !it.enabled || it.id !in activeIds }
+            withLayout(page, computeWidgetMove(active, id, gridX, gridY) + inactive)
         }
     }
 
-    fun addWidget(id: String) {
+    fun addWidget(page: Int = 0, id: String) {
         updateSettings {
             val activeIds = activeWidgetIds()
-            var layout    = widgetLayout
+            var layout    = layoutFor(page)
 
             val defaultSpan = when (id) {
                 "VOLUME"        -> 2 to 1
@@ -297,34 +462,25 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 val spanY = (defaultSpan.second.coerceAtMost(GRID_ROWS - cell_.second)).coerceAtLeast(1)
                 layout + com.openlauncher.app.data.WidgetConfig(id, cell_.first, cell_.second, spanX, spanY)
             }
-            withShow.copy(widgetLayout = newLayout)
+            withShow.withLayout(page, newLayout)
         }
     }
 
-    fun removeWidget(id: String) {
+    fun removeWidget(page: Int = 0, id: String) {
         updateSettings {
-            when (id) {
-                "CLOCK"         -> copy(showClock = false)
-                "WEATHER"       -> copy(showWeather = false)
-                "NOW_PLAYING"   -> copy(showNowPlaying = false)
-                "TELEMETRY"     -> copy(showTelemetry = false)
-                "ALTIMETER"     -> copy(showAltimeter = false)
-                "SPEEDOMETER"   -> copy(showSpeedometer = false)
-                "VITALS"        -> copy(showVitals = false)
-                "TRIP_TRACKER"  -> copy(showTripTracker = false)
-                "SOUNDBOARD"    -> copy(showSoundboard = false)
-                "VOLUME"        -> copy(showVolume = false)
-                "QUICK_ACTIONS" -> copy(showQuickActions = false)
-                "APP_SHORTCUTS" -> copy(showAppShortcuts = false)
-                "OBD"           -> copy(showObd = false)
-                else            -> this
+            val thisLayout = layoutFor(page).map { w ->
+                if (w.id == id) w.copy(enabled = false) else w
             }
+            val stillOnOther = layoutFor(1 - page).any { it.id == id && it.enabled }
+            var s = withLayout(page, thisLayout)
+            if (!stillOnOther) s = s.withoutWidgetFlag(id)
+            s
         }
     }
 
-    fun setWidgetBgColor(id: String, color: Long?) {
+    fun setWidgetBgColor(page: Int = 0, id: String, color: Long?) {
         updateSettings {
-            copy(widgetLayout = widgetLayout.map { w ->
+            withLayout(page, layoutFor(page).map { w ->
                 if (w.id == id) w.copy(
                     customBgColor = color,
                     bgMode = if (color != null) WidgetBgMode.CUSTOM else WidgetBgMode.DEFAULT
@@ -333,17 +489,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun setWidgetBgMode(id: String, mode: WidgetBgMode) {
+    fun setWidgetBgMode(page: Int = 0, id: String, mode: WidgetBgMode) {
         updateSettings {
-            copy(widgetLayout = widgetLayout.map { w ->
+            withLayout(page, layoutFor(page).map { w ->
                 if (w.id == id) w.copy(bgMode = mode) else w
             })
         }
     }
 
-    fun toggleWidgetTitle(id: String) {
+    fun toggleWidgetTitle(page: Int = 0, id: String) {
         updateSettings {
-            copy(widgetLayout = widgetLayout.map { w ->
+            withLayout(page, layoutFor(page).map { w ->
                 if (w.id == id) w.copy(showTitle = !w.isTitleVisible) else w
             })
         }
@@ -361,53 +517,71 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun setAppShortcutPackage(slotIndex: Int, packageName: String) {
-        updateSettings {
-            val list = appWidgetPackages.toMutableList()
-            while (list.size <= slotIndex) list.add("")
-            list[slotIndex] = packageName
-            copy(appWidgetPackages = list)
-        }
+    fun setClockStyle(page: Int, style: ClockStyle) {
+        updateSettings { withWidgetContent(page) { it.copy(clockStyle = style) } }
     }
 
-    fun toggleQuickActionButton(actionId: String) {
+    fun setVitalsAsBars(page: Int, asBars: Boolean) {
+        updateSettings { withWidgetContent(page) { it.copy(vitalsAsBars = asBars) } }
+    }
+
+    fun setSpeedometerDigitalOnly(page: Int, digital: Boolean) {
+        updateSettings { withWidgetContent(page) { it.copy(speedometerDigitalOnly = digital) } }
+    }
+
+    fun setAppShortcutCount(page: Int, count: Int) {
+        updateSettings { withWidgetContent(page) { it.copy(appShortcutCount = count.coerceIn(1, 4)) } }
+    }
+
+    fun setSoundboardButtonCount(page: Int, count: Int) {
+        updateSettings { withWidgetContent(page) { it.copy(soundboardButtonCount = count.coerceIn(1, 6)) } }
+    }
+
+    fun setAppShortcutPackage(page: Int, slotIndex: Int, packageName: String) {
         updateSettings {
-            val list = (quickActionButtons.mapNotNull { (it as? Any)?.toString() }).toMutableList()
-            if (actionId in list) {
-                if (list.size > 1) {
-                    list.remove(actionId)
-                }
-            } else {
-                list.add(actionId)
+            withWidgetContent(page) { c ->
+                val list = c.appWidgetPackages.toMutableList()
+                while (list.size <= slotIndex) list.add("")
+                list[slotIndex] = packageName
+                c.copy(appWidgetPackages = list)
             }
-            copy(quickActionButtons = list)
         }
     }
 
-    fun resetQuickActionButtons() {
+    fun toggleQuickActionButton(page: Int, actionId: String) {
         updateSettings {
-            copy(quickActionButtons = defaultQuickActionButtons())
-        }
-    }
-
-    fun toggleVitalsElement(elementId: String) {
-        updateSettings {
-            val list = (vitalsElements.mapNotNull { (it as? Any)?.toString() }).toMutableList()
-            if (elementId in list) {
-                if (list.size > 1) {
-                    list.remove(elementId)
+            withWidgetContent(page) { c ->
+                val list = c.quickActionButtons.toMutableList()
+                if (actionId in list) {
+                    if (list.size > 1) list.remove(actionId)
+                } else {
+                    list.add(actionId)
                 }
-            } else {
-                list.add(elementId)
+                c.copy(quickActionButtons = list)
             }
-            copy(vitalsElements = list)
         }
     }
 
-    fun resetVitalsElements() {
+    fun resetQuickActionButtons(page: Int) {
+        updateSettings { withWidgetContent(page) { it.copy(quickActionButtons = defaultQuickActionButtons()) } }
+    }
+
+    fun toggleVitalsElement(page: Int, elementId: String) {
         updateSettings {
-            copy(vitalsElements = defaultVitalsElements())
+            withWidgetContent(page) { c ->
+                val list = c.vitalsElements.toMutableList()
+                if (elementId in list) {
+                    if (list.size > 1) list.remove(elementId)
+                } else {
+                    list.add(elementId)
+                }
+                c.copy(vitalsElements = list)
+            }
         }
+    }
+
+    fun resetVitalsElements(page: Int) {
+        updateSettings { withWidgetContent(page) { it.copy(vitalsElements = defaultVitalsElements()) } }
     }
 
     fun toggleDayNightMode() {
@@ -422,14 +596,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun updateSoundboardPad(index: Int, pad: SoundPadConfig) {
+    fun updateSoundboardPad(page: Int, index: Int, pad: SoundPadConfig) {
         updateSettings {
-            // Persisted lists from older versions may be shorter than the 6 pads
-            // the widget displays — pad before assigning to avoid IndexOutOfBounds
-            val padded = soundboardPads.toMutableList()
-            while (padded.size <= index) padded.add(SoundPadConfig("+", synthType = ""))
-            padded[index] = pad
-            copy(soundboardPads = padded)
+            withWidgetContent(page) { c ->
+                // Persisted lists from older versions may be shorter than the pads
+                // the widget displays — pad before assigning to avoid IndexOutOfBounds
+                val padded = c.soundboardPads.toMutableList()
+                while (padded.size <= index) padded.add(SoundPadConfig("+", synthType = ""))
+                padded[index] = pad
+                c.copy(soundboardPads = padded)
+            }
         }
     }
 
@@ -1012,10 +1188,42 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     init {
         FileLog.init(getApplication())
+        VolumeController.init(getApplication())
         FileLog.log("Radio", "szchoicewayMcu=$hasSzchoicewayMcu")
+        // Identify the head-unit vendor family. This is the evidence used to pick
+        // the correct MCU volume/radio control channel (Microntek / FYT / forfan / …).
+        val knownVendors = listOf(
+            "com.microntek" to "Microntek/MTC",
+            "com.syu" to "FYT/SYU",
+            "com.forfan" to "Junsun/forfan",
+            "com.topway" to "TopWay/TS",
+            "com.nwd" to "NWD",
+            "com.hct" to "HCT",
+            "com.szchoiceway" to "szchoiceway",
+            "com.navimods" to "NaviMods"
+        )
+        val installedPkgs = runCatching {
+            getApplication<Application>().packageManager.getInstalledApplications(0).map { it.packageName }
+        }.getOrDefault(emptyList())
+        val foundVendors = knownVendors.filter { (prefix, _) -> installedPkgs.any { it.startsWith(prefix) } }.map { it.second }
+        FileLog.log(
+            "Vendor",
+            "model=${Build.MODEL} mfr=${Build.MANUFACTURER} device=${Build.DEVICE} board=${Build.BOARD} hardware=${Build.HARDWARE} packages=${foundVendors.ifEmpty { listOf("none") }.joinToString(",")}"
+        )
         loadInstalledApps()
         refreshConnectivity()
         refreshBluetoothStatus()
+
+        // Driving detection for auto page switching (GPS speed with hysteresis)
+        viewModelScope.launch {
+            location.collect { loc ->
+                if (loc != null) {
+                    val speedKmh = loc.speedMps * 3.6f
+                    evaluateDrivingState(speedKmh)
+                    evaluateCarAnimation(speedKmh)
+                }
+            }
+        }
 
         // Listen for Bluetooth and Package changes
         statusReceiver = object : BroadcastReceiver() {

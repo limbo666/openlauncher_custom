@@ -1,11 +1,7 @@
 package com.openlauncher.app.ui.widget
 
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.media.AudioManager
-import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,13 +25,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.openlauncher.app.util.FileLog
-import com.openlauncher.app.util.MuteState
+import com.openlauncher.app.util.VolumeController
 
 @Composable
 fun VolumeWidget(
@@ -45,62 +41,28 @@ fun VolumeWidget(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
-    var currentVol by remember {
-        mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC))
-    }
-    val maxVol = remember {
-        audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-    }
-    // Is muted check
-    val isMuted = currentVol == 0 || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && audioManager.isStreamMute(AudioManager.STREAM_MUSIC))
+    // Drive the head-unit MCU volume (Microntek broadcast on MTC units; STREAM_MUSIC
+    // fallback elsewhere). VolumeController owns the 0..30 level + mute state.
     LaunchedEffect(Unit) {
-        FileLog.log("Volume", "init current=$currentVol max=$maxVol muted=$isMuted")
+        VolumeController.init(context)
     }
-
-    // Listen to physical volume changes (hardware knobs, steering wheel controls, third-party apps)
-    DisposableEffect(context) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(c: Context?, intent: Intent?) {
-                if (intent?.action == "android.media.VOLUME_CHANGED_ACTION") {
-                    val newVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                    currentVol = newVol
-                    if (newVol > 0) MuteState.preMuteVolume = newVol
-                }
-            }
-        }
-        val filter = IntentFilter("android.media.VOLUME_CHANGED_ACTION")
-        context.registerReceiver(receiver, filter)
-        onDispose {
-            runCatching { context.unregisterReceiver(receiver) }
-        }
-    }
+    val mcuLevel by VolumeController.level.collectAsState()
+    val mcuMuted by VolumeController.muted.collectAsState()
+    val currentVol = mcuLevel ?: 0
+    val maxVol by VolumeController.max.collectAsState()
+    val isMuted = mcuMuted || currentVol == 0
 
     val isDarkContent = customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f
     val contentColor = customContentColor ?: if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val subColor     = customContentColor?.copy(alpha = 0.65f) ?: if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val subColor     = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.65f) ?: if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
     val barTrack     = if (isDarkContent) Color(0x33000000) else if (isDayMode) Color(0xFFDDDDDD) else Color(0xFF222222)
     val buttonBg     = if (isDarkContent) Color(0x18000000) else if (isDayMode) Color(0xFFE5E5E5) else Color(0xFF161616)
     val buttonBorder = if (isDarkContent) Color(0x30000000) else if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF2A2A2A)
 
-    val setVolume = { target: Int ->
-        val safe = target.coerceIn(0, maxVol)
-        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, safe, 0)
-        currentVol = safe
-        if (safe > 0) MuteState.preMuteVolume = safe
-        FileLog.log("Volume", "set target=$target safe=$safe max=$maxVol")
-    }
-
-    val toggleMute = {
-        if (isMuted) {
-            val restore = if (MuteState.preMuteVolume > 0) MuteState.preMuteVolume else (maxVol / 3).coerceAtLeast(1)
-            setVolume(restore)
-        } else {
-            MuteState.preMuteVolume = currentVol
-            setVolume(0)
-        }
-    }
+    val setVolume = { target: Int -> VolumeController.set(context, target) }
+    val adjustVolume = { direction: Int -> VolumeController.adjust(context, direction) }
+    val toggleMute = { VolumeController.toggleMute(context) }
 
     val volumePercent = ((currentVol.toFloat() / maxVol) * 100).toInt()
 
@@ -147,7 +109,7 @@ fun VolumeWidget(
                         .clip(RoundedCornerShape(4.dp))
                         .background(buttonBg)
                         .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                        .clickable { setVolume(currentVol - 1) },
+                        .clickable { adjustVolume(AudioManager.ADJUST_LOWER) },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Default.Remove, "Volume Down", tint = contentColor, modifier = Modifier.size(15.dp))
@@ -171,7 +133,7 @@ fun VolumeWidget(
                             letterSpacing = 1.sp
                         )
                         Text(
-                            text = "MEDIA STREAM",
+                            text = "SYSTEM VOLUME",
                             color = subColor,
                             fontSize = 7.5.sp,
                             letterSpacing = 1.sp
@@ -210,7 +172,7 @@ fun VolumeWidget(
                         .clip(RoundedCornerShape(4.dp))
                         .background(buttonBg)
                         .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                        .clickable { setVolume(currentVol + 1) },
+                        .clickable { adjustVolume(AudioManager.ADJUST_RAISE) },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Default.Add, "Volume Up", tint = contentColor, modifier = Modifier.size(15.dp))
@@ -245,7 +207,7 @@ fun VolumeWidget(
                         )
                         if (!isNarrow || totalHeight >= 115.dp) {
                             Text(
-                                text = "MEDIA STREAM",
+                                text = "SYSTEM VOLUME",
                                 color = subColor,
                                 fontSize = 7.sp,
                                 letterSpacing = 1.sp,
@@ -339,7 +301,7 @@ fun VolumeWidget(
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(buttonBg)
                                 .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                                .clickable { setVolume(currentVol - 1) },
+                                .clickable { adjustVolume(AudioManager.ADJUST_LOWER) },
                             contentAlignment = Alignment.Center
                         ) {
                             Row(
@@ -360,7 +322,7 @@ fun VolumeWidget(
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(buttonBg)
                                 .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                                .clickable { setVolume(currentVol + 1) },
+                                .clickable { adjustVolume(AudioManager.ADJUST_RAISE) },
                             contentAlignment = Alignment.Center
                         ) {
                             Row(

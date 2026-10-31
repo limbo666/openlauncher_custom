@@ -104,6 +104,18 @@ data class AppSettings(
     val showNowPlaying: Boolean = true,
     val shortcuts: List<ShortcutConfig> = defaultShortcuts(),
     val widgetLayout: List<WidgetConfig> = defaultWidgetLayout(),
+    // Second home page ("swipe left/right") — independent widget placement per page
+    val homePageAltLayout: List<WidgetConfig> = emptyList(),
+    // Which home page is currently shown (persisted across restarts)
+    val homePage: Int = 0,
+    // Auto-switch pages by driving state (GPS speed) — Stage 2
+    val autoSwitchPages: Boolean = false,
+    // Which page shows while driving (the other shows while parked)
+    val drivingPage: Int = 0,
+    // Enter "driving" above this speed (km/h)
+    val autoSwitchSpeedKmh: Float = 8f,
+    // Seconds stopped before switching back to the parked page
+    val autoSwitchIdleSeconds: Float = 10f,
     val carPlayPackage: String = "",
     val androidAutoPackage: String = "",
     val useGradient: Boolean = false,
@@ -154,8 +166,70 @@ data class AppSettings(
     val obdDeviceName: String = "",
     val preferredMediaPackage: String = "",
     val lastMediaPackage: String = "",
-    val autoLaunchMedia: Boolean = true
+    val autoLaunchMedia: Boolean = true,
+    // Head-unit volume channel id ("auto" = detect, or a VolumeProtocols id)
+    val volumeProtocol: String = "auto",
+    // Global "help text" / secondary text color (settings categories, sublabels,
+    // widget secondary text). null = follow the active theme.
+    val helpTextColor: Int? = null,
+    // Decorative "display animation": a user-selected car PNG that rests beside
+    // the vehicle name and "drives" across the screen when movement is detected.
+    val displayAnimation: Boolean = false,
+    val carImageUri: String = "",
+    // Page 1 (second home screen) overrides for widget content. null = mirror page 0.
+    val widgetContentAlt: WidgetContent? = null
 )
+
+/**
+ * Per-page "content" for widgets whose inner content is user-selectable (clock
+ * style, vitals elements, quick actions, soundboard pads, app shortcuts, etc.).
+ * Page 0 is backed by AppSettings' legacy flat fields; page 1 uses [widgetContentAlt]
+ * and mirrors page 0 when null.
+ */
+data class WidgetContent(
+    val clockStyle: ClockStyle = ClockStyle.DIGITAL,
+    val speedometerDigitalOnly: Boolean = false,
+    val vitalsAsBars: Boolean = false,
+    val vitalsElements: List<String> = defaultVitalsElements(),
+    val quickActionButtons: List<String> = defaultQuickActionButtons(),
+    val soundboardPads: List<SoundPadConfig> = defaultSoundboardPads(),
+    val soundboardButtonCount: Int = 6,
+    val appWidgetPackages: List<String> = listOf("", "", "", ""),
+    val appShortcutCount: Int = 4
+)
+
+fun AppSettings.pageZeroWidgetContent(): WidgetContent = WidgetContent(
+    clockStyle              = clockStyle,
+    speedometerDigitalOnly  = speedometerDigitalOnly,
+    vitalsAsBars            = vitalsAsBars,
+    vitalsElements          = vitalsElements,
+    quickActionButtons      = quickActionButtons,
+    soundboardPads          = soundboardPads,
+    soundboardButtonCount   = soundboardButtonCount,
+    appWidgetPackages       = appWidgetPackages,
+    appShortcutCount        = appShortcutCount
+)
+
+fun AppSettings.widgetContentFor(page: Int): WidgetContent =
+    if (page == 0) pageZeroWidgetContent() else (widgetContentAlt ?: pageZeroWidgetContent())
+
+fun AppSettings.withWidgetContent(page: Int, transform: (WidgetContent) -> WidgetContent): AppSettings {
+    val updated = transform(widgetContentFor(page))
+    if (page == 0) {
+        return copy(
+            clockStyle             = updated.clockStyle,
+            speedometerDigitalOnly = updated.speedometerDigitalOnly,
+            vitalsAsBars           = updated.vitalsAsBars,
+            vitalsElements         = updated.vitalsElements,
+            quickActionButtons     = updated.quickActionButtons,
+            soundboardPads         = updated.soundboardPads,
+            soundboardButtonCount  = updated.soundboardButtonCount,
+            appWidgetPackages      = updated.appWidgetPackages,
+            appShortcutCount       = updated.appShortcutCount
+        )
+    }
+    return copy(widgetContentAlt = updated)
+}
 
 fun defaultQuickActionButtons() = listOf("BLUETOOTH", "WIFI", "BLACKOUT", "MUTE", "SETTINGS")
 fun defaultVitalsElements() = listOf("CPU", "RAM", "TEMP")

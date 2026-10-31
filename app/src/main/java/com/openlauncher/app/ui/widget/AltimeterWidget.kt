@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -45,7 +46,7 @@ fun AltimeterWidget(
 ) {
     val isLight = isDayMode || (customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f)
     val iconTint = customContentColor?.copy(alpha = 0.85f) ?: if (isLight) Color(0xFF333333) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
-    val labelColor = customContentColor?.copy(alpha = 0.50f) ?: if (isLight) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
+    val labelColor = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.50f) ?: if (isLight) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
     val valueColor = customContentColor ?: if (isLight) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
     val buttonBg = customContentColor?.let { if (isLight) Color(0x1F000000) else Color(0x1FFFFFFF) } ?: if (isLight) Color(0xFFE5E5E5) else Color(0xFF1E1E1E)
     val buttonBorder = customContentColor?.copy(alpha = 0.25f) ?: if (isLight) Color(0xFFCCCCCC) else Color(0xFF333333)

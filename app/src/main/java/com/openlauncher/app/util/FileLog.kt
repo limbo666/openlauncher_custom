@@ -31,4 +31,13 @@ object FileLog {
     }
 
     fun logFile(): File? = dir?.let { File(it, "openlauncher.log") }
+
+    /** Write a guaranteed on-device copy to the logs dir (fallback if a SAF export fails). */
+    fun writeTextFile(name: String, text: String) {
+        val d = dir ?: return
+        try {
+            File(d, name).writeText(text)
+        } catch (_: Throwable) {
+        }
+    }
 }

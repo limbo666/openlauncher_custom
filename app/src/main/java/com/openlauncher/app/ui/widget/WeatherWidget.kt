@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.ImageLoader
@@ -61,7 +63,7 @@ fun WeatherWidget(
     modifier: Modifier = Modifier
 ) {
     val contentColor = customContentColor ?: if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val subColor     = customContentColor?.copy(alpha = 0.65f) ?: if (isDayMode) Color(0xFF6C757D) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f)
+    val subColor     = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.65f) ?: if (isDayMode) Color(0xFF6C757D) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f)
     val cardBg       = if (isDayMode) Color(0x10000000) else Color(0x18FFFFFF)
     val cardBorder   = if (isDayMode) Color(0x18000000) else Color(0x20FFFFFF)
     val effectiveAccent = if (isDayMode && accent.luminance() > 0.65f) Color(0xFF111111) else accent
@@ -134,6 +136,7 @@ fun WeatherWidget(
         val isWideStrip = isCompactH && w >= 180.dp
         val isLarge = w >= 380.dp && h >= 145.dp
         val isMedium = !is1x1 && !isWideStrip && !isTall && !isLarge
+        val today = state?.dailyForecast?.firstOrNull()
 
         // Subtle refresh indicator / status badge in top right corner
         Box(
@@ -294,7 +297,7 @@ fun WeatherWidget(
             ) {
                 MeteoconAnimatedIcon(
                     slug = state.conditionSlug,
-                    modifier = Modifier.size(46.dp)
+                    modifier = Modifier.size((minOf(w, h) * 0.6f).coerceIn(42.dp, 74.dp))
                 )
 
                 Column(
@@ -304,7 +307,7 @@ fun WeatherWidget(
                     Text(
                         text = state.temperatureDisplay(metric),
                         color = contentColor,
-                        fontSize = 18.sp,
+                        fontSize = 21.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = (-0.5).sp,
                         maxLines = 1
@@ -360,82 +363,63 @@ fun WeatherWidget(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Left section: Current conditions with scaled icon
-                val leftIconSize = (h * 0.65f).coerceIn(58.dp, 78.dp)
+                // Left cluster: the symbol with location + condition directly beneath it
+                // (the icon column is wider than the squeezed text column), then the big
+                // temperature and the stats beside it.
+                val leftIconSize = (h * 0.6f).coerceIn(52.dp, 88.dp)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    MeteoconAnimatedIcon(
-                        slug = state.conditionSlug,
-                        modifier = Modifier.size(leftIconSize)
-                    )
-
-                    Column(verticalArrangement = Arrangement.Center) {
-                        Row(
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = state.temperatureDisplay(metric),
-                                color = contentColor,
-                                fontSize = if (h > 110.dp) 24.sp else 21.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = (-0.5).sp,
-                                maxLines = 1
-                            )
-
-                            if (state.locationName.isNotEmpty()) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(bottom = 2.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.LocationOn,
-                                        contentDescription = null,
-                                        tint = effectiveAccent,
-                                        modifier = Modifier.size(10.dp)
-                                    )
-                                    Text(
-                                        text = state.locationName.uppercase(),
-                                        color = subColor,
-                                        fontSize = 8.sp,
-                                        letterSpacing = 1.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        MeteoconAnimatedIcon(
+                            slug = state.conditionSlug,
+                            modifier = Modifier.size(leftIconSize)
+                        )
+                        if (state.locationName.isNotEmpty()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Icon(Icons.Default.LocationOn, null, tint = effectiveAccent, modifier = Modifier.size(9.dp))
+                                Text(
+                                    text = state.locationName.uppercase(),
+                                    color = subColor,
+                                    fontSize = 8.5.sp,
+                                    letterSpacing = 0.3.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
-
                         Text(
                             text = state.conditionLabel.uppercase(),
                             color = effectiveAccent,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp,
-                            maxLines = 1
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
                         )
+                    }
 
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(top = 1.dp)
-                        ) {
-                            if (state.windspeedKmh > 0) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Icon(Icons.Default.Air, null, tint = subColor, modifier = Modifier.size(9.dp))
-                                    Text("%.0f km/h".format(state.windspeedKmh), color = subColor, fontSize = 7.5.sp)
-                                }
-                            }
-                            if (state.humidity > 0) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Icon(Icons.Default.WaterDrop, null, tint = subColor, modifier = Modifier.size(9.dp))
-                                    Text("${state.humidity}%", color = subColor, fontSize = 7.5.sp)
-                                }
-                            }
-                        }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = state.temperatureDisplay(metric),
+                            color = contentColor,
+                            fontSize = if (h > 120.dp) 34.sp else 30.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.5).sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        StatsRow(today, state, metric, contentColor, subColor, effectiveAccent, iconSize = 10.dp, fontSize = 8.5.sp)
                     }
                 }
 
@@ -450,8 +434,8 @@ fun WeatherWidget(
                     )
 
                     // Right section: Dynamic 3 to 7 Days Forecast based on available width
-                    val availableForecastW = w - 180.dp
-                    val maxFitDays = (availableForecastW / 44.dp).toInt().coerceIn(3, 7)
+                    val availableForecastW = w - 150.dp
+                    val maxFitDays = (availableForecastW / 52.dp).toInt().coerceIn(2, 7)
                     val days = state.dailyForecast.take(minOf(forecastDaysCount, maxFitDays))
                     Row(
                         modifier = Modifier
@@ -469,19 +453,118 @@ fun WeatherWidget(
                                 metric = metric,
                                 contentColor = contentColor,
                                 subColor = subColor,
-                                svgLoader = svgImageLoader
+                                svgLoader = svgImageLoader,
+                                iconSize = (h * 0.3f).coerceIn(24.dp, 38.dp),
+                                labelSize = 9.sp,
+                                tempSize = 9.5.sp
                             )
                         }
                     }
                 }
             }
+        } else if (isTall) {
+            // ── TALL NARROW (1x2, 1x3) — vertical hero so nothing gets squeezed ──
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    MeteoconAnimatedIcon(
+                        slug = state.conditionSlug,
+                        modifier = Modifier.size((w * 0.62f).coerceIn(64.dp, 116.dp))
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = state.temperatureDisplay(metric),
+                        color = contentColor,
+                        fontSize = 36.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-1).sp,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                    if (state.locationName.isNotEmpty()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(Icons.Default.LocationOn, null, tint = effectiveAccent, modifier = Modifier.size(11.dp))
+                            Text(
+                                text = state.locationName.uppercase(),
+                                color = subColor,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                letterSpacing = 0.5.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    Text(
+                        text = state.conditionLabel.uppercase(),
+                        color = effectiveAccent,
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    StatsRow(today, state, metric, contentColor, subColor, effectiveAccent, iconSize = 10.dp, fontSize = 9.sp)
+                    if (state.dailyForecast.isNotEmpty()) {
+                        val days = state.dailyForecast.take(forecastDaysCount.coerceIn(2, 5))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(cardBg)
+                                .border(1.dp, cardBorder, RoundedCornerShape(8.dp))
+                                .padding(vertical = 4.dp, horizontal = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            days.forEach { day ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = day.dayOfWeek,
+                                        color = subColor,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.width(48.dp),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                    AsyncImage(
+                                        model = "file:///android_asset/meteocons/svg/${day.conditionSlug}.svg",
+                                        imageLoader = svgImageLoader,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(Modifier.weight(1f))
+                                    Text(day.maxTempDisplay(metric), color = contentColor, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(day.minTempDisplay(metric), color = subColor, fontSize = 8.5.sp, maxLines = 1, softWrap = false)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         } else {
-            // ── MEDIUM, LARGE, OR TALL VERTICAL LAYOUT (2x2, 3x2, 4x2, etc.) ──────
+            // ── MEDIUM / LARGE (2x2, 3x2, 4x2, etc.) ──
             // Huge Hero Animated Icon and balanced vertical flow without bottom-snapping
             val heroIconSize = when {
-                isLarge  -> (h * 0.42f).coerceIn(90.dp, 130.dp)
-                isMedium -> (h * 0.36f).coerceIn(60.dp, 76.dp)
-                else     -> (w * 0.36f).coerceIn(48.dp, 66.dp)
+                isLarge  -> (h * 0.62f).coerceIn(110.dp, 190.dp)
+                isMedium -> (minOf(w, h) * 0.55f).coerceIn(78.dp, 132.dp)
+                else     -> (minOf(w, h) * 0.55f).coerceIn(78.dp, 132.dp)
             }
 
             Column(
@@ -490,9 +573,9 @@ fun WeatherWidget(
             ) {
                 // Upper Section: Prominent Hero Icon + Detailed Conditions
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.weight(1f, fill = true).fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(if (isLarge) 16.dp else 10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(if (isLarge) 18.dp else 12.dp)
                 ) {
                     MeteoconAnimatedIcon(
                         slug = state.conditionSlug,
@@ -503,85 +586,49 @@ fun WeatherWidget(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = state.temperatureDisplay(metric),
-                                color = contentColor,
-                                fontSize = if (isLarge) 38.sp else if (isMedium) 26.sp else 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = (-1).sp,
-                                maxLines = 1
-                            )
-
-                            if (state.locationName.isNotEmpty()) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(bottom = if (isLarge) 5.dp else 2.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.LocationOn,
-                                        contentDescription = null,
-                                        tint = effectiveAccent,
-                                        modifier = Modifier.size(if (isLarge) 12.dp else 9.dp)
-                                    )
-                                    Text(
-                                        text = state.locationName.uppercase(),
-                                        color = subColor,
-                                        fontSize = if (isLarge) 10.sp else 8.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        letterSpacing = 1.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                        Text(
+                            text = state.temperatureDisplay(metric),
+                            color = contentColor,
+                            fontSize = if (isLarge) 50.sp else 36.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-1.5).sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        if (state.locationName.isNotEmpty()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = null,
+                                    tint = effectiveAccent,
+                                    modifier = Modifier.size(if (isLarge) 13.dp else 10.dp)
+                                )
+                                Text(
+                                    text = state.locationName.uppercase(),
+                                    color = subColor,
+                                    fontSize = if (isLarge) 11.sp else 9.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    letterSpacing = 0.8.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
-
                         Text(
                             text = state.conditionLabel.uppercase(),
                             color = effectiveAccent,
-                            fontSize = if (isLarge) 12.sp else if (isMedium) 9.5.sp else 8.5.sp,
+                            fontSize = if (isLarge) 13.sp else 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp,
-                            maxLines = 1
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
                         )
-
-                        // Vitals row: Wind, Humidity, Today's High/Low
-                        val today = state.dailyForecast.firstOrNull()
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(top = 2.dp)
-                        ) {
-                            if (today != null) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Icon(Icons.Default.ArrowUpward, null, tint = effectiveAccent, modifier = Modifier.size(9.dp))
-                                    Text(today.maxTempDisplay(metric), color = contentColor, fontSize = 8.sp, fontWeight = FontWeight.SemiBold)
-                                    Icon(Icons.Default.ArrowDownward, null, tint = subColor, modifier = Modifier.size(9.dp))
-                                    Text(today.minTempDisplay(metric), color = subColor, fontSize = 8.sp)
-                                }
-                            }
-
-                            if (state.windspeedKmh > 0) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Icon(Icons.Default.Air, null, tint = subColor, modifier = Modifier.size(9.dp))
-                                    Text("%.0f km/h".format(state.windspeedKmh), color = subColor, fontSize = 7.5.sp)
-                                }
-                            }
-
-                            if (state.humidity > 0) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Icon(Icons.Default.WaterDrop, null, tint = subColor, modifier = Modifier.size(9.dp))
-                                    Text("${state.humidity}%", color = subColor, fontSize = 7.5.sp)
-                                }
-                            }
-                        }
+                        StatsRow(today, state, metric, contentColor, subColor, effectiveAccent, iconSize = if (isLarge) 12.dp else 10.dp, fontSize = if (isLarge) 10.5.sp else 9.sp)
                     }
                 }
 
@@ -605,12 +652,54 @@ fun WeatherWidget(
                                 contentColor = contentColor,
                                 subColor = subColor,
                                 svgLoader = svgImageLoader,
-                                iconSize = if (isLarge) 28.dp else 22.dp,
+                                iconSize = if (isLarge) 40.dp else 30.dp,
+                                labelSize = if (isLarge) 10.sp else 8.5.sp,
+                                tempSize = if (isLarge) 11.sp else 9.sp,
                                 modifier = Modifier.weight(1f)
                             )
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StatsRow(
+    today: DailyForecast?,
+    state: WeatherState,
+    metric: Boolean,
+    contentColor: Color,
+    subColor: Color,
+    accent: Color,
+    iconSize: Dp = 9.dp,
+    fontSize: TextUnit = 8.sp
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = Modifier.padding(top = 3.dp)
+    ) {
+        if (today != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Icon(Icons.Default.ArrowUpward, null, tint = accent, modifier = Modifier.size(iconSize))
+                Text(today.maxTempDisplay(metric), color = contentColor, fontSize = fontSize, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                Icon(Icons.Default.ArrowDownward, null, tint = subColor, modifier = Modifier.size(iconSize))
+                Text(today.minTempDisplay(metric), color = subColor, fontSize = fontSize, maxLines = 1, softWrap = false)
+            }
+        }
+        if (state.windspeedKmh > 0) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Icon(Icons.Default.Air, null, tint = subColor, modifier = Modifier.size(iconSize))
+                Text("%.0f km/h".format(state.windspeedKmh), color = subColor, fontSize = fontSize, maxLines = 1, softWrap = false)
+            }
+        }
+        if (state.humidity > 0) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Icon(Icons.Default.WaterDrop, null, tint = subColor, modifier = Modifier.size(iconSize))
+                Text("${state.humidity}%", color = subColor, fontSize = fontSize, maxLines = 1, softWrap = false)
             }
         }
     }
@@ -624,6 +713,8 @@ private fun DailyForecastCard(
     subColor: Color,
     svgLoader: ImageLoader,
     iconSize: Dp = 24.dp,
+    labelSize: TextUnit = 8.sp,
+    tempSize: TextUnit = 8.5.sp,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -634,9 +725,11 @@ private fun DailyForecastCard(
         Text(
             text = forecast.dayOfWeek,
             color = subColor,
-            fontSize = 8.sp,
+            fontSize = labelSize,
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.5.sp,
+            maxLines = 1,
+            softWrap = false,
             textAlign = TextAlign.Center
         )
 
@@ -654,14 +747,14 @@ private fun DailyForecastCard(
             Text(
                 text = forecast.maxTempDisplay(metric),
                 color = contentColor,
-                fontSize = 8.5.sp,
+                fontSize = tempSize,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
             Text(
                 text = forecast.minTempDisplay(metric),
                 color = subColor,
-                fontSize = 7.5.sp,
+                fontSize = (tempSize.value * 0.88f).sp,
                 textAlign = TextAlign.Center
             )
         }

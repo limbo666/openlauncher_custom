@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.text.font.FontWeight
@@ -47,7 +48,7 @@ fun AppShortcutsWidget(
 ) {
     val isLight = isDayMode || (customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f)
     val contentColor = customContentColor ?: if (isLight) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val subColor = customContentColor?.copy(alpha = 0.7f) ?: if (isLight) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val subColor = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.7f) ?: if (isLight) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
     val slotBg = customContentColor?.let { if (isLight) Color(0x1F000000) else Color(0x22FFFFFF) } ?: if (isLight) Color(0xFFEFEFEF).copy(alpha = 0.8f) else Color(0xFF141414).copy(alpha = 0.65f)
     val slotBorder = customContentColor?.copy(alpha = 0.25f) ?: if (isLight) Color(0xFFD0D0D0) else Color(0xFF282828)
 

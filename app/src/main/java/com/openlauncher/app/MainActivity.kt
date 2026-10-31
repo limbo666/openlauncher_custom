@@ -1,10 +1,12 @@
 package com.openlauncher.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -13,12 +15,19 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Density
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -26,9 +35,12 @@ import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.SidebarPosition
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.model.NavDestination
+import com.openlauncher.app.service.MediaListenerService
+import com.openlauncher.app.ui.components.CarDriveOverlay
 import com.openlauncher.app.ui.components.Sidebar
 import com.openlauncher.app.ui.screen.*
 import com.openlauncher.app.ui.theme.OpenLauncherTheme
+import com.openlauncher.app.util.VolumeController
 import com.openlauncher.app.viewmodel.LauncherViewModel
 
 class MainActivity : ComponentActivity() {
@@ -88,6 +100,7 @@ class MainActivity : ComponentActivity() {
             val appsLoading by vm.appsLoading.collectAsStateWithLifecycle()
             val nowPlaying  by vm.nowPlaying.collectAsStateWithLifecycle()
             val weather     by vm.weather.collectAsStateWithLifecycle()
+            val weatherError by vm.weatherError.collectAsStateWithLifecycle()
             val isWeatherRefreshing by vm.isWeatherRefreshing.collectAsStateWithLifecycle()
             val location    by vm.location.collectAsStateWithLifecycle()
             val bearing     by vm.compassBearing.collectAsStateWithLifecycle()
@@ -99,11 +112,23 @@ class MainActivity : ComponentActivity() {
             val isDayModeVM by vm.isDayMode.collectAsStateWithLifecycle()
             val isScreenBlanked by vm.isScreenBlanked.collectAsStateWithLifecycle()
             val hardwareRadio by vm.hardwareRadio.collectAsStateWithLifecycle()
+            val mediaSessions by MediaListenerService.sessions.collectAsStateWithLifecycle()
+            val rearrangeMode by vm.rearrangeMode.collectAsStateWithLifecycle()
+            val carPhase by vm.carPhase.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isCustom = settings.dayNightMode == DayNightMode.CUSTOM
             val isDayMode = if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
             val pickerSlot      by vm.shortcutPickerSlot.collectAsStateWithLifecycle()
             val appPickerTarget by vm.appPickerTarget.collectAsStateWithLifecycle()
+
+            LaunchedEffect(settings.volumeProtocol) {
+                VolumeController.setProtocol(settings.volumeProtocol)
+            }
+
+            // System Back on any non-home screen returns to the launcher home page.
+            BackHandler(enabled = nav != NavDestination.HOME) {
+                vm.navigate(NavDestination.HOME)
+            }
 
             val accent         = Color(settings.accentColor)
             val bg             = if (isCustom && settings.useCustomBackgroundColor) {
@@ -147,7 +172,8 @@ class MainActivity : ComponentActivity() {
                     appFont    = settings.appFont,
                     isDayMode  = isDayMode,
                     isCustom   = isCustom,
-                    useCustomBg = isCustom && settings.useCustomBackgroundColor
+                    useCustomBg = isCustom && settings.useCustomBackgroundColor,
+                    helpTextColor = settings.helpTextColor?.let { Color(it) }
                 ) {
                 if (!settings.onboardingCompleted) {
                     OnboardingScreen(
@@ -224,7 +250,34 @@ class MainActivity : ComponentActivity() {
                                 label    = "pane_transition"
                             ) { destination ->
                                 when (destination) {
-                                    NavDestination.HOME -> HomeScreen(
+                                    NavDestination.VOLUME_CALIBRATION -> VolumeCalibrationScreen(
+                                        currentProtocol = settings.volumeProtocol,
+                                        accent = accent,
+                                        isDayMode = isDayMode,
+                                        onSelectProtocol = { id -> vm.setVolumeProtocol(id) },
+                                        onBack = { vm.navigate(NavDestination.SETTINGS) }
+                                    )
+
+                                    NavDestination.HOME -> {
+                                        val pagerState = rememberPagerState(initialPage = settings.homePage, pageCount = { 2 })
+                                        LaunchedEffect(settings.homePage) {
+                                            if (pagerState.currentPage != settings.homePage) {
+                                                pagerState.animateScrollToPage(settings.homePage)
+                                            }
+                                        }
+                                        LaunchedEffect(pagerState) {
+                                            snapshotFlow { pagerState.currentPage }.collect { page ->
+                                                if (page != settings.homePage) vm.setHomePage(page)
+                                            }
+                                        }
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                        Column(modifier = Modifier.fillMaxSize()) {
+                                            HorizontalPager(
+                                                state = pagerState,
+                                                userScrollEnabled = !rearrangeMode,
+                                                modifier = Modifier.weight(1f).fillMaxWidth()
+                                            ) { page ->
+                                        HomeScreen(
                                         settings            = settings,
                                         weather             = weather,
                                         nowPlaying          = nowPlaying,
@@ -254,16 +307,18 @@ class MainActivity : ComponentActivity() {
                                             val pkg = nowPlaying?.controller?.packageName
                                             if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)
                                         },
-                                        onUpdateWidget      = { id, sx, sy -> vm.updateWidgetConfig(id, sx, sy) },
-                                        onMoveWidget        = { id, gx, gy -> vm.moveWidgetConfig(id, gx, gy) },
-                                        onAddWidget         = { id -> vm.addWidget(id) },
-                                        onRemoveWidget      = { id -> vm.removeWidget(id) },
-                                        onSetClockStyle     = { style -> vm.updateSettings { copy(clockStyle = style) } },
-                                        onSetVitalsAsBars   = { asBars -> vm.updateSettings { copy(vitalsAsBars = asBars) } },
-                                        onSetSpeedometerDigitalOnly = { digital -> vm.updateSettings { copy(speedometerDigitalOnly = digital) } },
-                                         onSetAppShortcutCount = { count -> vm.updateSettings { copy(appShortcutCount = count) } },
-                                         onSetSoundboardButtonCount = { count -> vm.updateSettings { copy(soundboardButtonCount = count) } },
-                                        onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(idx, pad) },
+                                        widgetLayoutOverride = if (page == 0) settings.widgetLayout else settings.homePageAltLayout,
+                                        isAltPage          = page == 1,
+                                        onUpdateWidget      = { id, sx, sy -> vm.updateWidgetConfig(page, id, sx, sy) },
+                                        onMoveWidget        = { id, gx, gy -> vm.moveWidgetConfig(page, id, gx, gy) },
+                                        onAddWidget         = { id -> vm.addWidget(page, id) },
+                                        onRemoveWidget      = { id -> vm.removeWidget(page, id) },
+                                        onSetClockStyle     = { style -> vm.setClockStyle(page, style) },
+                                        onSetVitalsAsBars   = { asBars -> vm.setVitalsAsBars(page, asBars) },
+                                        onSetSpeedometerDigitalOnly = { digital -> vm.setSpeedometerDigitalOnly(page, digital) },
+                                         onSetAppShortcutCount = { count -> vm.setAppShortcutCount(page, count) },
+                                         onSetSoundboardButtonCount = { count -> vm.setSoundboardButtonCount(page, count) },
+                                        onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(page, idx, pad) },
                                         hardwareRadio         = hardwareRadio,
                                         onLaunchHardwareRadio = { vm.launchHardwareRadioApp() },
                                         onStopHardwareRadio   = { vm.stopHardwareRadioApp() },
@@ -277,22 +332,51 @@ class MainActivity : ComponentActivity() {
                                         onToggleScreenBlanked = { vm.toggleScreenBlanked() },
                                         installedApps         = apps,
                                         onLaunchApp           = { pkg -> vm.launchApp(pkg) },
-                                        onSetWidgetBgColor    = { id, color -> vm.setWidgetBgColor(id, color) },
-                                        onSetWidgetBgMode     = { id, mode -> vm.setWidgetBgMode(id, mode) },
-                                        onSetAppShortcutPackage = { slot, pkg -> vm.setAppShortcutPackage(slot, pkg) },
+                                        onSetWidgetBgColor    = { id, color -> vm.setWidgetBgColor(page, id, color) },
+                                        onSetWidgetBgMode     = { id, mode -> vm.setWidgetBgMode(page, id, mode) },
+                                        onSetAppShortcutPackage = { slot, pkg -> vm.setAppShortcutPackage(page, slot, pkg) },
                                         onToggleDayNight      = { vm.toggleDayNightMode() },
-                                        onToggleQuickActionButton = { id -> vm.toggleQuickActionButton(id) },
-                                        onResetQuickActionButtons = { vm.resetQuickActionButtons() },
-                                        onToggleVitalsElement = { id -> vm.toggleVitalsElement(id) },
-                                        onResetVitalsElements = { vm.resetVitalsElements() },
-                                        onToggleWidgetTitle   = { id -> vm.toggleWidgetTitle(id) },
+                                        onToggleQuickActionButton = { id -> vm.toggleQuickActionButton(page, id) },
+                                        onResetQuickActionButtons = { vm.resetQuickActionButtons(page) },
+                                        onToggleVitalsElement = { id -> vm.toggleVitalsElement(page, id) },
+                                        onResetVitalsElements = { vm.resetVitalsElements(page) },
+                                        onToggleWidgetTitle   = { id -> vm.toggleWidgetTitle(page, id) },
                                         onZeroAltimeter       = { roll, pitch -> vm.zeroAltimeter(roll, pitch) },
                                         onResetAltimeterZero  = { vm.resetAltimeterZero() },
                                         onSetAdvancedWeatherIcons = { advanced -> vm.setAdvancedWeatherIcons(advanced) },
                                         onSelectObdAdapter    = { address, name ->
                                             vm.updateSettings { copy(obdDeviceAddress = address, obdDeviceName = name) }
-                                        }
+                                        },
+                                        carImageUri           = settings.carImageUri,
+                                        carRestingVisible     = settings.displayAnimation && carPhase == LauncherViewModel.CarPhase.RESTING
                                     )
+                                            }
+                                            // Page indicator dots (tap to switch — safer while driving than swiping)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                                                horizontalArrangement = Arrangement.Center,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                repeat(2) { page ->
+                                                    val activeDot = pagerState.currentPage == page
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .padding(horizontal = 4.dp)
+                                                            .size(if (activeDot) 9.dp else 7.dp)
+                                                            .clip(CircleShape)
+                                                            .background(if (activeDot) accent else textColor.copy(alpha = 0.3f))
+                                                            .clickable { vm.setHomePage(page) }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        CarDriveOverlay(
+                                            carImageUri = settings.carImageUri,
+                                            active = settings.displayAnimation && carPhase == LauncherViewModel.CarPhase.DRIVING,
+                                            onDone = { vm.clearCarPhase() }
+                                        )
+                                        }
+                                    }
 
                                     NavDestination.APP_LIBRARY -> AppLibraryScreen(
                                         apps                = apps,
@@ -323,7 +407,35 @@ class MainActivity : ComponentActivity() {
                                         settings = settings,
                                         accent   = accent,
                                         onUpdate = { block -> vm.updateSettings(block) },
-                                        onReset  = { vm.resetSettings() }
+                                        onReset  = { vm.resetSettings() },
+                                        onOpenDiagnostics = { vm.navigate(NavDestination.DIAGNOSTICS) },
+                                        onOpenVolumeCalibration = { vm.navigate(NavDestination.VOLUME_CALIBRATION) }
+                                    )
+
+                                    NavDestination.DIAGNOSTICS -> DiagnosticsScreen(
+                                        settings     = settings,
+                                        accent       = accent,
+                                        isDayMode    = isDayMode,
+                                        location     = location,
+                                        bearing      = bearing,
+                                        isOnline     = isOnline,
+                                        isWifi       = isWifi,
+                                        isData       = isData,
+                                        weather      = weather,
+                                        weatherError = weatherError,
+                                        onRefresh    = {
+                                            vm.refreshConnectivity()
+                                            vm.refreshBluetoothStatus()
+                                            vm.startLocationUpdates()
+                                            vm.refreshWeather(force = true)
+                                        },
+                                        onBack       = { vm.navigate(NavDestination.SETTINGS) },
+                                        onOpenVolumeCalibration = { vm.navigate(NavDestination.VOLUME_CALIBRATION) },
+                                        sessions = mediaSessions,
+                                        apps = apps,
+                                        hardwareRadio = hardwareRadio,
+                                        onRadioSeekUp = { vm.radioSeekUp() },
+                                        onRadioSeekDown = { vm.radioSeekDown() }
                                     )
                                 }
                             }
@@ -366,6 +478,19 @@ class MainActivity : ComponentActivity() {
         vm.refreshConnectivity()
         vm.refreshBluetoothStatus()
         vm.refreshMedia()
+    }
+
+    /**
+     * Because this activity is the HOME app in `singleTask` mode, pressing the device Home
+     * button re-delivers the HOME intent here instead of restarting the activity — so we
+     * reset the internal navigation back to the launcher home page.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            vm.navigate(NavDestination.HOME)
+        }
     }
 
     override fun onStop() {

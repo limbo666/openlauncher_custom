@@ -2,6 +2,8 @@ package com.openlauncher.app.ui.screen
 
 import android.content.res.Configuration
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,8 +47,10 @@ import com.openlauncher.app.data.GRID_COLS
 import com.openlauncher.app.data.GRID_ROWS
 import com.openlauncher.app.data.WidgetBgMode
 import com.openlauncher.app.data.WidgetConfig
+import com.openlauncher.app.data.widgetContentFor
 import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.model.WeatherState
+import com.openlauncher.app.ui.components.CarImage
 import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.ui.theme.surfaceFrom
 import com.openlauncher.app.ui.widget.*
@@ -85,7 +89,7 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("OBD",           "OBD2",          Icons.Default.Bluetooth,     "Live engine & sensor telemetry")
 )
 
-private fun canAddWidget(settings: com.openlauncher.app.data.AppSettings): Boolean {
+private fun canAddWidget(settings: AppSettings, layout: List<WidgetConfig>): Boolean {
     val visibleIds = buildSet {
         if (settings.showClock) add("CLOCK")
         if (settings.showWeather) add("WEATHER")
@@ -101,7 +105,7 @@ private fun canAddWidget(settings: com.openlauncher.app.data.AppSettings): Boole
         if (settings.showAppShortcuts) add("APP_SHORTCUTS")
         if (settings.showObd) add("OBD")
     }
-    val activeWidgets = settings.widgetLayout.filter { it.enabled && it.id in visibleIds }
+    val activeWidgets = layout.filter { it.enabled && it.id in visibleIds }
     val occupied = buildSet<Pair<Int, Int>> {
         activeWidgets.forEach { w ->
             for (dx in 0 until w.spanX) for (dy in 0 until w.spanY) add(w.gridX + dx to w.gridY + dy)
@@ -145,6 +149,8 @@ fun HomeScreen(
     onMoveWidget: (id: String, gridX: Int, gridY: Int) -> Unit,
     onAddWidget: (id: String) -> Unit,
     onRemoveWidget: (id: String) -> Unit,
+    widgetLayoutOverride: List<WidgetConfig>? = null,
+    isAltPage: Boolean = false,
     onSetClockStyle: (ClockStyle) -> Unit,
     onSetVitalsAsBars: (Boolean) -> Unit = {},
     onSetSpeedometerDigitalOnly: (Boolean) -> Unit = {},
@@ -179,9 +185,13 @@ fun HomeScreen(
     isWeatherRefreshing: Boolean = false,
     onRefreshWeather: () -> Unit = {},
     onSelectObdAdapter: (address: String, name: String) -> Unit = { _, _ -> },
+    carImageUri: String = "",
+    carRestingVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val accent       = Color(settings.accentColor)
+    val content      = settings.widgetContentFor(if (isAltPage) 1 else 0)
+    val pageLayout   = widgetLayoutOverride ?: settings.widgetLayout
     val gap          = 6.dp
     val hasWallpaper = settings.wallpaperUri.isNotEmpty()
     val widgetBg     = when {
@@ -209,6 +219,12 @@ fun HomeScreen(
     val isLandscape      = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     var editMode         by remember { mutableStateOf(false) }
     var widgetLibraryOpen by remember { mutableStateOf(false) }
+
+    // Car "resting" indication beside the vehicle name — soft fade in/out.
+    val restingAlpha by animateFloatAsState(
+        targetValue = if (carRestingVisible) 1f else 0f,
+        animationSpec = tween(600)
+    )
 
     Column(modifier = modifier.fillMaxSize()) {
 
@@ -286,6 +302,15 @@ fun HomeScreen(
                     letterSpacing = 3.sp,
                     fontSize      = 14.sp
                 )
+
+                if (carImageUri.isNotEmpty() && restingAlpha > 0.01f) {
+                    Spacer(Modifier.width(8.dp))
+                    CarImage(
+                        carImageUri = carImageUri,
+                        alpha = restingAlpha,
+                        modifier = Modifier.size(width = 56.dp, height = 38.dp)
+                    )
+                }
             }
 
             Spacer(Modifier.weight(1f))
@@ -383,7 +408,7 @@ fun HomeScreen(
             }
 
             // Keep only visible widgets exactly as configured in settings, allowing explicit resizing to dictate layout
-            val visible = settings.widgetLayout.filter { it.enabled && it.id in visibleIds }
+            val visible = pageLayout.filter { it.enabled && it.id in visibleIds }
             val rendered = visible
 
             // ── Drag state ───────────────────────────────────────────────────
@@ -438,6 +463,30 @@ fun HomeScreen(
                             )
                         }
                     }
+            }
+
+            if (rendered.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = if (isAltPage) "PAGE 2 IS EMPTY" else "NO WIDGETS",
+                        color = headerTextColor.copy(alpha = 0.6f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 2.sp
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Swipe left or right to switch pages",
+                        color = headerTextColor.copy(alpha = 0.4f),
+                        fontSize = 9.sp,
+                        letterSpacing = 1.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
 
             rendered.forEach { w ->
@@ -544,7 +593,7 @@ fun HomeScreen(
                 ) {
                     when (w.id) {
                         "CLOCK" -> ClockWidget(
-                            style              = settings.clockStyle,
+                            style              = content.clockStyle,
                             accent             = widgetAccent,
                             isDayMode          = widgetDayMode,
                             customContentColor = customContentColor,
@@ -614,15 +663,15 @@ fun HomeScreen(
                             isMetric           = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC,
                             accent             = widgetAccent,
                             isDayMode          = widgetDayMode,
-                            digitalOnly        = settings.speedometerDigitalOnly,
+                            digitalOnly        = content.speedometerDigitalOnly,
                             customContentColor = customContentColor,
                             modifier           = Modifier.fillMaxSize()
                         )
                         "VITALS" -> VitalsWidget(
                             accent             = widgetAccent,
                             isDayMode          = widgetDayMode,
-                            asBars             = settings.vitalsAsBars,
-                            vitalsElements     = settings.vitalsElements,
+                            asBars             = content.vitalsAsBars,
+                            vitalsElements     = content.vitalsElements,
                             customContentColor = customContentColor,
                             modifier           = Modifier.fillMaxSize()
                         )
@@ -635,11 +684,11 @@ fun HomeScreen(
                             modifier           = Modifier.fillMaxSize()
                         )
                         "SOUNDBOARD" -> SoundboardWidget(
-                            pads               = settings.soundboardPads,
+                            pads               = content.soundboardPads,
                             accent             = widgetAccent,
                             isDayMode          = widgetDayMode,
                             customContentColor = customContentColor,
-                            buttonCount        = settings.soundboardButtonCount,
+                            buttonCount        = content.soundboardButtonCount,
                             isEditing          = editMode,
                             onUpdatePad        = onUpdateSoundPad,
                             modifier           = Modifier.fillMaxSize()
@@ -655,19 +704,19 @@ fun HomeScreen(
                             isDayMode             = widgetDayMode,
                             dayNightMode          = settings.dayNightMode,
                             customContentColor    = customContentColor,
-                            enabledActions        = settings.quickActionButtons,
+                            enabledActions        = content.quickActionButtons,
                             onToggleScreenBlanked = onToggleScreenBlanked,
                             onToggleDayNight      = onToggleDayNight,
                             onOpenConfig          = { quickActionsConfigOpen = true },
                             modifier              = Modifier.fillMaxSize()
                         )
                         "APP_SHORTCUTS" -> AppShortcutsWidget(
-                            packages           = settings.appWidgetPackages,
+                            packages           = content.appWidgetPackages,
                             installedApps      = installedApps,
                             accent             = widgetAccent,
                             isDayMode          = widgetDayMode,
                             customContentColor = customContentColor,
-                            shortcutCount      = settings.appShortcutCount,
+                            shortcutCount      = content.appShortcutCount,
                             onLaunchApp        = onLaunchApp,
                             onPickAppForSlot   = { slot -> appPickerSlotIndex = slot },
                             modifier           = Modifier.fillMaxSize()
@@ -878,14 +927,14 @@ fun HomeScreen(
 
     // ── Widget context menu (long-press any cell) ────────────────────────────
     contextMenuId?.let { id ->
-        val currentConfig = settings.widgetLayout.find { it.id == id }
+        val currentConfig = pageLayout.find { it.id == id }
         val isTitleShown = currentConfig?.isTitleVisible ?: true
         WidgetContextMenu(
             widgetId            = id,
             accent              = accent,
-            clockStyle          = settings.clockStyle,
-            vitalsAsBars        = settings.vitalsAsBars,
-            speedometerDigitalOnly = settings.speedometerDigitalOnly,
+            clockStyle          = content.clockStyle,
+            vitalsAsBars        = content.vitalsAsBars,
+            speedometerDigitalOnly = content.speedometerDigitalOnly,
             carPlayPackage      = settings.carPlayPackage,
             androidAutoPackage  = settings.androidAutoPackage,
             pipAppPackage       = settings.pipAppPackage,
@@ -907,9 +956,9 @@ fun HomeScreen(
             onSetClockStyle     = { onSetClockStyle(it) },
             onSetVitalsAsBars   = { onSetVitalsAsBars(it) },
             onSetSpeedometerDigitalOnly = { onSetSpeedometerDigitalOnly(it) },
-            appShortcutCount    = settings.appShortcutCount,
+            appShortcutCount    = content.appShortcutCount,
             onSetAppShortcutCount = onSetAppShortcutCount,
-            soundboardButtonCount = settings.soundboardButtonCount,
+            soundboardButtonCount = content.soundboardButtonCount,
             onSetSoundboardButtonCount = onSetSoundboardButtonCount,
             advancedWeatherIcons = settings.advancedWeatherIcons,
             onSetAdvancedWeatherIcons = onSetAdvancedWeatherIcons,
@@ -919,7 +968,7 @@ fun HomeScreen(
 
     // ── Widget Background Glass Color Dialog ─────────────────────────────────
     colorPickerWidgetId?.let { id ->
-        val cfg = settings.widgetLayout.find { it.id == id }
+        val cfg = pageLayout.find { it.id == id }
         WidgetColorDialog(
             widgetId          = id,
             currentMode       = cfg?.bgMode ?: WidgetBgMode.DEFAULT,
@@ -934,7 +983,7 @@ fun HomeScreen(
 
     // ── App Shortcuts Slot Assignment Dialog ─────────────────────────────────
     appPickerSlotIndex?.let { slot ->
-        val currentPkg = settings.appWidgetPackages.getOrNull(slot).orEmpty()
+        val currentPkg = content.appWidgetPackages.getOrNull(slot).orEmpty()
         AppPickerModalDialog(
             slotIndex      = slot,
             currentPackage = currentPkg,
@@ -949,7 +998,7 @@ fun HomeScreen(
     // ── Quick Actions Button Configuration Dialog ────────────────────────────
     if (quickActionsConfigOpen) {
         QuickActionsConfigDialog(
-            enabledActions   = settings.quickActionButtons,
+            enabledActions   = content.quickActionButtons,
             accent           = accent,
             isDayMode        = isDayMode,
             onToggleAction   = { actionId -> onToggleQuickActionButton(actionId) },
@@ -961,7 +1010,7 @@ fun HomeScreen(
     // ── Vitals Elements Configuration Dialog ─────────────────────────────────
     if (vitalsConfigOpen) {
         VitalsConfigDialog(
-            enabledElements  = settings.vitalsElements,
+            enabledElements  = content.vitalsElements,
             accent           = accent,
             isDayMode        = isDayMode,
             onToggleElement  = { elementId -> onToggleVitalsElement(elementId) },
@@ -972,7 +1021,7 @@ fun HomeScreen(
 
     // ── Resize dialog ────────────────────────────────────────────────────────
     resizingId?.let { id ->
-        val config = settings.widgetLayout.find { it.id == id }
+        val config = pageLayout.find { it.id == id }
         if (config != null) {
             WidgetResizeDialog(
                 config    = config,
@@ -991,6 +1040,7 @@ fun HomeScreen(
     if (widgetLibraryOpen) {
         WidgetLibraryDialog(
             settings  = settings,
+            layout    = pageLayout,
             accent    = accent,
             isDayMode = isDayMode,
             onAdd     = { id -> onAddWidget(id) },
@@ -1434,6 +1484,7 @@ private fun SpanRow(
 @Composable
 private fun WidgetLibraryDialog(
     settings: AppSettings,
+    layout: List<WidgetConfig>,
     accent: Color,
     isDayMode: Boolean,
     onAdd: (String) -> Unit,
@@ -1445,7 +1496,9 @@ private fun WidgetLibraryDialog(
     val titleColor  = if (isDayMode) Color(0xFF495057) else Color(0xFF555555)
     val closeColor  = if (isDayMode) Color(0xFF495057) else Color(0xFF444444)
 
-    val activeIds = buildSet {
+    // Match exactly what HomeScreen renders: a widget is "on this page" only when the
+    // global show-flag is ON *and* the page layout has it enabled.
+    val visibleIds = buildSet {
         if (settings.showClock) add("CLOCK")
         if (settings.showWeather) add("WEATHER")
         if (settings.showNowPlaying) add("NOW_PLAYING")
@@ -1460,7 +1513,8 @@ private fun WidgetLibraryDialog(
         if (settings.showAppShortcuts) add("APP_SHORTCUTS")
         if (settings.showObd) add("OBD")
     }
-    val canAdd = canAddWidget(settings)
+
+    val canAdd = canAddWidget(settings, layout)
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -1488,13 +1542,13 @@ private fun WidgetLibraryDialog(
             }
 
             LazyVerticalGrid(
-                columns               = GridCells.Fixed(4),
+                columns               = GridCells.Adaptive(minSize = 92.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement   = Arrangement.spacedBy(6.dp),
                 modifier              = Modifier.fillMaxWidth()
             ) {
                 items(ALL_WIDGET_TYPES) { info ->
-                    val isActive = info.id in activeIds
+                    val isActive = info.id in visibleIds && layout.any { it.id == info.id && it.enabled }
                     WidgetLibraryCard(
                         info     = info,
                         isActive = isActive,
@@ -1534,51 +1588,94 @@ private fun WidgetLibraryCard(
     val accentLum = 0.299f * accent.red + 0.587f * accent.green + 0.114f * accent.blue
     val effectiveAccent = if (isDayMode && accentLum > 0.65f) Color(0xFF111111) else if (!isDayMode && accentLum < 0.25f) Color(0xFFEEEEEE) else accent
 
-    val enabled    = isActive || canAdd
-    val cardBorder = if (isActive) effectiveAccent else if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF1A1A1A)
-    val cardBg     = if (isActive) effectiveAccent.copy(alpha = if (isDayMode) 0.12f else 0.15f) else if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF0E0E0E)
-    val iconTint   = if (isActive) effectiveAccent else if (isDayMode) Color(0xFF495057) else Color(0xFF333333)
-    val labelColor = if (isActive) effectiveAccent else if (isDayMode) Color(0xFF212529) else Color(0xFF3A3A3A)
+    val enabled = isActive || canAdd
+    // Accent is concentrated on border + icon + status dot; the label stays neutral so
+    // the card reads cleanly instead of being flooded with a single colour. Inactive
+    // cards stay clearly visible (grey) so "available to add" is obvious.
+    val cardBorder = when {
+        isActive  -> effectiveAccent.copy(alpha = 0.9f)
+        isDayMode -> Color(0xFFCCCCCC)
+        else      -> Color(0xFF333333)
+    }
+    val cardBg = when {
+        isActive  -> effectiveAccent.copy(alpha = if (isDayMode) 0.08f else 0.10f)
+        isDayMode -> Color(0xFFFFFFFF)
+        else      -> Color(0xFF171717)
+    }
+    val iconTint = when {
+        isActive  -> effectiveAccent
+        isDayMode -> Color(0xFF6C757D)
+        else      -> Color(0xFF9A9A9A)
+    }
+    val labelColor = when {
+        isActive  -> if (isDayMode) Color(0xFF212529) else Color(0xFFF0F0F0)
+        isDayMode -> Color(0xFF495057)
+        else      -> Color(0xFFC0C0C0)
+    }
 
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(6.dp))
             .background(cardBg)
-            .border(1.dp, cardBorder, RoundedCornerShape(4.dp))
+            .border(1.dp, cardBorder, RoundedCornerShape(6.dp))
             .clickable(enabled = enabled, onClick = onToggle)
-            .padding(6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .padding(6.dp)
     ) {
-        Icon(info.icon, null, tint = iconTint, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.height(5.dp))
-        Text(
-            text          = info.label,
-            color         = labelColor,
-            fontSize      = 7.sp,
-            letterSpacing = 1.sp,
-            textAlign     = TextAlign.Center,
-            maxLines      = 2,
-            lineHeight    = 9.sp
-        )
-        Spacer(Modifier.height(3.dp))
-        Text(
-            text          = when {
-                isActive -> "ACTIVE (REMOVE)"
-                !canAdd  -> "FULL"
-                else     -> "+ ADD"
-            },
-            color         = when {
-                isActive -> effectiveAccent.copy(alpha = 0.85f)
-                !canAdd  -> if (isDayMode) Color(0xFFADB5BD) else Color(0xFF282828)
-                else     -> if (isDayMode) Color(0xFF495057) else effectiveAccent
-            },
-            fontSize      = 6.5.sp,
-            letterSpacing = 1.sp,
-            textAlign     = TextAlign.Center
-        )
+        val side = minOf(maxWidth, maxHeight)
+        val iconSize   = (side * 0.22f).coerceIn(16.dp, 28.dp)
+        val labelSize  = (side.value * 0.070f).coerceIn(7f, 9.5f).sp
+        val statusSize = (side.value * 0.060f).coerceIn(6f, 8f).sp
+
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(info.icon, null, tint = iconTint, modifier = Modifier.size(iconSize))
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text          = info.label,
+                color         = labelColor,
+                fontSize      = labelSize,
+                fontWeight    = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                letterSpacing = 0.5.sp,
+                textAlign     = TextAlign.Center,
+                maxLines      = 2,
+                lineHeight    = (labelSize.value * 1.15f).sp
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                if (isActive) {
+                    Box(
+                        modifier = Modifier
+                            .size(5.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(effectiveAccent)
+                    )
+                }
+                Text(
+                    text          = when {
+                        isActive -> "ACTIVE"
+                        !canAdd  -> "FULL"
+                        else     -> "+ ADD"
+                    },
+                    color         = when {
+                        isActive -> effectiveAccent
+                        !canAdd  -> if (isDayMode) Color(0xFFADB5BD) else Color(0xFF5A5A5A)
+                        else     -> if (isDayMode) Color(0xFF495057) else Color(0xFFB0B0B0)
+                    },
+                    fontSize      = statusSize,
+                    fontWeight    = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                    letterSpacing = 0.5.sp,
+                    textAlign     = TextAlign.Center
+                )
+            }
+        }
     }
 }
 

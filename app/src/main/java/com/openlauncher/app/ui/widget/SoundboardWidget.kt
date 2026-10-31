@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
@@ -49,7 +50,7 @@ fun SoundboardWidget(
     val context      = LocalContext.current
     val isLightMode  = isDayMode || (customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f)
     val contentColor = customContentColor ?: if (isLightMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val dimColor     = customContentColor?.copy(alpha = 0.55f) ?: if (isLightMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val dimColor     = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.55f) ?: if (isLightMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
     val borderColor  = customContentColor?.copy(alpha = 0.25f) ?: if (isLightMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
 
     var activePadIndex by remember { mutableStateOf<Int?>(null) }

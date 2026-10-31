@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,7 +43,7 @@ fun TripTrackerWidget(
     val lcdBg = Color.Transparent
     val lcdBorder = customContentColor?.copy(alpha = 0.22f) ?: if (isLightMode) Color(0xFFCCCCCC) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
     
-    val labelColor = customContentColor?.copy(alpha = 0.60f) ?: if (isLightMode) Color(0xFF888888) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
+    val labelColor = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.60f) ?: if (isLightMode) Color(0xFF888888) else androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
     
     // Safety accents mapped elegantly to the dynamic accent color
     val activeAccent = accent

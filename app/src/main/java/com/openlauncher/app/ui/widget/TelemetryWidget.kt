@@ -11,13 +11,22 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import com.openlauncher.app.util.LocationData
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 @Composable
 fun TelemetryWidget(
@@ -29,277 +38,235 @@ fun TelemetryWidget(
     modifier: Modifier = Modifier
 ) {
     val contentColor = customContentColor ?: if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val subColor     = customContentColor?.copy(alpha = 0.6f) ?: if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-    val ringColor    = customContentColor?.copy(alpha = 0.25f) ?: if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.18f)
-    val cardinalMain = customContentColor?.copy(alpha = 0.85f) ?: if (isDayMode) Color(0xFF333333) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
-    val cardinalSub  = customContentColor?.copy(alpha = 0.50f) ?: if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
-    val arrowColor   = customContentColor ?: if (isDayMode) Color(0xFF222222) else MaterialTheme.colorScheme.onBackground
+    val subColor     = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.6f) ?: if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val ringColor    = customContentColor?.copy(alpha = 0.28f) ?: if (isDayMode) Color(0xFFB0B0B0) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.20f)
+    val headingCardinal = bearingToCardinal(bearing)
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
-        val isCompactH = maxHeight < 140.dp
-        val isNarrow = maxWidth < 240.dp
-        val bottomHeight = if (isCompactH) 20.dp else 36.dp
-        val availableDialH = (maxHeight - bottomHeight - 8.dp).coerceAtLeast(30.dp)
-        val dialSize = minOf(maxWidth - 12.dp, availableDialH).coerceAtLeast(30.dp)
-        val radius = dialSize * 0.36f
+        val w = maxWidth
+        val h = maxHeight
+        val isCompactH = h < 140.dp
+        val isNarrow = w < 240.dp
+        val readoutH = when {
+            isCompactH -> 14.dp
+            isNarrow -> 26.dp
+            else -> 32.dp
+        }
+        val dialArea = (h - readoutH - 4.dp).coerceAtLeast(44.dp)
+        val dialSize = minOf(w, dialArea).coerceAtLeast(44.dp)
 
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // ── Compass Ring (Strict Square prevents rotation distortion) ─────
             Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
+                modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                // Rotating dial layer
-                Box(
-                    modifier = Modifier
-                        .size(dialSize)
-                        .graphicsLayer { rotationZ = -bearing },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val cx = size.width / 2f
-                        val cy = size.height / 2f
-                        val r = radius.toPx()
-                        drawCircle(
-                            color = ringColor,
-                            radius = r,
-                            center = Offset(cx, cy),
-                            style = Stroke(width = 1.5.dp.toPx())
-                        )
-                    }
-
-                    val cardPad = (dialSize / 2 - radius - 6.dp).coerceAtLeast(0.dp)
-                    Text(
-                        text = "N",
-                        color = cardinalMain,
-                        fontSize = if (isCompactH) 9.sp else 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = cardPad)
-                    )
-                    Text(
-                        text = "S",
-                        color = cardinalMain,
-                        fontSize = if (isCompactH) 9.sp else 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = cardPad)
-                    )
-                    Text(
-                        text = "E",
-                        color = cardinalSub,
-                        fontSize = if (isCompactH) 8.sp else 9.5.sp,
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(end = cardPad)
-                    )
-                    Text(
-                        text = "W",
-                        color = cardinalSub,
-                        fontSize = if (isCompactH) 8.sp else 9.5.sp,
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .padding(start = cardPad)
-                    )
-                }
-
-                // Fixed layer: Arrow always points straight up + pivot
-                Canvas(modifier = Modifier.size(dialSize)) {
-                    val cx = size.width / 2f
-                    val cy = size.height / 2f
-                    val r = radius.toPx()
-
-                    val arrowH = r * 0.22f
-                    val arrowW = arrowH * 0.48f
-                    drawPath(
-                        path = Path().apply {
-                            moveTo(cx, cy - arrowH)
-                            lineTo(cx + arrowW, cy + arrowH * 0.42f)
-                            lineTo(cx, cy + arrowH * 0.08f)
-                            lineTo(cx - arrowW, cy + arrowH * 0.42f)
-                            close()
-                        },
-                        color = arrowColor
-                    )
-                    drawCircle(
-                        color = Color(0xFF777777),
-                        radius = 2.5.dp.toPx(),
-                        center = Offset(cx, cy),
-                        style = Stroke(width = 1.2.dp.toPx())
-                    )
-                }
+                CompassDial(
+                    dialSize = dialSize,
+                    bearing = bearing,
+                    accent = accent,
+                    contentColor = contentColor,
+                    subColor = subColor,
+                    ringColor = ringColor
+                )
             }
 
-            // ── Telemetry readouts at bottom ───────────────────────────────────
-            if (isCompactH) {
-                // 3-item single-line row for 1x1: Lat (left), Heading (center), Lon (right)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            // ── Bottom readout: LAT | heading cardinal | LON ─────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = if (isNarrow) 2.dp else 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    if (!isCompactH) {
+                        Text(
+                            text = "LAT",
+                            color = subColor,
+                            letterSpacing = 1.sp,
+                            fontSize = if (isNarrow) 6.5.sp else 7.sp
+                        )
+                    }
                     Text(
-                        text = formatCompactLat(location?.latitude),
-                        color = subColor,
-                        fontSize = 8.sp,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = String.format(java.util.Locale.US, "%.0f° %s", bearing, bearingToCardinal(bearing)),
-                        color = accent,
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = formatCompactLon(location?.longitude),
-                        color = subColor,
-                        fontSize = 8.sp,
+                        text = if (location != null) formatLat(location.latitude, compact = isNarrow || isCompactH) else "—",
+                        color = contentColor,
+                        fontSize = if (isCompactH) 8.sp else 9.5.sp,
                         maxLines = 1
                     )
                 }
-            } else if (isNarrow) {
-                // 3-column layout for narrow cards (LATITUDE left, HEADING center, LONGITUDE right)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = headingCardinal,
+                    color = accent,
+                    fontSize = if (isCompactH) 9.sp else 11.sp,
+                    fontStyle = FontStyle.Italic,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp,
+                    maxLines = 1
+                )
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    if (!isCompactH) {
                         Text(
-                            text = "LATITUDE",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = subColor,
-                            letterSpacing = 0.5.sp,
-                            fontSize = 6.5.sp
-                        )
-                        Text(
-                            text = if (location != null) formatLat(location.latitude, narrow = true) else "—",
-                            color = contentColor,
-                            fontSize = 8.5.sp
-                        )
-                    }
-
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Text(
-                            text = "HEADING",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = subColor,
-                            letterSpacing = 0.5.sp,
-                            fontSize = 6.5.sp
-                        )
-                        Text(
-                            text = String.format(java.util.Locale.US, "%.0f° %s", bearing, bearingToCardinal(bearing)),
-                            color = accent,
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                        horizontalAlignment = Alignment.End
-                    ) {
-                        Text(
-                            text = "LONGITUDE",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = subColor,
-                            letterSpacing = 0.5.sp,
-                            fontSize = 6.5.sp,
-                            textAlign = TextAlign.End
-                        )
-                        Text(
-                            text = if (location != null) formatLon(location.longitude, narrow = true) else "—",
-                            color = contentColor,
-                            fontSize = 8.5.sp,
-                            textAlign = TextAlign.End
-                        )
-                    }
-                }
-            } else {
-                // Multi-line detailed layout for wide cards (2x2 and larger)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            text = "LATITUDE",
-                            style = MaterialTheme.typography.labelSmall,
+                            text = "LON",
                             color = subColor,
                             letterSpacing = 1.sp,
-                            fontSize = 7.sp
-                        )
-                        Text(
-                            text = if (location != null) formatLat(location.latitude) else "—",
-                            color = contentColor,
-                            fontSize = 11.sp
+                            fontSize = if (isNarrow) 6.5.sp else 7.sp
                         )
                     }
-
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Text(
-                            text = "HEADING",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = subColor,
-                            letterSpacing = 1.sp,
-                            fontSize = 7.sp
-                        )
-                        Text(
-                            text = String.format(java.util.Locale.US, "%.0f° %s", bearing, bearingToCardinal(bearing)),
-                            color = accent,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                        horizontalAlignment = Alignment.End
-                    ) {
-                        Text(
-                            text = "LONGITUDE",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = subColor,
-                            letterSpacing = 1.sp,
-                            fontSize = 7.sp,
-                            textAlign = TextAlign.End
-                        )
-                        Text(
-                            text = if (location != null) formatLon(location.longitude) else "—",
-                            color = contentColor,
-                            fontSize = 11.sp,
-                            textAlign = TextAlign.End
-                        )
-                    }
+                    Text(
+                        text = if (location != null) formatLon(location.longitude, compact = isNarrow || isCompactH) else "—",
+                        color = contentColor,
+                        fontSize = if (isCompactH) 8.sp else 9.5.sp,
+                        maxLines = 1
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CompassDial(
+    dialSize: Dp,
+    bearing: Float,
+    accent: Color,
+    contentColor: Color,
+    subColor: Color,
+    ringColor: Color
+) {
+    val measurer = rememberTextMeasurer()
+    val heading = ((bearing % 360f) + 360f) % 360f
+
+    Box(modifier = Modifier.size(dialSize), contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val outerR = size.minDimension * 0.48f
+            val strokeW = (outerR * 0.02f).coerceAtLeast(1f)
+
+            // ── Rotating dial (turning with the vehicle bearing) ──────────────
+            rotate(-bearing, pivot = Offset(cx, cy)) {
+                drawCircle(ringColor, outerR, Offset(cx, cy), style = Stroke(strokeW))
+                drawCircle(ringColor.copy(alpha = 0.45f), outerR * 0.80f, Offset(cx, cy), style = Stroke(strokeW * 0.6f))
+
+                // Ticks: 5° minor, 10° medium, 30° major, 90° cardinal
+                for (deg in 0 until 360 step 5) {
+                    val isCardinal = deg % 90 == 0
+                    val isMajor = deg % 30 == 0
+                    val isMedium = deg % 10 == 0
+                    val a = Math.toRadians((deg - 90).toDouble())
+                    val cosA = cos(a).toFloat()
+                    val sinA = sin(a).toFloat()
+                    val len = when {
+                        isCardinal -> outerR * 0.13f
+                        isMajor    -> outerR * 0.085f
+                        isMedium   -> outerR * 0.055f
+                        else       -> outerR * 0.030f
+                    }
+                    val outer = outerR - strokeW
+                    val inner = outer - len
+                    val col = when {
+                        isCardinal -> contentColor.copy(alpha = 0.92f)
+                        isMajor    -> contentColor.copy(alpha = 0.62f)
+                        isMedium   -> subColor.copy(alpha = 0.50f)
+                        else       -> subColor.copy(alpha = 0.26f)
+                    }
+                    drawLine(
+                        color = col,
+                        start = Offset(cx + outer * cosA, cy + outer * sinA),
+                        end = Offset(cx + inner * cosA, cy + inner * sinA),
+                        strokeWidth = when {
+                            isCardinal -> strokeW * 1.7f
+                            isMajor    -> strokeW
+                            else       -> strokeW * 0.65f
+                        }
+                    )
+                }
+
+                // Cardinal labels (kept well outside the centre so they never crowd the heading)
+                val cardinalFont = (outerR * 0.17f).toSp()
+                listOf("N" to 0, "E" to 90, "S" to 180, "W" to 270).forEach { (label, deg) ->
+                    val a = Math.toRadians((deg - 90).toDouble())
+                    val r = outerR * 0.77f
+                    val tx = cx + r * cos(a).toFloat()
+                    val ty = cy + r * sin(a).toFloat()
+                    val style = TextStyle(
+                        color = if (label == "N") accent else contentColor.copy(alpha = 0.88f),
+                        fontSize = cardinalFont,
+                        fontWeight = FontWeight.Bold
+                    )
+                    val layout = measurer.measure(AnnotatedString(label), style)
+                    drawText(layout, topLeft = Offset(tx - layout.size.width / 2f, ty - layout.size.height / 2f))
+                }
+
+                // Degree numerals on larger dials only (avoids clutter when small)
+                if (outerR > 78f) {
+                    val degFont = (outerR * 0.080f).toSp()
+                    for (deg in 30 until 360 step 30) {
+                        if (deg % 90 == 0) continue
+                        val a = Math.toRadians((deg - 90).toDouble())
+                        val r = outerR * 0.86f
+                        val tx = cx + r * cos(a).toFloat()
+                        val ty = cy + r * sin(a).toFloat()
+                        val layout = measurer.measure(AnnotatedString("$deg"), TextStyle(color = subColor, fontSize = degFont))
+                        drawText(layout, topLeft = Offset(tx - layout.size.width / 2f, ty - layout.size.height / 2f))
+                    }
+                }
+
+                // North marker (small accent triangle sitting on the ring at N)
+                val markerH = outerR * 0.10f
+                val markerW = outerR * 0.045f
+                drawPath(
+                    path = Path().apply {
+                        moveTo(cx, cy - outerR + markerH)
+                        lineTo(cx - markerW, cy - outerR)
+                        lineTo(cx + markerW, cy - outerR)
+                        close()
+                    },
+                    color = accent
+                )
+            }
+
+            // ── Fixed lubber index at the top (vehicle heading reference) ─────
+            val indexH = outerR * 0.11f
+            val indexW = outerR * 0.05f
+            drawPath(
+                path = Path().apply {
+                    moveTo(cx, cy - outerR + indexH)
+                    lineTo(cx - indexW, cy - outerR)
+                    lineTo(cx + indexW, cy - outerR)
+                    close()
+                },
+                color = accent.copy(alpha = 0.55f)
+            )
+
+            // Centre backing disc so the heading always reads cleanly over the dial
+            drawCircle(
+                color = ringColor.copy(alpha = 0.62f),
+                radius = outerR * 0.33f,
+                center = Offset(cx, cy)
+            )
+        }
+
+        // Fixed digital heading in the dial centre — degrees only, perfectly centred
+        val headingFont = (dialSize.value * 0.20f).coerceIn(14f, 36f).sp
+        Text(
+            text = String.format(java.util.Locale.US, "%.0f°", heading),
+            color = accent,
+            fontSize = headingFont,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-0.5).sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
@@ -310,16 +277,10 @@ private fun bearingToCardinal(bearing: Float): String {
     return directions[index]
 }
 
-private fun formatCompactLat(lat: Double?) =
-    if (lat != null) String.format(java.util.Locale.US, "%.2f° %s", abs(lat), if (lat >= 0) "N" else "S") else "—"
-
-private fun formatCompactLon(lon: Double?) =
-    if (lon != null) String.format(java.util.Locale.US, "%.2f° %s", abs(lon), if (lon >= 0) "E" else "W") else "—"
-
-private fun formatLat(lat: Double, narrow: Boolean = false) =
-    if (narrow) String.format(java.util.Locale.US, "%.2f° %s", abs(lat), if (lat >= 0) "N" else "S")
+private fun formatLat(lat: Double, compact: Boolean = false) =
+    if (compact) String.format(java.util.Locale.US, "%.2f° %s", abs(lat), if (lat >= 0) "N" else "S")
     else String.format(java.util.Locale.US, "%.4f° %s", abs(lat), if (lat >= 0) "N" else "S")
 
-private fun formatLon(lon: Double, narrow: Boolean = false) =
-    if (narrow) String.format(java.util.Locale.US, "%.2f° %s", abs(lon), if (lon >= 0) "E" else "W")
+private fun formatLon(lon: Double, compact: Boolean = false) =
+    if (compact) String.format(java.util.Locale.US, "%.2f° %s", abs(lon), if (lon >= 0) "E" else "W")
     else String.format(java.util.Locale.US, "%.4f° %s", abs(lon), if (lon >= 0) "E" else "W")

@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
+import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -196,7 +197,7 @@ private fun RadioDeck(
 ) {
     val isLightMode  = isDayMode || (customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f)
     val contentColor = customContentColor ?: if (isLightMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val dimColor     = customContentColor?.copy(alpha = 0.60f) ?: if (isLightMode) Color(0xFF444444) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val dimColor     = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.60f) ?: if (isLightMode) Color(0xFF444444) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
     val borderColor  = customContentColor?.copy(alpha = 0.25f) ?: if (isLightMode) Color(0xFF777777) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
 
     if (hardwareRadio == null) {
@@ -557,7 +558,7 @@ private fun StandardMinimalPlayer(
     val idleIconColor    = customContentColor?.copy(alpha = 0.45f) ?: if (isLightMode) Color(0xFF555555) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
     val idleTextColor    = customContentColor?.copy(alpha = 0.45f) ?: if (isLightMode) Color(0xFF555555) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
     val contentTextColor = customContentColor ?: if (isLightMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val subTextColor     = customContentColor?.copy(alpha = 0.60f) ?: if (isLightMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
+    val subTextColor     = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.60f) ?: if (isLightMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
 
     Box(modifier = modifier) {
         if (!hasContent) {
@@ -674,7 +675,7 @@ private fun StandardMinimalPlayer(
             val useDarkTheme = hasAlbumArt || (!isLightMode)
 
             val currentTextColor = if (hasAlbumArt) Color.White else (customContentColor ?: if (isLightMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground)
-            val currentSubTextColor = if (hasAlbumArt) Color.White.copy(alpha = 0.6f) else (customContentColor?.copy(alpha = 0.6f) ?: if (isLightMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+            val currentSubTextColor = LocalHelpTextColor.current ?: if (hasAlbumArt) Color.White.copy(alpha = 0.6f) else (customContentColor?.copy(alpha = 0.6f) ?: if (isLightMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
             val currentProgressColor = if (useDarkTheme) accent else if (isLightMode) Color(0xFF111111) else accent
             val currentProgressTrack = currentTextColor.copy(alpha = 0.15f)
             val currentIconColor = currentTextColor.copy(alpha = 0.75f)

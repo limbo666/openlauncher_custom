@@ -40,6 +40,12 @@ class SettingsRepository(private val context: Context) {
         val SHOW_SPEEDOMETER   = booleanPreferencesKey("show_speedometer")
         val SHORTCUTS_JSON     = stringPreferencesKey("shortcuts_json")
         val WIDGET_LAYOUT_JSON = stringPreferencesKey("widget_layout_json")
+        val HOME_PAGE_ALT_LAYOUT_JSON = stringPreferencesKey("home_page_alt_layout_json")
+        val HOME_PAGE = intPreferencesKey("home_page")
+        val AUTO_SWITCH_PAGES = booleanPreferencesKey("auto_switch_pages")
+        val DRIVING_PAGE = intPreferencesKey("driving_page")
+        val AUTO_SWITCH_SPEED = floatPreferencesKey("auto_switch_speed")
+        val AUTO_SWITCH_IDLE = floatPreferencesKey("auto_switch_idle")
         val CAR_PLAY_PACKAGE      = stringPreferencesKey("car_play_package")
         val ANDROID_AUTO_PACKAGE  = stringPreferencesKey("android_auto_package")
         val USE_GRADIENT          = booleanPreferencesKey("use_gradient")
@@ -89,6 +95,11 @@ class SettingsRepository(private val context: Context) {
         val PREFERRED_MEDIA_PACKAGE = stringPreferencesKey("preferred_media_package")
         val LAST_MEDIA_PACKAGE    = stringPreferencesKey("last_media_package")
         val AUTO_LAUNCH_MEDIA     = booleanPreferencesKey("auto_launch_media")
+        val VOLUME_PROTOCOL       = stringPreferencesKey("volume_protocol")
+        val HELP_TEXT_COLOR       = intPreferencesKey("help_text_color")
+        val DISPLAY_ANIMATION     = booleanPreferencesKey("display_animation")
+        val CAR_IMAGE_URI         = stringPreferencesKey("car_image_uri")
+        val WIDGET_CONTENT_ALT_JSON = stringPreferencesKey("widget_content_alt_json")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
@@ -148,6 +159,16 @@ class SettingsRepository(private val context: Context) {
                 showSpeedometer = prefs[Keys.SHOW_SPEEDOMETER] ?: defaults.showSpeedometer,
                 shortcuts      = shortcuts,
                 widgetLayout   = widgets,
+                homePageAltLayout = prefs[Keys.HOME_PAGE_ALT_LAYOUT_JSON]?.let { json ->
+                    runCatching {
+                        gson.fromJson<List<WidgetConfig>>(json, object : com.google.gson.reflect.TypeToken<List<WidgetConfig>>() {}.type)
+                    }.getOrNull()
+                } ?: defaults.homePageAltLayout,
+                homePage       = (prefs[Keys.HOME_PAGE] ?: 0).coerceIn(0, 1),
+                autoSwitchPages = prefs[Keys.AUTO_SWITCH_PAGES] ?: defaults.autoSwitchPages,
+                drivingPage    = (prefs[Keys.DRIVING_PAGE] ?: 0).coerceIn(0, 1),
+                autoSwitchSpeedKmh = prefs[Keys.AUTO_SWITCH_SPEED]?.coerceIn(5f, 20f) ?: defaults.autoSwitchSpeedKmh,
+                autoSwitchIdleSeconds = prefs[Keys.AUTO_SWITCH_IDLE]?.coerceIn(5f, 30f) ?: defaults.autoSwitchIdleSeconds,
                 carPlayPackage      = prefs[Keys.CAR_PLAY_PACKAGE]      ?: defaults.carPlayPackage,
                 androidAutoPackage  = prefs[Keys.ANDROID_AUTO_PACKAGE]  ?: defaults.androidAutoPackage,
                 useGradient      = prefs[Keys.USE_GRADIENT]        ?: defaults.useGradient,
@@ -243,8 +264,49 @@ class SettingsRepository(private val context: Context) {
                 obdDeviceName         = prefs[Keys.OBD_DEVICE_NAME] ?: defaults.obdDeviceName,
                 preferredMediaPackage = prefs[Keys.PREFERRED_MEDIA_PACKAGE] ?: defaults.preferredMediaPackage,
                 lastMediaPackage      = prefs[Keys.LAST_MEDIA_PACKAGE] ?: defaults.lastMediaPackage,
-                autoLaunchMedia       = prefs[Keys.AUTO_LAUNCH_MEDIA] ?: defaults.autoLaunchMedia
-            )
+                autoLaunchMedia       = prefs[Keys.AUTO_LAUNCH_MEDIA] ?: defaults.autoLaunchMedia,
+                volumeProtocol        = prefs[Keys.VOLUME_PROTOCOL] ?: defaults.volumeProtocol,
+                helpTextColor         = prefs[Keys.HELP_TEXT_COLOR],
+                displayAnimation      = prefs[Keys.DISPLAY_ANIMATION] ?: defaults.displayAnimation,
+                carImageUri           = prefs[Keys.CAR_IMAGE_URI] ?: defaults.carImageUri,
+                widgetContentAlt      = prefs[Keys.WIDGET_CONTENT_ALT_JSON]?.let { json ->
+                    runCatching {
+                        gson.fromJson<WidgetContent>(json, WidgetContent::class.java)
+                    }.getOrNull()
+                }
+            ).let { s -> reconcileWidgetFlags(s) }
+    }
+
+    /**
+     * Reconcile the per-page `enabled` flag with the global show flags.
+     *
+     * Fixes settings migrated from the old single-page model, where `removeWidget` only
+     * toggled the show flag and left `enabled = true` in the layout. Without this,
+     * re-adding a widget on page 2 (which turns the show flag back on) would resurrect a
+     * stale `enabled = true` copy on page 1.
+     */
+    private fun reconcileWidgetFlags(s: AppSettings): AppSettings {
+        val flags = mapOf(
+            "CLOCK" to s.showClock,
+            "WEATHER" to s.showWeather,
+            "NOW_PLAYING" to s.showNowPlaying,
+            "TELEMETRY" to s.showTelemetry,
+            "ALTIMETER" to s.showAltimeter,
+            "SPEEDOMETER" to s.showSpeedometer,
+            "VITALS" to s.showVitals,
+            "TRIP_TRACKER" to s.showTripTracker,
+            "SOUNDBOARD" to s.showSoundboard,
+            "VOLUME" to s.showVolume,
+            "QUICK_ACTIONS" to s.showQuickActions,
+            "APP_SHORTCUTS" to s.showAppShortcuts,
+            "OBD" to s.showObd
+        )
+        fun rec(layout: List<WidgetConfig>): List<WidgetConfig> =
+            layout.map { w -> if (flags[w.id] == false) w.copy(enabled = false) else w }
+        return s.copy(
+            widgetLayout = rec(s.widgetLayout),
+            homePageAltLayout = rec(s.homePageAltLayout)
+        )
     }
 
     suspend fun saveSettings(s: AppSettings) {
@@ -282,6 +344,12 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SHOW_SPEEDOMETER]   = s.showSpeedometer
             prefs[Keys.SHORTCUTS_JSON]     = gson.toJson(s.shortcuts)
             prefs[Keys.WIDGET_LAYOUT_JSON] = gson.toJson(s.widgetLayout)
+            prefs[Keys.HOME_PAGE_ALT_LAYOUT_JSON] = gson.toJson(s.homePageAltLayout)
+            prefs[Keys.HOME_PAGE] = s.homePage
+            prefs[Keys.AUTO_SWITCH_PAGES] = s.autoSwitchPages
+            prefs[Keys.DRIVING_PAGE] = s.drivingPage
+            prefs[Keys.AUTO_SWITCH_SPEED] = s.autoSwitchSpeedKmh
+            prefs[Keys.AUTO_SWITCH_IDLE] = s.autoSwitchIdleSeconds
             prefs[Keys.CAR_PLAY_PACKAGE]      = s.carPlayPackage
             prefs[Keys.ANDROID_AUTO_PACKAGE]  = s.androidAutoPackage
             prefs[Keys.USE_GRADIENT]       = s.useGradient
@@ -330,6 +398,13 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.PREFERRED_MEDIA_PACKAGE] = s.preferredMediaPackage
             prefs[Keys.LAST_MEDIA_PACKAGE]     = s.lastMediaPackage
             prefs[Keys.AUTO_LAUNCH_MEDIA]      = s.autoLaunchMedia
+            prefs[Keys.VOLUME_PROTOCOL]        = s.volumeProtocol
+            val htc = s.helpTextColor
+            if (htc != null) prefs[Keys.HELP_TEXT_COLOR] = htc else prefs.remove(Keys.HELP_TEXT_COLOR)
+            prefs[Keys.DISPLAY_ANIMATION]      = s.displayAnimation
+            prefs[Keys.CAR_IMAGE_URI]          = s.carImageUri
+            val wca = s.widgetContentAlt
+            if (wca != null) prefs[Keys.WIDGET_CONTENT_ALT_JSON] = gson.toJson(wca) else prefs.remove(Keys.WIDGET_CONTENT_ALT_JSON)
     }
 
     suspend fun resetToDefaults() {
