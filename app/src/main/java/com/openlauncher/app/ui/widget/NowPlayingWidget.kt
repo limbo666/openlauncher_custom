@@ -50,6 +50,12 @@ import com.openlauncher.app.service.MediaListenerService
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 
+// A background radio app's MediaSession can briefly surface as the "selected"
+// session while a music player is between tracks (next/prev). This is how long
+// the radio presence must be stable before the widget auto-switches to the radio
+// deck — long enough to ride out a skip, short enough to feel instant.
+private const val RADIO_AUTO_SWITCH_DEBOUNCE_MS = 800L
+
 @Composable
 fun NowPlayingWidget(
     state: NowPlayingState?,
@@ -88,12 +94,26 @@ fun NowPlayingWidget(
 
     var selectedSource by rememberSaveable { mutableStateOf("Any Player") }
 
-    // Auto-switch to radio view when hardware radio is detected.
-    // Keyed on presence (not the state object) so freq/RDS updates don't
-    // keep forcing the radio view after the user picks "Any Player".
+    // Auto-switch to radio view when hardware radio is detected. Keyed on
+    // presence (not the state object) so freq/RDS updates don't keep forcing
+    // the radio view after the user picks "Any Player".
+    //
+    // The presence signal is debounced: while a music player is between tracks
+    // (next/prev), a background radio app's session can transiently win the
+    // media-session selection and look like "the radio is active", which would
+    // yank the view to the radio tab and straight back. Requiring the presence
+    // to hold for a moment filters that out without affecting live radio data.
     val hasHardwareRadio = hardwareRadio != null
-    LaunchedEffect(hasHardwareRadio) {
-        if (hasHardwareRadio) selectedSource = "FM/AM Radio"
+    val stableRadioPresence by produceState(false, hasHardwareRadio) {
+        if (hasHardwareRadio) {
+            delay(RADIO_AUTO_SWITCH_DEBOUNCE_MS)
+            value = true
+        } else {
+            value = false
+        }
+    }
+    LaunchedEffect(stableRadioPresence) {
+        if (stableRadioPresence) selectedSource = "FM/AM Radio"
         else if (selectedSource == "FM/AM Radio") selectedSource = "Any Player"
     }
 

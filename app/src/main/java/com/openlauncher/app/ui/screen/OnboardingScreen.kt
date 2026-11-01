@@ -1,9 +1,12 @@
 package com.openlauncher.app.ui.screen
 
 import android.Manifest
+import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Process
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,6 +54,8 @@ fun OnboardingScreen(
     var currentStep by rememberSaveable { mutableStateOf(0) }
     var locationGranted by remember { mutableStateOf(false) }
     var mediaGranted by remember { mutableStateOf(false) }
+    var micGranted by remember { mutableStateOf(false) }
+    var usageGranted by remember { mutableStateOf(false) }
 
     val checkPermissions = {
         locationGranted = ContextCompat.checkSelfPermission(
@@ -63,6 +68,21 @@ fun OnboardingScreen(
             context.contentResolver, "enabled_notification_listeners"
         )
         mediaGranted = enabledListeners != null && enabledListeners.contains(context.packageName)
+
+        micGranted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        usageGranted = runCatching {
+            val appOps = context.getSystemService(AppOpsManager::class.java)
+            val mode = if (Build.VERSION.SDK_INT >= 29) {
+                appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
+            } else {
+                @Suppress("DEPRECATION")
+                appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
+            }
+            mode == AppOpsManager.MODE_ALLOWED
+        }.getOrDefault(false)
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -91,6 +111,12 @@ fun OnboardingScreen(
         if (granted) {
             currentStep = 2 // Auto-advance to next step
         }
+    }
+
+    val recordAudioLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        micGranted = granted
     }
 
     BoxWithConstraints(
@@ -158,7 +184,8 @@ fun OnboardingScreen(
                     StepItem(0, "Introduction", currentStep)
                     StepItem(1, "Location Services", currentStep)
                     StepItem(2, "Media Integration", currentStep)
-                    StepItem(3, "Ready to Go", currentStep)
+                    StepItem(3, "Audio & System", currentStep)
+                    StepItem(4, "Ready to Go", currentStep)
                 }
 
                 Text(
@@ -215,7 +242,18 @@ fun OnboardingScreen(
                                     context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                                 }
                             })
-                            3 -> FinalStep(accent, onSetDefault = {
+                            3 -> AudioStep(
+                                accent,
+                                micGranted,
+                                usageGranted,
+                                onGrantMic = { recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                                onGrantUsage = {
+                                    runCatching {
+                                        context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                                    }
+                                }
+                            )
+                            4 -> FinalStep(accent, onSetDefault = {
                                 runCatching {
                                     context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
                                 }
@@ -252,7 +290,8 @@ fun OnboardingScreen(
                         0 -> true
                         1 -> locationGranted
                         2 -> mediaGranted
-                        3 -> true
+                        3 -> micGranted && usageGranted
+                        4 -> true
                         else -> true
                     }
 
@@ -260,16 +299,17 @@ fun OnboardingScreen(
                         0 -> "GET STARTED"
                         1 -> if (locationGranted) "CONTINUE" else "SKIP FOR NOW"
                         2 -> if (mediaGranted) "CONTINUE" else "SKIP FOR NOW"
-                        3 -> "FINISH SETUP"
+                        3 -> if (micGranted && usageGranted) "CONTINUE" else "SKIP FOR NOW"
+                        4 -> "FINISH SETUP"
                         else -> "CONTINUE"
                     }
 
-                    val nextButtonIcon = if (currentStep == 3) Icons.Default.Check else Icons.Default.ArrowForward
+                    val nextButtonIcon = if (currentStep == 4) Icons.Default.Check else Icons.Default.ArrowForward
 
                     if (isPrimary) {
                         Button(
                             onClick = {
-                                if (currentStep < 3) {
+                                if (currentStep < 4) {
                                     currentStep++
                                 } else {
                                     onComplete()
@@ -503,6 +543,114 @@ private fun MediaStep(accent: Color, isGranted: Boolean, onGrant: () -> Unit) {
                 Icon(Icons.Default.VolumeUp, null, tint = Color.Black, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("ENABLE MEDIA LISTENER", color = Color.Black, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudioStep(
+    accent: Color,
+    micGranted: Boolean,
+    usageGranted: Boolean,
+    onGrantMic: () -> Unit,
+    onGrantUsage: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(
+            text = "AUDIO & SYSTEM ACCESS",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = accent,
+            letterSpacing = 2.sp,
+            fontSize = 20.sp
+        )
+        Text(
+            text = "Two optional permissions: the microphone lets the sound-visualizer widget analyze what's playing, and Usage Access lets the floating quick-controls auto-hide over the Play Store and permission dialogs.",
+            color = Color(0xFFAAAAAA),
+            fontSize = 13.sp,
+            lineHeight = 20.sp
+        )
+
+        Spacer(Modifier.height(4.dp))
+
+        // Microphone
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (micGranted) Color(0xFF0F1E10) else Color(0xFF1E1010))
+                .padding(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(
+                    imageVector = if (micGranted) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                    contentDescription = null,
+                    tint = if (micGranted) Color(0xFF44AA44) else Color(0xFFDD5555),
+                    modifier = Modifier.size(24.dp)
+                )
+                Column {
+                    Text(
+                        text = if (micGranted) "Microphone Granted" else "Microphone Required",
+                        color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (micGranted) "Sound visualizer can analyze playing audio." else "Sound visualizer stays idle without it.",
+                        color = Color(0xFF888888), fontSize = 11.sp
+                    )
+                }
+            }
+        }
+        if (!micGranted) {
+            Button(
+                onClick = onGrantMic,
+                shape = RoundedCornerShape(4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = accent),
+                modifier = Modifier.height(40.dp)
+            ) {
+                Icon(Icons.Default.Mic, null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("ALLOW MICROPHONE", color = Color.Black, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 12.sp)
+            }
+        }
+
+        // Usage Access
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (usageGranted) Color(0xFF0F1E10) else Color(0xFF1E1010))
+                .padding(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(
+                    imageVector = if (usageGranted) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                    contentDescription = null,
+                    tint = if (usageGranted) Color(0xFF44AA44) else Color(0xFFDD5555),
+                    modifier = Modifier.size(24.dp)
+                )
+                Column {
+                    Text(
+                        text = if (usageGranted) "Usage Access Granted" else "Usage Access Required",
+                        color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (usageGranted) "Floating panel auto-hides on sensitive screens." else "Floating panel may block Play Store installs.",
+                        color = Color(0xFF888888), fontSize = 11.sp
+                    )
+                }
+            }
+        }
+        if (!usageGranted) {
+            Button(
+                onClick = onGrantUsage,
+                shape = RoundedCornerShape(4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = accent),
+                modifier = Modifier.height(40.dp)
+            ) {
+                Icon(Icons.Default.Visibility, null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("ENABLE USAGE ACCESS", color = Color.Black, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 12.sp)
             }
         }
     }

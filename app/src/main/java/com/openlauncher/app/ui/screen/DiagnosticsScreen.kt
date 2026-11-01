@@ -71,6 +71,8 @@ fun DiagnosticsScreen(
     hardwareRadio: LauncherViewModel.HardwareRadioState? = null,
     onRadioSeekUp: () -> Unit = {},
     onRadioSeekDown: () -> Unit = {},
+    visualizerStatus: String = "",
+    visualizerAvailable: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -182,7 +184,7 @@ fun DiagnosticsScreen(
                 }.getOrElse { e ->
                     "REPORT GENERATION FAILED: ${e}\n"
                 }
-                val mediaReport = buildMediaReport(sessions, apps, hardwareRadio, settings)
+                val mediaReport = buildMediaReport(sessions, apps, hardwareRadio, settings, visualizerAvailable, visualizerStatus)
                 val fullText = text + mediaReport
                 val exportError = SafeExport.write(context, uri, fullText, "status_report")
                 FileLog.log("Diagnostics", "report export len=${fullText.length} result=${exportError ?: "OK"}")
@@ -344,6 +346,11 @@ fun DiagnosticsScreen(
                         "Radio now",
                         hardwareRadio?.let { r -> "${r.band} ${r.freq}${r.stationName?.let { " · $it" } ?: ""}" } ?: "—",
                         if (hardwareRadio != null) DiagStatus.OK else DiagStatus.WARN, textColor, subColor, ::dotColor, accent, isDayMode
+                    )
+                    DiagRow(
+                        "Spectrum capture",
+                        (if (visualizerAvailable) "ACTIVE" else "NO CAPTURE") + " — " + visualizerStatus.ifBlank { "idle" },
+                        if (visualizerAvailable) DiagStatus.OK else DiagStatus.WARN, textColor, subColor, ::dotColor, accent, isDayMode
                     )
                     if (sessions.isEmpty()) {
                         DiagRow("Media sessions", "NONE ACTIVE", DiagStatus.WARN, textColor, subColor, ::dotColor, accent, isDayMode)
@@ -529,7 +536,8 @@ private fun mediaSessionSummary(s: NowPlayingState): String {
     val volCtrl = info?.let { describeVolumeControl(it.volumeControl) } ?: "-"
     val vol = info?.let { "${it.currentVolume}/${it.maxVolume}" } ?: "-"
     val state = if (s.isPlaying) "PLAYING" else "IDLE"
-    return "$type · vol=$volCtrl($vol) · $state · ${describeMediaActions(s.actions)}"
+    val sid = if (s.audioSessionId > 0) "sid=${s.audioSessionId}" else "no-sid"
+    return "$type · vol=$volCtrl($vol) · $state · $sid · ${describeMediaActions(s.actions)}"
 }
 
 private fun isRadioLikePackage(pkg: String): Boolean {
@@ -541,13 +549,16 @@ private fun buildMediaReport(
     sessions: List<NowPlayingState>,
     apps: List<AppInfo>,
     hardwareRadio: LauncherViewModel.HardwareRadioState?,
-    settings: AppSettings
+    settings: AppSettings,
+    visualizerAvailable: Boolean = false,
+    visualizerStatus: String = ""
 ): String {
     val sb = StringBuilder()
     sb.appendLine()
     sb.appendLine("MEDIA & RADIO")
     sb.appendLine("  Radio package: ${settings.radioPackage.ifBlank { "auto (heuristic)" }}")
     sb.appendLine("  Radio now: ${hardwareRadio?.let { "${it.band} ${it.freq}${it.stationName?.let { s -> " · $s" } ?: ""}" } ?: "—"}")
+    sb.appendLine("  Spectrum capture: ${if (visualizerAvailable) "ACTIVE" else "NO CAPTURE"} — ${visualizerStatus.ifBlank { "idle" }}")
     sb.appendLine("  Media sessions (${sessions.size}):")
     if (sessions.isEmpty()) {
         sb.appendLine("    none active")
@@ -558,7 +569,8 @@ private fun buildMediaReport(
             val volCtrl = info?.let { describeVolumeControl(it.volumeControl) } ?: "-"
             val vol = info?.let { "${it.currentVolume}/${it.maxVolume}" } ?: "-"
             val state = if (s.isPlaying) "PLAYING" else "IDLE"
-            sb.appendLine("    ${s.controller?.packageName ?: "?"} | $type | vol=$volCtrl($vol) | $state | ${describeMediaActions(s.actions)} | \"${s.title}\"")
+            val sid = if (s.audioSessionId > 0) "sid=${s.audioSessionId}" else "no-sid"
+            sb.appendLine("    ${s.controller?.packageName ?: "?"} | $type | vol=$volCtrl($vol) | $state | $sid | ${describeMediaActions(s.actions)} | \"${s.title}\"")
         }
     }
     val radioApps = apps.map { it.packageName }.filter { isRadioLikePackage(it) }.distinct()

@@ -15,7 +15,7 @@ object SettingsBackup {
     private val VALID_WIDGET_IDS = setOf(
         "CLOCK", "WEATHER", "NOW_PLAYING", "TELEMETRY", "VOLUME",
         "QUICK_ACTIONS", "ALTIMETER", "SPEEDOMETER", "VITALS",
-        "TRIP_TRACKER", "SOUNDBOARD", "APP_SHORTCUTS", "OBD", "NETWORK_SPEED"
+        "TRIP_TRACKER", "SOUNDBOARD", "APP_SHORTCUTS", "OBD", "NETWORK_SPEED", "SPECTRUM"
     )
 
     fun encode(settings: AppSettings): String {
@@ -56,7 +56,8 @@ object SettingsBackup {
             "sidebarPosition" to SidebarPosition.entries.map { it.name },
             "gradientDirection" to GradientDirection.entries.map { it.name },
             "appDrawerFilter" to AppDrawerFilter.entries.map { it.name },
-            "weatherProvider" to WeatherProvider.entries.map { it.name }
+            "weatherProvider" to WeatherProvider.entries.map { it.name },
+            "spectrumStyle" to SpectrumStyle.entries.map { it.name }
         )
 
         enumChecks.forEach { (key, validNames) ->
@@ -80,6 +81,12 @@ object SettingsBackup {
         val safeSidebarWidth = restored.sidebarWidth.coerceIn(40, 120)
         val safeSidebarIconScale = restored.sidebarIconScale.coerceIn(0.6f, 1.8f)
         val safeTileAlpha = restored.tileAlpha.coerceIn(0f, 1f)
+        val safeSpectrumGain = restored.spectrumGain.coerceIn(0.3f, 3f)
+        val safeSpectrumBarCount = restored.spectrumBarCount.coerceIn(8, 64)
+        val safeSpectrumAttackMs = restored.spectrumAttackMs.coerceIn(5f, 200f)
+        val safeSpectrumDecayMs = restored.spectrumDecayMs.coerceIn(50f, 1500f)
+        val safeSpectrumResponse = restored.spectrumResponse.coerceIn(0.4f, 2.5f)
+        val safeAutoLaunchDelay = restored.autoLaunchDelaySec.coerceIn(1, 30)
 
         // Validate widget layouts (both home pages)
         fun sanitizeLayout(layout: List<WidgetConfig>): List<WidgetConfig> =
@@ -127,6 +134,12 @@ object SettingsBackup {
             sidebarWidth = safeSidebarWidth,
             sidebarIconScale = safeSidebarIconScale,
             tileAlpha = safeTileAlpha,
+            spectrumGain = safeSpectrumGain,
+            spectrumBarCount = safeSpectrumBarCount,
+            spectrumAttackMs = safeSpectrumAttackMs,
+            spectrumDecayMs = safeSpectrumDecayMs,
+            spectrumResponse = safeSpectrumResponse,
+            autoLaunchDelaySec = safeAutoLaunchDelay,
             widgetLayout = if (sanitizedLayout.isNotEmpty()) sanitizedLayout else defaultWidgetLayout(),
             homePageAltLayout = sanitizedAltLayout,
             widgetContentAlt = safeWidgetContentAlt,

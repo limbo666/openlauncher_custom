@@ -90,6 +90,16 @@ class SettingsRepository(private val context: Context) {
         val SHOW_NETWORK_SPEED_INDICATOR = booleanPreferencesKey("show_network_speed_indicator")
         val APP_SHORTCUT_COUNT    = intPreferencesKey("app_shortcut_count")
         val SOUNDBOARD_BUTTON_COUNT = intPreferencesKey("soundboard_button_count")
+        val SHOW_SPECTRUM         = booleanPreferencesKey("show_spectrum")
+        val SPECTRUM_BAR_COUNT    = intPreferencesKey("spectrum_bar_count")
+        val SPECTRUM_STYLE        = stringPreferencesKey("spectrum_style")
+        val SPECTRUM_MIRROR       = booleanPreferencesKey("spectrum_mirror")
+        val SPECTRUM_COLOR        = intPreferencesKey("spectrum_color")
+        val SPECTRUM_GAIN         = floatPreferencesKey("spectrum_gain")
+        val SPECTRUM_FALLBACK_URI = stringPreferencesKey("spectrum_fallback_uri")
+        val SPECTRUM_ATTACK_MS    = floatPreferencesKey("spectrum_attack_ms")
+        val SPECTRUM_DECAY_MS     = floatPreferencesKey("spectrum_decay_ms")
+        val SPECTRUM_RESPONSE     = floatPreferencesKey("spectrum_response")
         val APP_DRAWER_FILTER     = stringPreferencesKey("app_drawer_filter")
         val SHOW_OBD              = booleanPreferencesKey("show_obd")
         val OBD_DEVICE_ADDRESS    = stringPreferencesKey("obd_device_address")
@@ -115,6 +125,11 @@ class SettingsRepository(private val context: Context) {
         val FLOATING_PANEL_SCALE    = floatPreferencesKey("floating_panel_scale")
         val FLOATING_PANEL_OPACITY  = floatPreferencesKey("floating_panel_opacity")
         val FLOATING_PANEL_VERTICAL = booleanPreferencesKey("floating_panel_vertical")
+        val AUTO_LAUNCH_ENABLED    = booleanPreferencesKey("auto_launch_enabled")
+        val AUTO_LAUNCH_PACKAGE    = stringPreferencesKey("auto_launch_package")
+        val AUTO_LAUNCH_DELAY_SEC  = intPreferencesKey("auto_launch_delay_sec")
+        val GESTURE_TWO_FINGER     = stringPreferencesKey("gesture_two_finger")
+        val GESTURE_THREE_FINGER   = stringPreferencesKey("gesture_three_finger")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
@@ -276,6 +291,16 @@ class SettingsRepository(private val context: Context) {
                 showNetworkSpeedIndicator = prefs[Keys.SHOW_NETWORK_SPEED_INDICATOR] ?: defaults.showNetworkSpeedIndicator,
                 appShortcutCount      = prefs[Keys.APP_SHORTCUT_COUNT]?.coerceIn(1, 4) ?: defaults.appShortcutCount,
                 soundboardButtonCount = prefs[Keys.SOUNDBOARD_BUTTON_COUNT]?.coerceIn(1, 6) ?: defaults.soundboardButtonCount,
+                showSpectrum          = prefs[Keys.SHOW_SPECTRUM] ?: defaults.showSpectrum,
+                spectrumBarCount      = prefs[Keys.SPECTRUM_BAR_COUNT]?.coerceIn(8, 64) ?: defaults.spectrumBarCount,
+                spectrumStyle         = prefs[Keys.SPECTRUM_STYLE]?.let { runCatching { com.openlauncher.app.data.SpectrumStyle.valueOf(it) }.getOrNull() } ?: defaults.spectrumStyle,
+                spectrumMirror        = prefs[Keys.SPECTRUM_MIRROR] ?: defaults.spectrumMirror,
+                spectrumColor         = prefs[Keys.SPECTRUM_COLOR],
+                spectrumGain          = prefs[Keys.SPECTRUM_GAIN]?.coerceIn(0.3f, 3f) ?: defaults.spectrumGain,
+                spectrumFallbackImageUri = prefs[Keys.SPECTRUM_FALLBACK_URI] ?: defaults.spectrumFallbackImageUri,
+                spectrumAttackMs      = prefs[Keys.SPECTRUM_ATTACK_MS]?.coerceIn(5f, 200f) ?: defaults.spectrumAttackMs,
+                spectrumDecayMs       = prefs[Keys.SPECTRUM_DECAY_MS]?.coerceIn(50f, 1500f) ?: defaults.spectrumDecayMs,
+                spectrumResponse      = prefs[Keys.SPECTRUM_RESPONSE]?.coerceIn(0.4f, 2.5f) ?: defaults.spectrumResponse,
                 showObd               = prefs[Keys.SHOW_OBD] ?: defaults.showObd,
                 obdDeviceAddress      = prefs[Keys.OBD_DEVICE_ADDRESS] ?: defaults.obdDeviceAddress,
                 obdDeviceName         = prefs[Keys.OBD_DEVICE_NAME] ?: defaults.obdDeviceName,
@@ -307,7 +332,12 @@ class SettingsRepository(private val context: Context) {
                 nowPlayingLogoDim       = prefs[Keys.NOW_PLAYING_LOGO_DIM]?.coerceIn(0f, 0.8f) ?: defaults.nowPlayingLogoDim,
                 floatingPanelScale    = prefs[Keys.FLOATING_PANEL_SCALE]?.coerceIn(0.5f, 2f) ?: defaults.floatingPanelScale,
                 floatingPanelOpacity  = prefs[Keys.FLOATING_PANEL_OPACITY]?.coerceIn(0f, 1f) ?: defaults.floatingPanelOpacity,
-                floatingPanelVertical = prefs[Keys.FLOATING_PANEL_VERTICAL] ?: defaults.floatingPanelVertical
+                floatingPanelVertical = prefs[Keys.FLOATING_PANEL_VERTICAL] ?: defaults.floatingPanelVertical,
+                autoLaunchEnabled    = prefs[Keys.AUTO_LAUNCH_ENABLED] ?: defaults.autoLaunchEnabled,
+                autoLaunchPackage    = prefs[Keys.AUTO_LAUNCH_PACKAGE] ?: defaults.autoLaunchPackage,
+                autoLaunchDelaySec   = prefs[Keys.AUTO_LAUNCH_DELAY_SEC]?.coerceIn(1, 30) ?: defaults.autoLaunchDelaySec,
+                gestureTwoFingerPackage = prefs[Keys.GESTURE_TWO_FINGER] ?: defaults.gestureTwoFingerPackage,
+                gestureThreeFingerPackage = prefs[Keys.GESTURE_THREE_FINGER] ?: defaults.gestureThreeFingerPackage
             ).let { s -> reconcileWidgetFlags(s) }
     }
 
@@ -395,6 +425,16 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SHOW_NETWORK_SPEED_INDICATOR] = s.showNetworkSpeedIndicator
             prefs[Keys.APP_SHORTCUT_COUNT]      = s.appShortcutCount
             prefs[Keys.SOUNDBOARD_BUTTON_COUNT] = s.soundboardButtonCount
+            prefs[Keys.SHOW_SPECTRUM]           = s.showSpectrum
+            prefs[Keys.SPECTRUM_BAR_COUNT]      = s.spectrumBarCount
+            prefs[Keys.SPECTRUM_STYLE]          = s.spectrumStyle.name
+            prefs[Keys.SPECTRUM_MIRROR]         = s.spectrumMirror
+            if (s.spectrumColor != null) prefs[Keys.SPECTRUM_COLOR] = s.spectrumColor else prefs.remove(Keys.SPECTRUM_COLOR)
+            prefs[Keys.SPECTRUM_GAIN]           = s.spectrumGain
+            prefs[Keys.SPECTRUM_FALLBACK_URI]   = s.spectrumFallbackImageUri
+            prefs[Keys.SPECTRUM_ATTACK_MS]      = s.spectrumAttackMs
+            prefs[Keys.SPECTRUM_DECAY_MS]       = s.spectrumDecayMs
+            prefs[Keys.SPECTRUM_RESPONSE]       = s.spectrumResponse
             prefs[Keys.APP_DRAWER_FILTER]       = s.appDrawerFilter.name
             prefs[Keys.SHOW_OBD]                = s.showObd
             prefs[Keys.OBD_DEVICE_ADDRESS]     = s.obdDeviceAddress
@@ -422,6 +462,11 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.FLOATING_PANEL_SCALE]     = s.floatingPanelScale
             prefs[Keys.FLOATING_PANEL_OPACITY]   = s.floatingPanelOpacity
             prefs[Keys.FLOATING_PANEL_VERTICAL]  = s.floatingPanelVertical
+            prefs[Keys.AUTO_LAUNCH_ENABLED]     = s.autoLaunchEnabled
+            prefs[Keys.AUTO_LAUNCH_PACKAGE]     = s.autoLaunchPackage
+            prefs[Keys.AUTO_LAUNCH_DELAY_SEC]   = s.autoLaunchDelaySec
+            prefs[Keys.GESTURE_TWO_FINGER]      = s.gestureTwoFingerPackage
+            prefs[Keys.GESTURE_THREE_FINGER]    = s.gestureThreeFingerPackage
     }
 
     suspend fun resetToDefaults() {

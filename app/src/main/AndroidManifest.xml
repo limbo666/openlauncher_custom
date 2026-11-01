@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Network for weather API & connectivity controls -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -27,8 +28,26 @@
     <!-- Media session control (requires notification access grant by user) -->
     <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL" />
 
+    <!-- Output-mix audio visualizer (normal permission, auto-granted; required on
+         some devices/ROMs to attach a Visualizer effect to the global output mix) -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Sound visualizer: RECORD_AUDIO is requested at runtime; the two signature
+         permissions below are normally ignored on stock Android but many aftermarket
+         head-unit ROMs (Rockchip/szchoiceway) don't enforce them, which unlocks the
+         REMOTE_SUBMIX master-audio capture. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_ROUTING"
+        tools:ignore="ProtectedPermissions" />
+
     <!-- Draw over other apps (PiP / floating window) — special appop, granted via Settings -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Usage access: lets the floating panel auto-hide over sensitive screens -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
@@ -97,6 +116,20 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="floating quick-controls overlay over other apps" />
+        </service>
+
+        <!-- Accessibility service for the floating panel's Back-key action -->
+        <service
+            android:name=".service.GlobalActionService"
+            android:exported="false"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
         </service>
 
     </application>

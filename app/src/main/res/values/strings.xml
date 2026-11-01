@@ -3,4 +3,6 @@
     <string name="app_name">Open Launcher</string>
     <string name="settings_label">Open Launcher Settings</string>
     <string name="media_label">Open Launcher Media</string>
+    <string name="accessibility_service_label">Open Launcher Controls</string>
+    <string name="accessibility_service_description">Enables the Back key action on the floating quick-controls panel.</string>
 </resources>

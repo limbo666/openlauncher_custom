@@ -133,6 +133,13 @@ class MediaListenerService : NotificationListenerService() {
         val playback = controller.playbackState
         val isPlaying = playback?.state == PlaybackState.STATE_PLAYING
         val actions = playback?.actions ?: 0L
+        // Some players (Spotify, YouTube Music, …) publish their audio session id in
+        // the PlaybackState extras so an audio effect can attach to their stream.
+        // It is stored as either an Int or a Long depending on the app.
+        val audioSessionId = playback?.extras?.let { e ->
+            val asInt = e.getInt("android.media.session.extra.AUDIO_SESSION_ID", -1)
+            if (asInt > 0) asInt else e.getLong("android.media.session.extra.AUDIO_SESSION_ID", -1L).toInt()
+        } ?: -1
         val rating = meta?.getRating(MediaMetadata.METADATA_KEY_USER_RATING)
         val customActions = playback?.customActions.orEmpty().map {
             val iconName = runCatching {
@@ -150,7 +157,7 @@ class MediaListenerService : NotificationListenerService() {
         val signature = listOf(
             title, artist, artUri, isPlaying, art != null, actions, customActions, ratingStyle, rating?.toString(),
             meta?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID), meta?.getString(MediaMetadata.METADATA_KEY_ALBUM),
-            meta?.getLong(MediaMetadata.METADATA_KEY_DURATION)
+            meta?.getLong(MediaMetadata.METADATA_KEY_DURATION), audioSessionId
         )
 
         return snapshots.value(controller.sessionToken, signature, forceArtwork) {
@@ -159,6 +166,7 @@ class MediaListenerService : NotificationListenerService() {
                 artist        = artist,
                 album         = album,
                 mediaId       = meta?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID) ?: "",
+                audioSessionId = audioSessionId,
                 albumArt      = art,
                 artUri        = artUri,
                 isPlaying     = isPlaying,

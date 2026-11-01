@@ -7,6 +7,7 @@ import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -48,6 +49,7 @@ import com.openlauncher.app.viewmodel.LauncherViewModel
 class MainActivity : ComponentActivity() {
 
     private val vm: LauncherViewModel by viewModels()
+    private var autoLaunchDone = false
 
     private val locationPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -119,6 +121,10 @@ class MainActivity : ComponentActivity() {
             val rearrangeMode by vm.rearrangeMode.collectAsStateWithLifecycle()
             val carPhase by vm.carPhase.collectAsStateWithLifecycle()
             val networkSpeed by vm.networkSpeed.collectAsStateWithLifecycle()
+            val soundSpectrum by vm.soundSpectrum.collectAsStateWithLifecycle()
+            val soundVisualizerAvailable by vm.soundVisualizerAvailable.collectAsStateWithLifecycle()
+            val soundVisualizerHasSignal by vm.soundVisualizerHasSignal.collectAsStateWithLifecycle()
+            val soundVisualizerStatus by vm.soundVisualizerStatus.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isCustom = settings.dayNightMode == DayNightMode.CUSTOM
             val isDayMode = if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
@@ -129,12 +135,38 @@ class MainActivity : ComponentActivity() {
                 VolumeController.setProtocol(settings.volumeProtocol)
             }
 
+            // Auto-launch a chosen app once per session, after a configurable delay.
+            LaunchedEffect(settingsLoaded) {
+                if (settingsLoaded && !autoLaunchDone && settings.autoLaunchEnabled && settings.autoLaunchPackage.isNotEmpty()) {
+                    autoLaunchDone = true
+                    kotlinx.coroutines.delay(settings.autoLaunchDelaySec * 1000L)
+                    vm.launchApp(settings.autoLaunchPackage)
+                }
+            }
+
             // Start/stop the floating quick-controls service with its toggle.
             LaunchedEffect(settings.floatingPanelEnabled) {
                 if (settings.floatingPanelEnabled) {
                     FloatingPanelService.start(this@MainActivity)
                 } else {
                     FloatingPanelService.stop(this@MainActivity)
+                }
+            }
+
+            // RECORD_AUDIO enables the spectrum visualizer's master-audio capture
+            // (REMOTE_SUBMIX) and the output-mix fallback on some ROMs.
+            val recordAudioLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { granted -> vm.setRecordAudioGranted(granted) }
+            LaunchedEffect(settings.showSpectrum) {
+                if (settings.showSpectrum) {
+                    val granted = ContextCompat.checkSelfPermission(
+                        this@MainActivity, Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                    vm.setRecordAudioGranted(granted)
+                    if (!granted) recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                } else {
+                    vm.setRecordAudioGranted(false)
                 }
             }
 
@@ -362,7 +394,10 @@ class MainActivity : ComponentActivity() {
                                         },
                                         carImageUri           = settings.carImageUri,
                                         carRestingVisible     = settings.displayAnimation && carPhase == LauncherViewModel.CarPhase.RESTING,
-                                        networkSpeed          = networkSpeed
+                                        networkSpeed          = networkSpeed,
+                                        soundSpectrum         = soundSpectrum,
+                                        soundVisualizerAvailable = soundVisualizerAvailable,
+                                        soundVisualizerHasSignal = soundVisualizerHasSignal
                                     )
                                             }
                                             // Page indicator dots (tap to switch — safer while driving than swiping)
@@ -459,7 +494,9 @@ class MainActivity : ComponentActivity() {
                                         apps = apps,
                                         hardwareRadio = hardwareRadio,
                                         onRadioSeekUp = { vm.radioSeekUp() },
-                                        onRadioSeekDown = { vm.radioSeekDown() }
+                                        onRadioSeekDown = { vm.radioSeekDown() },
+                                        visualizerStatus = soundVisualizerStatus,
+                                        visualizerAvailable = soundVisualizerAvailable
                                     )
                                 }
                             }

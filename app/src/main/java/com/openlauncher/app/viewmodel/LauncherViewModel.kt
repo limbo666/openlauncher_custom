@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.database.ContentObserver
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -47,6 +48,7 @@ import com.openlauncher.app.service.MediaListenerService
 import com.openlauncher.app.util.FileLog
 import com.openlauncher.app.util.LocationCompassManager
 import com.openlauncher.app.util.NetworkSpeedManager
+import com.openlauncher.app.util.SoundVisualizerManager
 import com.openlauncher.app.util.NetworkSpeedState
 import com.openlauncher.app.util.VolumeController
 import com.openlauncher.app.util.LocationData
@@ -83,6 +85,40 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val networkSpeedMgr = NetworkSpeedManager()
     val networkSpeed: StateFlow<NetworkSpeedState> = networkSpeedMgr.speed
         .stateIn(viewModelScope, SharingStarted.Eagerly, NetworkSpeedState())
+
+    // ── Sound visualizer (system output-mix spectrum) ──────────────────────────
+    private val soundVisualizer = SoundVisualizerManager()
+    val soundSpectrum: StateFlow<FloatArray> = soundVisualizer.spectrum
+    val soundVisualizerAvailable: StateFlow<Boolean> = soundVisualizer.available
+    val soundVisualizerHasSignal: StateFlow<Boolean> = soundVisualizer.hasSignal
+    val soundVisualizerStatus: StateFlow<String> = soundVisualizer.status
+
+    private val _recordAudioGranted = MutableStateFlow(false)
+    fun setRecordAudioGranted(granted: Boolean) { _recordAudioGranted.value = granted }
+
+    /** Best-effort audio session id: media-session extras first, then reflection. */
+    private fun resolveAudioSessionId(sessions: List<NowPlayingState>): Int {
+        val fromExtras = (sessions.firstOrNull { it.isPlaying && it.audioSessionId > 0 }
+            ?: sessions.firstOrNull { it.audioSessionId > 0 })
+            ?.audioSessionId ?: -1
+        if (fromExtras > 0) return fromExtras
+        return reflectActiveSessionId()
+    }
+
+    /** Read the hidden AudioPlaybackConfiguration session id via reflection. */
+    private fun reflectActiveSessionId(): Int = runCatching {
+        if (Build.VERSION.SDK_INT < 26) return@runCatching -1
+        val am = getApplication<Application>().getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return@runCatching -1
+        val configs = am.activePlaybackConfigurations ?: return@runCatching -1
+        for (c in configs) {
+            val sid = runCatching {
+                val m = c.javaClass.getDeclaredMethod("getSessionId").apply { isAccessible = true }
+                m.invoke(c)
+            }.getOrNull()?.let { when (it) { is Int -> it; is Long -> it.toInt(); else -> -1 } } ?: -1
+            if (sid > 0) return@runCatching sid
+        }
+        -1
+    }.getOrDefault(-1)
 
     // ── Settings ──────────────────────────────────────────────────────────────
     private val _settingsLoaded = MutableStateFlow(false)
@@ -254,6 +290,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         "APP_SHORTCUTS" -> copy(showAppShortcuts = false)
         "OBD"           -> copy(showObd = false)
         "NETWORK_SPEED" -> copy(showNetworkSpeed = false)
+        "SPECTRUM"      -> copy(showSpectrum = false)
         else            -> this
     }
 
@@ -428,6 +465,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "QUICK_ACTIONS" -> 2 to 1
                 "APP_SHORTCUTS" -> 2 to 1
                 "NETWORK_SPEED" -> 2 to 1
+                "SPECTRUM"      -> 3 to 1
                 "OBD"           -> 2 to 2
                 "NOW_PLAYING"   -> 4 to 2
                 "TELEMETRY"     -> 2 to 4
@@ -472,6 +510,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "APP_SHORTCUTS" -> copy(showAppShortcuts = true)
                 "OBD"           -> copy(showObd = true)
                 "NETWORK_SPEED" -> copy(showNetworkSpeed = true)
+                "SPECTRUM"      -> copy(showSpectrum = true)
                 else            -> this
             }
             val idx       = layout.indexOfFirst { it.id == id }
@@ -739,6 +778,42 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             { it.isPlaying }
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // Drive the spectrum capture only while the widget is enabled, re-evaluating
+    // the source whenever the widget state, the discovered audio session id, or
+    // the RECORD_AUDIO permission changes. Tuning (attack/decay/response) rides
+    // along but only re-probes the source when the source inputs change.
+    private data class SpectrumConfig(
+        val enabled: Boolean,
+        val sessionId: Int,
+        val recordAudio: Boolean,
+        val attackMs: Float,
+        val decayMs: Float,
+        val response: Float
+    )
+
+    init {
+        viewModelScope.launch {
+            combine(settings, MediaListenerService.sessions, _recordAudioGranted) { s, sessions, recordAudio ->
+                SpectrumConfig(
+                    enabled = s.showSpectrum,
+                    sessionId = resolveAudioSessionId(sessions),
+                    recordAudio = recordAudio,
+                    attackMs = s.spectrumAttackMs,
+                    decayMs = s.spectrumDecayMs,
+                    response = s.spectrumResponse
+                )
+            }
+                .distinctUntilChanged()
+                .collect { cfg ->
+                    if (cfg.enabled) {
+                        soundVisualizer.configure(cfg.enabled, cfg.sessionId, cfg.recordAudio, cfg.attackMs, cfg.decayMs, cfg.response)
+                    } else {
+                        soundVisualizer.stop()
+                    }
+                }
+        }
+    }
 
     fun playPause() {
         val ctrl = nowPlaying.value?.controller
@@ -1283,6 +1358,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     override fun onCleared() {
         super.onCleared()
+        soundVisualizer.stop()
         locationMgr.stop()
         radioObserver?.let { getApplication<Application>().contentResolver.unregisterContentObserver(it) }
         radioObserver = null

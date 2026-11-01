@@ -34,6 +34,7 @@ import com.openlauncher.app.data.AppFont
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.SidebarPosition
+import com.openlauncher.app.data.SpectrumStyle
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.UnitSystem
@@ -76,15 +77,19 @@ private val SECTION_KEYWORDS = mapOf(
     "Tiles" to listOf("tile", "color", "transparency", "opacity"),
     "Sidebar" to listOf("sidebar", "menubar", "shortcuts", "slot", "icon size", "width", "position"),
     "Vehicle & OBD" to listOf("vehicle", "name", "unit", "metric", "imperial", "obd", "adapter", "bluetooth"),
-    "Widgets" to listOf("widget", "shortcuts", "soundboard", "buttons", "page", "count"),
+    "Widget Content" to listOf("widget", "shortcuts", "soundboard", "buttons", "page", "count"),
     "Now Playing" to listOf("player", "radio", "fm", "am", "band", "artwork", "logo", "album", "dim", "size", "media", "popup", "station", "frequency"),
+    "Spectrum" to listOf("spectrum", "visualizer", "bars", "rise", "fall", "falloff", "attack", "decay", "response", "curve", "sensitivity", "peaking", "motion", "gain", "fallback", "logo", "image", "audio", "color", "style", "mirror"),
     "Home Pages" to listOf("auto-switch", "driving", "page", "speed", "idle", "switch"),
     "Display Animation" to listOf("animation", "car", "image"),
     "Weather" to listOf("weather", "gps", "location", "provider", "icons", "forecast", "days"),
     "GPS & Calibration" to listOf("gps", "a-gps", "magnetometer", "compass", "calibration", "offset"),
     "Floating Panel" to listOf("floating", "panel", "overlay", "quick controls", "buttons", "opacity", "size", "draw over", "vertical", "horizontal", "orientation"),
     "Backup & Restore" to listOf("backup", "export", "restore", "json"),
-    "Permissions" to listOf("permission", "launcher", "notification", "location", "draw over", "access"),
+    "Permissions" to listOf("permission", "launcher", "notification", "location", "draw over", "access", "microphone", "mic", "record", "usage", "accessibility", "back"),
+    "Gestures" to listOf("gesture", "two finger", "three finger", "tap", "multi", "touch"),
+    "Startup" to listOf("startup", "auto-launch", "auto launch", "boot", "delay", "launch", "open app"),
+    "Recovery" to listOf("restart", "recovery", "reload", "reboot", "crash", "fix", "defence"),
     "Updates" to listOf("update", "github", "version"),
     "Maintenance" to listOf("diagnostics", "status", "volume", "calibration", "debug", "log", "setup", "wizard", "reset", "defaults")
 )
@@ -114,6 +119,9 @@ fun SettingsScreen(
     var widgetContentPage     by remember { mutableStateOf(0) }
     var floatingSlotEditor    by remember { mutableStateOf<Int?>(null) }
     var showRadioAppPicker    by remember { mutableStateOf(false) }
+    var showSpectrumColorPicker by remember { mutableStateOf(false) }
+    // 0 = auto-launch app, 1 = two-finger gesture, 2 = three-finger gesture
+    var pendingAppPick        by remember { mutableStateOf<Int?>(null) }
 
     // OpenDocument (not GetContent): only SAF document URIs carry a persistable
     // grant, so this is what actually keeps the wallpaper readable after reboot
@@ -144,6 +152,20 @@ fun SettingsScreen(
         }
     }
 
+    // Spectrum fallback image (shown when there's no audio signal) — per-page.
+    val spectrumImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumFallbackImageUri = uri.toString()) } }
+        }
+    }
+
     val isDayMode = LocalDayMode.current
     val screenBg  = MaterialTheme.colorScheme.background
     val swatchBorderColor = if (isDayMode) Color(0xFFCCCCCC) else Color.White.copy(alpha = 0.35f)
@@ -157,6 +179,7 @@ fun SettingsScreen(
         CategoryItem("All", "All", Icons.Default.Apps),
         CategoryItem("Display", "Display", Icons.Default.Palette),
         CategoryItem("Dashboard", "Dashboard", Icons.Default.Dashboard),
+        CategoryItem("Widgets", "Widgets", Icons.Default.Widgets),
         CategoryItem("Vehicle & OBD", "Vehicle", Icons.Default.DirectionsCar),
         CategoryItem("Launcher", "Launcher", Icons.Default.Settings)
     )
@@ -194,7 +217,7 @@ fun SettingsScreen(
             fontSize      = 14.sp
         )
 
-        // ── Category tiles + search (3 per row, two rows) ──────────────────────
+        // ── Category tiles (3 per row, two rows) ───────────────────────────────
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 categories.take(3).forEach { cat ->
@@ -219,65 +242,71 @@ fun SettingsScreen(
                         onClick   = { selectedCategory = cat.id }
                     )
                 }
-                SearchTile(
-                    query         = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    accent        = accent,
-                    isDayMode     = isDayMode,
-                    modifier      = Modifier.weight(1f)
-                )
             }
         }
 
-        // ── Open System Settings ─────────────────────────────────────────────
-        Surface(
-            onClick = {
-                runCatching {
-                    context.startActivity(
-                        Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                }
-            },
-            shape = RoundedCornerShape(8.dp),
-            color = specialCardColor,
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                specialBorderColor
-            ),
-            modifier = Modifier.fillMaxWidth()
+        // ── Open System Settings + Search (one row) ────────────────────────────
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.height(IntrinsicSize.Min)
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Surface(
+                onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                },
+                shape = RoundedCornerShape(8.dp),
+                color = specialCardColor,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    specialBorderColor
+                ),
+                modifier = Modifier.weight(1f).fillMaxHeight()
             ) {
-                Icon(
-                    Icons.Default.Settings,
-                    contentDescription = null,
-                    tint = specialIconTint,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(14.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Open System Settings",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD),
-                        fontSize = 13.sp
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = null,
+                        tint = specialIconTint,
+                        modifier = Modifier.size(20.dp)
                     )
-                    Text(
-                        text = "Access Android system settings, Wi-Fi, Bluetooth & display",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isDayMode) Color(0xFF888888) else Color(0xFF666666),
-                        fontSize = 11.sp
+                    Spacer(Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Open System Settings",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD),
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = "Access Android system settings, Wi-Fi, Bluetooth & display",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isDayMode) Color(0xFF888888) else Color(0xFF666666),
+                            fontSize = 11.sp
+                        )
+                    }
+                    Icon(
+                        Icons.Default.OpenInNew,
+                        contentDescription = null,
+                        tint = if (isDayMode) Color(0xFF888888) else Color(0xFF555555),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
-                Icon(
-                    Icons.Default.OpenInNew,
-                    contentDescription = null,
-                    tint = if (isDayMode) Color(0xFF888888) else Color(0xFF555555),
-                    modifier = Modifier.size(16.dp)
-                )
             }
+
+            SearchField(
+                query         = searchQuery,
+                onQueryChange = { searchQuery = it },
+                accent        = accent,
+                isDayMode     = isDayMode,
+                modifier      = Modifier.weight(1f).fillMaxHeight()
+            )
         }
 
         // ── Appearance ───────────────────────────────────────────────────────
@@ -948,8 +977,8 @@ fun SettingsScreen(
         }
 
         // ── Widgets ───────────────────────────────────────────────────────────
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
-        SettingsSection("Widgets") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
+        SettingsSection("Widget Content") {
             // Page selector — widget content is configured independently per page
             SettingsRow(
                 label    = "Editing Page",
@@ -1052,11 +1081,237 @@ fun SettingsScreen(
                     }
                 }
             }
+
+        }
+        }
+
+        // ── Spectrum Visualizer behaviour (global — affects the sound motion) ──
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
+        SettingsSection("Spectrum") {
+            SettingsRow(
+                label    = "Rise Speed",
+                sublabel = "${"%.0f".format(settings.spectrumAttackMs)}ms — how fast bars rise (lower = snappier)",
+                icon     = Icons.Default.GraphicEq
+            ) {}
+            Slider(
+                value         = settings.spectrumAttackMs,
+                onValueChange = { v -> onUpdate { copy(spectrumAttackMs = v) } },
+                valueRange    = 5f..200f,
+                steps         = 19,
+                colors        = sliderColors(accent),
+                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            )
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Fall-off Speed",
+                sublabel = "${"%.0f".format(settings.spectrumDecayMs)}ms — how fast bars fall (lower = faster fall)",
+                icon     = Icons.Default.GraphicEq
+            ) {}
+            Slider(
+                value         = settings.spectrumDecayMs,
+                onValueChange = { v -> onUpdate { copy(spectrumDecayMs = v) } },
+                valueRange    = 50f..1500f,
+                steps         = 28,
+                colors        = sliderColors(accent),
+                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            )
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Response Curve",
+                sublabel = "${"%.2f".format(settings.spectrumResponse)} — higher = more spread between bars (less all-peaking)",
+                icon     = Icons.Default.GraphicEq
+            ) {}
+            Slider(
+                value         = settings.spectrumResponse,
+                onValueChange = { v -> onUpdate { copy(spectrumResponse = v) } },
+                valueRange    = 0.4f..2.5f,
+                steps         = 20,
+                colors        = sliderColors(accent),
+                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            )
+
+            SettingsDivider()
+
+            // Per-page appearance (bar count, style, mirror, color, gain, fallback)
+            SettingsRow(
+                label    = "Editing Page",
+                sublabel = "Appearance below is stored per page — pick which page to edit",
+                icon     = Icons.Default.SwapHoriz
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
+                        .padding(2.dp)
+                ) {
+                    listOf(0 to "PAGE 1", 1 to "PAGE 2").forEach { (page, label) ->
+                        val selected = widgetContentPage == page
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (selected) accent else Color.Transparent)
+                                .clickable { widgetContentPage = page }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
+                                fontSize = 10.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Spectrum Bars",
+                sublabel = "${settings.widgetContentFor(widgetContentPage).spectrumBarCount} bars — the audio spectrum resolution",
+                icon     = Icons.Default.GraphicEq
+            ) {}
+            Slider(
+                value         = settings.widgetContentFor(widgetContentPage).spectrumBarCount.toFloat(),
+                onValueChange = { v -> onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumBarCount = v.toInt().coerceIn(8, 64)) } } },
+                valueRange    = 8f..64f,
+                steps         = 13,
+                colors        = sliderColors(accent),
+                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            )
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Spectrum Style",
+                sublabel = "Bars, rounded bars, or dots",
+                icon     = Icons.Default.GraphicEq
+            ) {}
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
+                    .padding(2.dp)
+            ) {
+                listOf(
+                    "BARS" to SpectrumStyle.BARS,
+                    "ROUND" to SpectrumStyle.ROUNDED,
+                    "DOTS" to SpectrumStyle.DOTS
+                ).forEach { (label, st) ->
+                    val selected = settings.widgetContentFor(widgetContentPage).spectrumStyle == st
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(if (selected) accent else Color.Transparent)
+                            .clickable { onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumStyle = st) } } }
+                            .padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
+                            fontSize = 10.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Mirror Spectrum",
+                sublabel = "Reflect the bars around the vertical center",
+                icon     = Icons.Default.Flip
+            ) {
+                Switch(
+                    checked         = settings.widgetContentFor(widgetContentPage).spectrumMirror,
+                    onCheckedChange = { mirror -> onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumMirror = mirror) } } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Spectrum Color",
+                sublabel = if (settings.widgetContentFor(widgetContentPage).spectrumColor == null) "Follows the accent color" else "Custom color",
+                icon     = Icons.Default.Palette
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Accent", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 10.sp)
+                    Switch(
+                        checked         = settings.widgetContentFor(widgetContentPage).spectrumColor == null,
+                        onCheckedChange = { follow ->
+                            onUpdate {
+                                withWidgetContent(widgetContentPage) {
+                                    it.copy(spectrumColor = if (follow) null else (it.spectrumColor ?: accent.toArgb()))
+                                }
+                            }
+                        },
+                        colors          = switchColors(accent)
+                    )
+                    TextButton(onClick = { showSpectrumColorPicker = true }) {
+                        Text("Pick", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Spectrum Gain",
+                sublabel = "${"%.0f".format(settings.widgetContentFor(widgetContentPage).spectrumGain * 100)}% — bar sensitivity",
+                icon     = Icons.Default.GraphicEq
+            ) {}
+            Slider(
+                value         = settings.widgetContentFor(widgetContentPage).spectrumGain,
+                onValueChange = { v -> onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumGain = v) } } },
+                valueRange    = 0.3f..3f,
+                steps         = 13,
+                colors        = sliderColors(accent),
+                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            )
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Fallback Image",
+                sublabel = if (settings.widgetContentFor(widgetContentPage).spectrumFallbackImageUri.isNotEmpty())
+                    "Shown when there's no audio signal"
+                else
+                    "Optional — e.g. a car logo shown when there's no audio signal",
+                icon     = Icons.Default.Image
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { spectrumImagePicker.launch(arrayOf("image/*")) }) {
+                        Text(
+                            if (settings.widgetContentFor(widgetContentPage).spectrumFallbackImageUri.isEmpty()) "Choose" else "Change",
+                            color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                        )
+                    }
+                    if (settings.widgetContentFor(widgetContentPage).spectrumFallbackImageUri.isNotEmpty()) {
+                        TextButton(onClick = { onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumFallbackImageUri = "") } } }) {
+                            Text("Clear", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
         }
         }
 
         // ── Now Playing / Radio widget ─────────────────────────────────────────
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
         SettingsSection("Now Playing") {
             SettingsRow(
                 label    = "Radio App",
@@ -1253,7 +1508,7 @@ fun SettingsScreen(
         }
 
         // ── Weather Service & Location ───────────────────────────────────────
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
         SettingsSection("Weather") {
             // 1. Dynamic GPS vs Manual Location Toggle
             SettingsRow(
@@ -1487,6 +1742,137 @@ fun SettingsScreen(
         }
         }
 
+        // ── Gestures ──────────────────────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
+        SettingsSection("Gestures") {
+            val twoFingerLabel = if (settings.gestureTwoFingerPackage.isNotEmpty())
+                apps.find { it.packageName == settings.gestureTwoFingerPackage }?.appName ?: settings.gestureTwoFingerPackage
+            else "Disabled"
+            SettingsRow(
+                label    = "Two-Finger Tap",
+                sublabel = if (settings.gestureTwoFingerPackage.isNotEmpty()) "Launches $twoFingerLabel"
+                           else "Tap the home screen with two fingers to launch a chosen app",
+                icon     = Icons.Default.TouchApp
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { pendingAppPick = 1 }) {
+                        Text(if (settings.gestureTwoFingerPackage.isEmpty()) "Choose" else "Change", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    if (settings.gestureTwoFingerPackage.isNotEmpty()) {
+                        TextButton(onClick = { onUpdate { copy(gestureTwoFingerPackage = "") } }) {
+                            Text("Clear", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            val threeFingerLabel = if (settings.gestureThreeFingerPackage.isNotEmpty())
+                apps.find { it.packageName == settings.gestureThreeFingerPackage }?.appName ?: settings.gestureThreeFingerPackage
+            else "Disabled"
+            SettingsRow(
+                label    = "Three-Finger Tap",
+                sublabel = if (settings.gestureThreeFingerPackage.isNotEmpty()) "Launches $threeFingerLabel"
+                           else "Tap the home screen with three fingers to launch a chosen app",
+                icon     = Icons.Default.TouchApp
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { pendingAppPick = 2 }) {
+                        Text(if (settings.gestureThreeFingerPackage.isEmpty()) "Choose" else "Change", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    if (settings.gestureThreeFingerPackage.isNotEmpty()) {
+                        TextButton(onClick = { onUpdate { copy(gestureThreeFingerPackage = "") } }) {
+                            Text("Clear", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+        }
+
+        // ── Startup ───────────────────────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
+        SettingsSection("Startup") {
+            SettingsRow(
+                label    = "Auto-Launch App",
+                sublabel = "Open a chosen app automatically when the launcher starts",
+                icon     = Icons.Default.PlayArrow
+            ) {
+                Switch(
+                    checked         = settings.autoLaunchEnabled,
+                    onCheckedChange = { onUpdate { copy(autoLaunchEnabled = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            if (settings.autoLaunchEnabled) {
+                SettingsDivider()
+                SettingsRow(
+                    label    = "App",
+                    sublabel = if (settings.autoLaunchPackage.isNotEmpty())
+                        apps.find { it.packageName == settings.autoLaunchPackage }?.appName ?: settings.autoLaunchPackage
+                    else "No app selected",
+                    icon     = Icons.Default.Apps
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { pendingAppPick = 0 }) {
+                            Text(if (settings.autoLaunchPackage.isEmpty()) "Choose" else "Change", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        if (settings.autoLaunchPackage.isNotEmpty()) {
+                            TextButton(onClick = { onUpdate { copy(autoLaunchPackage = "") } }) {
+                                Text("Clear", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+                SettingsDivider()
+                SettingsRow(
+                    label    = "Delay",
+                    sublabel = "${settings.autoLaunchDelaySec}s after launch",
+                    icon     = Icons.Default.Timer
+                ) {}
+                Slider(
+                    value         = settings.autoLaunchDelaySec.toFloat(),
+                    onValueChange = { v -> onUpdate { copy(autoLaunchDelaySec = v.toInt().coerceIn(1, 30)) } },
+                    valueRange    = 1f..30f,
+                    steps         = 28,
+                    colors        = sliderColors(accent),
+                    modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+            }
+        }
+        }
+
+        // ── Recovery ──────────────────────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
+        SettingsSection("Recovery") {
+            SettingsButton(
+                label    = "Restart Launcher",
+                sublabel = "Force-restart the launcher to clear any runtime issue (last line of defence)",
+                icon     = Icons.Default.RestartAlt,
+                accent   = Color(0xFF993333),
+                onClick  = {
+                    runCatching {
+                        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                        }
+                        if (intent != null) {
+                            val pending = android.app.PendingIntent.getActivity(
+                                context, 1234, intent,
+                                android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_ONE_SHOT
+                            )
+                            val am = context.getSystemService(android.content.Context.ALARM_SERVICE) as android.app.AlarmManager
+                            am.set(android.app.AlarmManager.RTC, System.currentTimeMillis() + 250, pending)
+                        }
+                    }
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                    kotlin.system.exitProcess(0)
+                }
+            )
+        }
+        }
+
         // ── Backup & Restore ──────────────────────────────────────────────────
         if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
         SettingsSection("Backup & Restore") {
@@ -1578,7 +1964,7 @@ fun SettingsScreen(
         }
 
         // ── Floating Panel ────────────────────────────────────────────────────
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
         SettingsSection("Floating Panel") {
             SettingsRow(
                 label    = "Floating Quick Controls",
@@ -1742,6 +2128,37 @@ fun SettingsScreen(
                     context, android.Manifest.permission.ACCESS_FINE_LOCATION
                 ) == android.content.pm.PackageManager.PERMISSION_GRANTED
             }
+            val hasMic = remember(permissionRefresh) {
+                androidx.core.content.ContextCompat.checkSelfPermission(
+                    context, android.Manifest.permission.RECORD_AUDIO
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            val hasUsageAccess = remember(permissionRefresh) {
+                runCatching {
+                    val appOps = context.getSystemService(android.app.AppOpsManager::class.java)
+                    val mode = if (android.os.Build.VERSION.SDK_INT >= 29) {
+                        appOps.unsafeCheckOpNoThrow(
+                            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                            android.os.Process.myUid(), context.packageName
+                        )
+                    } else {
+                        @Suppress("DEPRECATION")
+                        appOps.checkOpNoThrow(
+                            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                            android.os.Process.myUid(), context.packageName
+                        )
+                    }
+                    mode == android.app.AppOpsManager.MODE_ALLOWED
+                }.getOrDefault(false)
+            }
+            val hasAccessibility = remember(permissionRefresh) {
+                val enabledServices = Settings.Secure.getString(
+                    context.contentResolver,
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+                ) ?: ""
+                enabledServices.contains("${context.packageName}/") ||
+                    enabledServices.contains(context.packageName)
+            }
             val isDefaultLauncher = remember(permissionRefresh) {
                 val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
                 context.packageManager.resolveActivity(
@@ -1755,6 +2172,10 @@ fun SettingsScreen(
 
             val locationPermissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions()
+            ) { permissionRefresh++ }
+
+            val recordAudioLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
             ) { permissionRefresh++ }
 
             SettingsButton(
@@ -1851,6 +2272,56 @@ fun SettingsScreen(
                                 ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             )
                         }
+                    }
+                }
+            )
+            SettingsDivider()
+            SettingsButton(
+                label    = "Microphone (Spectrum)",
+                sublabel = if (hasMic) "Granted — the sound visualizer can analyze playing audio"
+                           else "Required for the sound visualizer to analyze playing audio",
+                icon     = if (hasMic) Icons.Default.Mic else Icons.Default.MicOff,
+                accent   = if (hasMic) accent else Color(0xFF993333),
+                onClick  = {
+                    if (!hasMic) {
+                        recordAudioLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                    } else {
+                        runCatching {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    }
+                }
+            )
+            SettingsDivider()
+            SettingsButton(
+                label    = "Usage Access",
+                sublabel = if (hasUsageAccess) "Granted — the floating panel auto-hides over Play Store & permission dialogs"
+                           else "Required so the floating panel can auto-hide over sensitive screens",
+                icon     = Icons.Default.Visibility,
+                accent   = if (hasUsageAccess) accent else Color(0xFF993333),
+                onClick  = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }
+            )
+            SettingsDivider()
+            SettingsButton(
+                label    = "Accessibility (Back Key)",
+                sublabel = if (hasAccessibility) "Granted — the floating panel Back button works"
+                           else "Required for the floating panel Back button to send the Back key",
+                icon     = if (hasAccessibility) Icons.Default.Accessibility else Icons.Default.AccessibilityNew,
+                accent   = if (hasAccessibility) accent else Color(0xFF993333),
+                onClick  = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
                     }
                 }
             )
@@ -2045,6 +2516,15 @@ fun SettingsScreen(
         )
     }
 
+    if (showSpectrumColorPicker) {
+        ColorPickerDialog(
+            title           = "Spectrum Color",
+            initialColor    = settings.widgetContentFor(widgetContentPage).spectrumColor?.let { Color(it) } ?: accent,
+            onColorSelected = { c -> onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumColor = c.toArgb()) } } },
+            onDismiss       = { showSpectrumColorPicker = false }
+        )
+    }
+
     floatingSlotEditor?.let { slot ->
         FloatingSlotDialog(
             slotIndex = slot,
@@ -2081,6 +2561,45 @@ fun SettingsScreen(
             onSelect  = { pkg -> onUpdate { copy(radioPackage = pkg) }; showRadioAppPicker = false },
             onClear   = { onUpdate { copy(radioPackage = "") }; showRadioAppPicker = false },
             onDismiss = { showRadioAppPicker = false }
+        )
+    }
+
+    pendingAppPick?.let { target ->
+        SimpleAppPickerDialog(
+            title    = when (target) {
+                0 -> "AUTO-LAUNCH APP"
+                1 -> "TWO-FINGER TAP"
+                else -> "THREE-FINGER TAP"
+            },
+            current  = when (target) {
+                0 -> settings.autoLaunchPackage
+                1 -> settings.gestureTwoFingerPackage
+                else -> settings.gestureThreeFingerPackage
+            },
+            apps     = apps,
+            accent   = accent,
+            isDayMode = isDayMode,
+            onSelect = { pkg ->
+                onUpdate {
+                    when (target) {
+                        0 -> copy(autoLaunchPackage = pkg)
+                        1 -> copy(gestureTwoFingerPackage = pkg)
+                        else -> copy(gestureThreeFingerPackage = pkg)
+                    }
+                }
+                pendingAppPick = null
+            },
+            onClear  = {
+                onUpdate {
+                    when (target) {
+                        0 -> copy(autoLaunchPackage = "")
+                        1 -> copy(gestureTwoFingerPackage = "")
+                        else -> copy(gestureThreeFingerPackage = "")
+                    }
+                }
+                pendingAppPick = null
+            },
+            onDismiss = { pendingAppPick = null }
         )
     }
 }
@@ -2285,27 +2804,29 @@ private fun CategoryTile(
 }
 
 @Composable
-private fun SearchTile(
+private fun SearchField(
     query: String,
     onQueryChange: (String) -> Unit,
     accent: Color,
     isDayMode: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val bg = if (isDayMode) Color(0xFFE6EEF6) else Color(0xFF12263C)
-    val textColor = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
+    // Accent-tinted so it reads as "search", distinct from the neutral category
+    // tiles and the Open System Settings card.
+    val bg = accent.copy(alpha = if (isDayMode) 0.12f else 0.20f)
+    val textColor = if (isDayMode) Color(0xFF111111) else Color(0xFFF0F0F0)
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(8.dp),
         color = bg,
-        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.55f)),
-        modifier = modifier.height(68.dp)
+        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.6f)),
+        modifier = modifier
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Icons.Default.Search, null, tint = accent, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
             BasicTextField(
                 value = query,
                 onValueChange = onQueryChange,
@@ -2445,6 +2966,69 @@ private fun RadioAppPickerDialog(
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onClear) {
                     Text("AUTO-DETECT", color = textColor.copy(alpha = 0.7f), fontSize = 10.sp, letterSpacing = 1.sp)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                apps.sortedBy { it.appName.lowercase() }.forEach { app ->
+                    val selected = app.packageName == current
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (selected) accent.copy(alpha = 0.15f) else Color.Transparent)
+                            .clickable { onSelect(app.packageName) }
+                            .padding(horizontal = 10.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = app.appName,
+                            color = if (selected) accent else textColor,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SimpleAppPickerDialog(
+    title: String,
+    current: String,
+    apps: List<com.openlauncher.app.model.AppInfo>,
+    accent: Color,
+    isDayMode: Boolean,
+    onSelect: (String) -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val dialogBg  = if (isDayMode) Color(0xFFF7F7F7) else Color(0xFF161616)
+    val borderC   = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF282828)
+    val textColor = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(dialogBg)
+                .border(1.dp, borderC, RoundedCornerShape(10.dp))
+                .padding(16.dp)
+                .widthIn(min = 280.dp, max = 460.dp)
+                .heightIn(max = 480.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = accent, fontSize = 12.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onClear) {
+                    Text("NONE", color = textColor.copy(alpha = 0.7f), fontSize = 10.sp, letterSpacing = 1.sp)
                 }
             }
             Spacer(Modifier.height(8.dp))

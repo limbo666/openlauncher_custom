@@ -1,6 +1,50 @@
+import com.android.build.api.artifact.SingleArtifact
+import com.android.build.api.variant.BuiltArtifactsLoader
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+/**
+ * Copies the built APK(s) to `build/dist/` under a friendly, versioned name.
+ * AGP 9 removed the old `outputFileName` API, so the supported way to rename an
+ * APK is to listen to the APK artifact and copy it (see the official
+ * gradle-recipes `listenToArtifacts` example).
+ */
+abstract class RenameApk : DefaultTask() {
+
+    @get:InputDirectory
+    abstract val input: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val output: DirectoryProperty
+
+    @get:Internal
+    abstract val builtArtifactsLoader: Property<BuiltArtifactsLoader>
+
+    @TaskAction
+    fun taskAction() {
+        val outDir = output.get().asFile
+        outDir.deleteRecursively()
+        outDir.mkdirs()
+        val built = builtArtifactsLoader.get().load(input.get()) ?: return
+        built.elements.forEach { artifact ->
+            val version = artifact.versionName?.takeIf { it.isNotBlank() } ?: "0.0.0"
+            File(artifact.outputFile).copyTo(
+                File(outDir, "OpenLauncher_Custom-v$version.apk"),
+                overwrite = true
+            )
+        }
+    }
 }
 
 android {
@@ -13,8 +57,8 @@ android {
         applicationId  = "com.openlauncher.app"
         minSdk         = 21
         targetSdk      = 34
-        versionCode    = 61
-        versionName    = "0.8.61"
+        versionCode    = 77
+        versionName    = "0.9.77"
     }
 
     signingConfigs {
@@ -51,6 +95,19 @@ android {
 
     buildFeatures {
         compose = true
+    }
+}
+
+// Name the output APK after the app + version. This only copies the built APK
+// under a friendlier file name — package identity, versionCode/versionName and
+// signing are all unaffected.
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        val renameTask = tasks.register<RenameApk>("renameApk${variant.name.replaceFirstChar { it.uppercase() }}") {
+            output.set(layout.buildDirectory.dir("dist"))
+            builtArtifactsLoader.set(variant.artifacts.getBuiltArtifactsLoader())
+        }
+        variant.artifacts.use(renameTask).wiredWith { it.input }.toListenTo(SingleArtifact.APK)
     }
 }
 

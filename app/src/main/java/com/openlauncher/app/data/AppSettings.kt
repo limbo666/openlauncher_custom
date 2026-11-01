@@ -21,8 +21,9 @@ enum class SidebarPosition { LEFT, RIGHT, BOTTOM }
 enum class GradientDirection { TOP_TO_BOTTOM, LEFT_TO_RIGHT, DIAGONAL, RADIAL }
 enum class WeatherProvider { WTTR_IN, OPEN_METEO }
 enum class WidgetBgMode { DEFAULT, FOLLOW_THEME, CUSTOM }
+enum class SpectrumStyle { BARS, ROUNDED, DOTS }
 
-enum class FloatingActionType { HOME, VOL_UP, VOL_DOWN, MUTE, BLACKOUT, DAY_NIGHT, APP }
+enum class FloatingActionType { HOME, BACK, VOL_UP, VOL_DOWN, MUTE, BLACKOUT, DAY_NIGHT, APP }
 
 data class FloatingPanelAction(
     val type: FloatingActionType = FloatingActionType.HOME,
@@ -176,6 +177,17 @@ data class AppSettings(
     val showNetworkSpeedIndicator: Boolean = false,
     val appShortcutCount: Int = 4,
     val soundboardButtonCount: Int = 6,
+    // Sound visualizer / spectrum widget
+    val showSpectrum: Boolean = false,
+    val spectrumBarCount: Int = 24,          // 8..64
+    val spectrumStyle: SpectrumStyle = SpectrumStyle.BARS,
+    val spectrumMirror: Boolean = false,      // reflect bars around the vertical center
+    val spectrumColor: Int? = null,           // null = follow the accent color
+    val spectrumGain: Float = 1.0f,           // 0.3..3.0 — bar sensitivity
+    val spectrumFallbackImageUri: String = "", // shown when there's no audio signal (e.g. a car logo)
+    val spectrumAttackMs: Float = 40f,         // 5..200 — bar rise time constant (ms)
+    val spectrumDecayMs: Float = 350f,         // 50..1500 — bar fall-off time constant (ms)
+    val spectrumResponse: Float = 1.0f,        // 0.4..2.5 — curve: higher spreads bars (less all-peaking)
     val showObd: Boolean = false,
     val obdDeviceAddress: String = "",
     val obdDeviceName: String = "",
@@ -208,7 +220,14 @@ data class AppSettings(
     val floatingPanelPositionSet: Boolean = false,  // true once the user has dragged it
     val floatingPanelScale: Float = 1.0f,  // scales icons + panel padding
     val floatingPanelOpacity: Float = 0.55f,
-    val floatingPanelVertical: Boolean = false  // stack buttons vertically instead of side-by-side
+    val floatingPanelVertical: Boolean = false,  // stack buttons vertically instead of side-by-side
+    // Auto-launch an app after the launcher starts (once per boot/session)
+    val autoLaunchEnabled: Boolean = false,
+    val autoLaunchPackage: String = "",
+    val autoLaunchDelaySec: Int = 5,          // 1..30
+    // Multi-finger tap gestures on the home screen → launch a chosen app ("" = disabled)
+    val gestureTwoFingerPackage: String = "",
+    val gestureThreeFingerPackage: String = ""
 )
 
 /**
@@ -226,7 +245,13 @@ data class WidgetContent(
     val soundboardPads: List<SoundPadConfig> = defaultSoundboardPads(),
     val soundboardButtonCount: Int = 6,
     val appWidgetPackages: List<String> = listOf("", "", "", ""),
-    val appShortcutCount: Int = 4
+    val appShortcutCount: Int = 4,
+    val spectrumBarCount: Int = 24,
+    val spectrumStyle: SpectrumStyle = SpectrumStyle.BARS,
+    val spectrumMirror: Boolean = false,
+    val spectrumColor: Int? = null,
+    val spectrumGain: Float = 1.0f,
+    val spectrumFallbackImageUri: String = ""
 )
 
 fun AppSettings.pageZeroWidgetContent(): WidgetContent = WidgetContent(
@@ -238,7 +263,13 @@ fun AppSettings.pageZeroWidgetContent(): WidgetContent = WidgetContent(
     soundboardPads          = soundboardPads,
     soundboardButtonCount   = soundboardButtonCount,
     appWidgetPackages       = appWidgetPackages,
-    appShortcutCount        = appShortcutCount
+    appShortcutCount        = appShortcutCount,
+    spectrumBarCount        = spectrumBarCount,
+    spectrumStyle           = spectrumStyle,
+    spectrumMirror          = spectrumMirror,
+    spectrumColor           = spectrumColor,
+    spectrumGain            = spectrumGain,
+    spectrumFallbackImageUri = spectrumFallbackImageUri
 )
 
 fun AppSettings.widgetContentFor(page: Int): WidgetContent =
@@ -256,7 +287,13 @@ fun AppSettings.withWidgetContent(page: Int, transform: (WidgetContent) -> Widge
             soundboardPads         = updated.soundboardPads,
             soundboardButtonCount  = updated.soundboardButtonCount,
             appWidgetPackages      = updated.appWidgetPackages,
-            appShortcutCount       = updated.appShortcutCount
+            appShortcutCount       = updated.appShortcutCount,
+            spectrumBarCount       = updated.spectrumBarCount,
+            spectrumStyle          = updated.spectrumStyle,
+            spectrumMirror         = updated.spectrumMirror,
+            spectrumColor          = updated.spectrumColor,
+            spectrumGain           = updated.spectrumGain,
+            spectrumFallbackImageUri = updated.spectrumFallbackImageUri
         )
     }
     return copy(widgetContentAlt = updated)
@@ -285,7 +322,8 @@ fun reconcileWidgetFlags(s: AppSettings): AppSettings {
         "QUICK_ACTIONS" to s.showQuickActions,
         "APP_SHORTCUTS" to s.showAppShortcuts,
         "OBD" to s.showObd,
-        "NETWORK_SPEED" to s.showNetworkSpeed
+        "NETWORK_SPEED" to s.showNetworkSpeed,
+        "SPECTRUM" to s.showSpectrum
     )
     fun rec(layout: List<WidgetConfig>): List<WidgetConfig> =
         layout.map { w -> if (flags[w.id] == false) w.copy(enabled = false) else w }
@@ -335,6 +373,7 @@ fun AppSettings.activeWidgetIds(): Set<String> = buildSet {
     if (showAppShortcuts) add("APP_SHORTCUTS")
     if (showObd) add("OBD")
     if (showNetworkSpeed) add("NETWORK_SPEED")
+    if (showSpectrum) add("SPECTRUM")
 }
 
 /**

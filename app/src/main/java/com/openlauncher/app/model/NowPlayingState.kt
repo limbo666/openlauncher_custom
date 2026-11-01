@@ -8,6 +8,7 @@ data class NowPlayingState(
     val artist: String,
     val album: String = "",
     val mediaId: String = "",
+    val audioSessionId: Int = -1,
     val albumArt: Bitmap?,
     // Full-resolution artwork URI when the source app provides one —
     // preferred over the (often downscaled) metadata bitmap

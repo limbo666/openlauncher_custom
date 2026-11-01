@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -29,6 +31,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -68,6 +71,39 @@ import com.openlauncher.app.util.formatBitRateShort
 
 private val WIDGET_RADIUS = RoundedCornerShape(0.dp)
 
+/**
+ * Detects a multi-finger tap (2 or 3 fingers down together, then all up quickly
+ * with minimal movement) and reports the finger count. Passive — it does not
+ * consume events, so single-finger swipes/drags still work.
+ */
+private suspend fun PointerInputScope.detectMultiFingerTap(onTap: (Int) -> Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val startPos = down.position
+        var fingers = 1
+        var moved = false
+        val startTime = System.currentTimeMillis()
+        do {
+            val event = awaitPointerEvent()
+            val pressed = event.changes.count { it.pressed }
+            if (pressed > fingers) fingers = pressed
+            if (event.changes.any { (it.position - startPos).getDistance() > 18f }) moved = true
+        } while (event.changes.any { it.pressed })
+        val elapsed = System.currentTimeMillis() - startTime
+        if (!moved && fingers in 2..3 && elapsed < 500) {
+            onTap(fingers)
+        }
+    }
+}
+
+/** Easter egg: the vehicle name tints with speed. */
+private fun speedColor(speedKmh: Float, default: Color): Color = when {
+    speedKmh >= 120f -> Color(0xFFE03131)  // red
+    speedKmh >= 100f -> Color(0xFFFF8800)  // orange
+    speedKmh >= 50f  -> Color(0xFF33AA55)  // green
+    else             -> default
+}
+
 private data class WidgetTypeInfo(
     val id: String,
     val label: String,
@@ -89,7 +125,8 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("SOUNDBOARD",    "SOUNDBOARD",    Icons.Default.Piano,         "Custom sound pads"),
     WidgetTypeInfo("APP_SHORTCUTS", "APP SHORTCUTS", Icons.Default.Apps,          "Quick app launch pad"),
     WidgetTypeInfo("OBD",           "OBD2",          Icons.Default.Bluetooth,     "Live engine & sensor telemetry"),
-    WidgetTypeInfo("NETWORK_SPEED", "NETWORK SPEED", Icons.Default.SwapVert,      "Upload & download speed")
+    WidgetTypeInfo("NETWORK_SPEED", "NETWORK SPEED", Icons.Default.SwapVert,      "Upload & download speed"),
+    WidgetTypeInfo("SPECTRUM",      "SPECTRUM",      Icons.Default.GraphicEq,     "Live sound spectrum")
 )
 
 private fun canAddWidget(settings: AppSettings, layout: List<WidgetConfig>): Boolean {
@@ -108,6 +145,7 @@ private fun canAddWidget(settings: AppSettings, layout: List<WidgetConfig>): Boo
         if (settings.showAppShortcuts) add("APP_SHORTCUTS")
         if (settings.showObd) add("OBD")
         if (settings.showNetworkSpeed) add("NETWORK_SPEED")
+        if (settings.showSpectrum) add("SPECTRUM")
     }
     val activeWidgets = layout.filter { it.enabled && it.id in visibleIds }
     val occupied = buildSet<Pair<Int, Int>> {
@@ -192,6 +230,9 @@ fun HomeScreen(
     carImageUri: String = "",
     carRestingVisible: Boolean = false,
     networkSpeed: NetworkSpeedState = NetworkSpeedState(),
+    soundSpectrum: FloatArray = FloatArray(0),
+    soundVisualizerAvailable: Boolean = false,
+    soundVisualizerHasSignal: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val accent       = Color(settings.accentColor)
@@ -231,7 +272,18 @@ fun HomeScreen(
         animationSpec = tween(600)
     )
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(settings.gestureTwoFingerPackage, settings.gestureThreeFingerPackage) {
+                detectMultiFingerTap { fingers ->
+                    when (fingers) {
+                        2 -> if (settings.gestureTwoFingerPackage.isNotEmpty()) onLaunchApp(settings.gestureTwoFingerPackage)
+                        3 -> if (settings.gestureThreeFingerPackage.isNotEmpty()) onLaunchApp(settings.gestureThreeFingerPackage)
+                    }
+                }
+            }
+    ) {
     Column(modifier = Modifier.fillMaxSize()) {
 
         // ── Header ──────────────────────────────────────────────────────────
@@ -304,7 +356,7 @@ fun HomeScreen(
                 Text(
                     text          = settings.vehicleName.uppercase(),
                     style         = MaterialTheme.typography.titleLarge,
-                    color         = headerTextColor,
+                    color         = speedColor((location?.speedMps ?: 0f) * 3.6f, headerTextColor),
                     letterSpacing = 3.sp,
                     fontSize      = 14.sp
                 )
@@ -428,6 +480,7 @@ fun HomeScreen(
                 if (settings.showAppShortcuts) add("APP_SHORTCUTS")
                 if (settings.showObd) add("OBD")
                 if (settings.showNetworkSpeed) add("NETWORK_SPEED")
+                if (settings.showSpectrum) add("SPECTRUM")
             }
 
             // Keep only visible widgets exactly as configured in settings, allowing explicit resizing to dictate layout
@@ -533,6 +586,7 @@ fun HomeScreen(
                     "QUICK_ACTIONS" -> "QUICK ACTIONS"
                     "APP_SHORTCUTS" -> "APP SHORTCUTS"
                     "OBD"           -> "OBD2"
+                    "SPECTRUM"      -> "SPECTRUM"
                     else            -> w.id
                 }
 
@@ -765,6 +819,19 @@ fun HomeScreen(
                             isDayMode          = widgetDayMode,
                             customContentColor = customContentColor,
                             modifier           = Modifier.fillMaxSize()
+                        )
+                        "SPECTRUM" -> SpectrumWidget(
+                            spectrum          = soundSpectrum,
+                            available         = soundVisualizerAvailable,
+                            hasSignal         = soundVisualizerHasSignal,
+                            barCount          = content.spectrumBarCount,
+                            style             = content.spectrumStyle,
+                            mirror            = content.spectrumMirror,
+                            gain              = content.spectrumGain,
+                            color             = content.spectrumColor?.let { Color(it) } ?: widgetAccent,
+                            fallbackImageUri  = content.spectrumFallbackImageUri,
+                            isDayMode         = widgetDayMode,
+                            modifier          = Modifier.fillMaxSize()
                         )
                     }
 
@@ -1548,6 +1615,7 @@ private fun WidgetLibraryDialog(
         if (settings.showAppShortcuts) add("APP_SHORTCUTS")
         if (settings.showObd) add("OBD")
         if (settings.showNetworkSpeed) add("NETWORK_SPEED")
+        if (settings.showSpectrum) add("SPECTRUM")
     }
 
     val canAdd = canAddWidget(settings, layout)

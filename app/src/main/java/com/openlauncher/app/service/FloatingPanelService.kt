@@ -1,9 +1,12 @@
 package com.openlauncher.app.service
 
+import android.app.AppOpsManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -14,6 +17,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.IBinder
+import android.os.Process
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
@@ -35,9 +39,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -50,6 +56,17 @@ class FloatingPanelService : Service() {
     companion object {
         private const val CHANNEL_ID = "floating_panel"
         private const val NOTIF_ID = 2001
+
+        // Screens whose buttons Android protects against overlay tapjacking —
+        // hide the panel over these so Play Store installs / permission dialogs
+        // don't show the "app running above other apps" warning.
+        private val SENSITIVE_PACKAGES = setOf(
+            "com.android.vending",                  // Google Play Store
+            "com.android.packageinstaller",         // AOSP install dialogs
+            "com.google.android.packageinstaller",  // Google install dialogs
+            "com.android.permissioncontroller",     // AOSP permission dialogs
+            "com.google.android.permissioncontroller" // Google permission dialogs
+        )
 
         private val launcherVisible = MutableStateFlow(true)
 
@@ -76,6 +93,7 @@ class FloatingPanelService : Service() {
     private var panelLp: WindowManager.LayoutParams? = null
     private var blackoutView: View? = null
     private var blackedOut = false
+    private val sensitiveForeground = MutableStateFlow(false)
 
     private val repo by lazy { SettingsRepository(this) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -91,14 +109,57 @@ class FloatingPanelService : Service() {
             return
         }
 
+        // Poll the foreground app so the panel auto-hides over sensitive screens.
         scope.launch {
-            combine(repo.settingsFlow, launcherVisible) { s, vis -> s to vis }
-                .collect { (s, visible) ->
-                    val shouldShow = s.floatingPanelEnabled && !visible
-                    FileLog.log("FloatingPanel", "sync enabled=${s.floatingPanelEnabled} launcherVisible=$visible show=$shouldShow")
+            while (isActive) {
+                val sensitive = isSensitiveForeground()
+                if (sensitiveForeground.value != sensitive) sensitiveForeground.value = sensitive
+                delay(1_500)
+            }
+        }
+
+        scope.launch {
+            combine(repo.settingsFlow, launcherVisible, sensitiveForeground) { s, vis, sens -> Triple(s, vis, sens) }
+                .collect { (s, visible, sensitive) ->
+                    val shouldShow = s.floatingPanelEnabled && !visible && !sensitive
+                    FileLog.log("FloatingPanel", "sync enabled=${s.floatingPanelEnabled} launcherVisible=$visible sensitive=$sensitive show=$shouldShow")
                     if (shouldShow) ensurePanel(s) else removePanel()
                 }
         }
+    }
+
+    private fun isSensitiveForeground(): Boolean {
+        val pkg = currentForegroundPackage() ?: return false
+        return pkg in SENSITIVE_PACKAGES
+    }
+
+    private fun currentForegroundPackage(): String? {
+        if (!hasUsageAccess()) return null
+        val usm = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return null
+        val now = System.currentTimeMillis()
+        val events = runCatching { usm.queryEvents(now - 5_000, now) }.getOrNull() ?: return null
+        var last = ""
+        val e = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(e)
+            if (e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND ||
+                e.eventType == UsageEvents.Event.ACTIVITY_RESUMED
+            ) {
+                last = e.packageName ?: ""
+            }
+        }
+        return last.ifEmpty { null }
+    }
+
+    private fun hasUsageAccess(): Boolean {
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
+        val mode = if (Build.VERSION.SDK_INT >= 29) {
+            appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
+        } else {
+            @Suppress("DEPRECATION")
+            appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
+        }
+        return mode == AppOpsManager.MODE_ALLOWED
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
@@ -246,6 +307,7 @@ class FloatingPanelService : Service() {
 
     private fun actionIconRes(type: FloatingActionType): Int = when (type) {
         FloatingActionType.HOME -> R.drawable.ic_floating_home
+        FloatingActionType.BACK -> R.drawable.ic_floating_back
         FloatingActionType.VOL_UP -> R.drawable.ic_floating_vol_up
         FloatingActionType.VOL_DOWN -> R.drawable.ic_floating_vol_down
         FloatingActionType.MUTE -> R.drawable.ic_floating_mute
@@ -316,6 +378,7 @@ class FloatingPanelService : Service() {
 
     private fun labelFor(type: FloatingActionType): String = when (type) {
         FloatingActionType.HOME -> "Home"
+        FloatingActionType.BACK -> "Back"
         FloatingActionType.VOL_UP -> "Volume up"
         FloatingActionType.VOL_DOWN -> "Volume down"
         FloatingActionType.MUTE -> "Mute"
@@ -403,6 +466,7 @@ class FloatingPanelService : Service() {
     private fun executeAction(action: FloatingPanelAction) {
         when (action.type) {
             FloatingActionType.HOME -> launchHome()
+            FloatingActionType.BACK -> GlobalActionService.performBack()
             FloatingActionType.VOL_UP -> VolumeController.adjust(this, +1)
             FloatingActionType.VOL_DOWN -> VolumeController.adjust(this, -1)
             FloatingActionType.MUTE -> VolumeController.toggleMute(this)
