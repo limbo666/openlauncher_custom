@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.SettingsInputAntenna
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
@@ -32,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -72,7 +74,11 @@ fun NowPlayingWidget(
     onRadioCycleFm: () -> Unit = {},
     onRadioSwitchAm: () -> Unit = {},
     onRadioTune: (band: String, freq: Float) -> Unit = { _, _ -> },
-    onAssignRadio: () -> Unit = {}
+    onAssignRadio: () -> Unit = {},
+    showRadioBands: Boolean = false,
+    logoScale: Float = 1.0f,
+    logoDim: Float = 0.25f,
+    assignedRadioPackage: String = ""
 ) {
     val context     = LocalContext.current
     val isConnected by MediaListenerService.isConnected.collectAsState()
@@ -117,6 +123,8 @@ fun NowPlayingWidget(
                     onRadioSwitchAm = onRadioSwitchAm,
                     onRadioTune = onRadioTune,
                     onAssignRadio = onAssignRadio,
+                    showRadioBands = showRadioBands,
+                    assignedRadioPackage = assignedRadioPackage,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -138,6 +146,8 @@ fun NowPlayingWidget(
                 onLaunchCarPlay = onLaunchCarPlay,
                 onLaunchAndroidAuto = onLaunchAndroidAuto,
                 onTapToOpenApp = onTapToOpenApp,
+                logoScale = logoScale,
+                logoDim = logoDim,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -193,6 +203,8 @@ private fun RadioDeck(
     onRadioSwitchAm: () -> Unit,
     onRadioTune: (band: String, freq: Float) -> Unit,
     onAssignRadio: () -> Unit,
+    showRadioBands: Boolean = false,
+    assignedRadioPackage: String = "",
     modifier: Modifier = Modifier
 ) {
     val isLightMode  = isDayMode || (customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f)
@@ -201,23 +213,33 @@ private fun RadioDeck(
     val borderColor  = customContentColor?.copy(alpha = 0.25f) ?: if (isLightMode) Color(0xFF777777) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
 
     if (hardwareRadio == null) {
-        // No real tuner detected — be honest about it instead of simulating one
+        // No real tuner detected — be honest about it instead of simulating one.
+        // Distinguish "no tuner on this device" from "radio app assigned but not started".
+        val hasAssigned = assignedRadioPackage.isNotBlank()
         Column(
             modifier = modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(Icons.Default.Radio, null, tint = dimColor, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.height(6.dp))
+            Icon(
+                if (hasAssigned) Icons.Default.Radio else Icons.Default.SettingsInputAntenna,
+                null,
+                tint = dimColor,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(Modifier.height(7.dp))
             Text(
-                "NO RADIO SOURCE",
+                if (hasAssigned) "RADIO NOT STARTED" else "NO RADIO TUNER",
                 color = contentColor.copy(alpha = 0.85f),
                 fontSize = 9.sp, fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp
             )
             Spacer(Modifier.height(3.dp))
             Text(
-                "Start your head unit's radio app — or assign it below so Open Launcher can mirror and control it",
+                if (hasAssigned)
+                    "Open your radio app to start the tuner — this panel mirrors it once it's playing"
+                else
+                    "No tuner was detected on this device. If your head unit has a radio app, assign it below",
                 color = dimColor, fontSize = 7.sp, fontFamily = FontFamily.Monospace,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 lineHeight = 10.sp,
@@ -229,12 +251,12 @@ private fun RadioDeck(
                     .height(26.dp)
                     .border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(3.dp))
                     .clip(RoundedCornerShape(3.dp))
-                    .clickable { onAssignRadio() }
+                    .clickable { if (hasAssigned) onLaunchHardwareRadio() else onAssignRadio() }
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "ASSIGN RADIO APP",
+                    if (hasAssigned) "OPEN RADIO" else "ASSIGN RADIO APP",
                     color = accent, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold, letterSpacing = 1.sp
                 )
@@ -252,10 +274,10 @@ private fun RadioDeck(
     val powerOn = !isManuallyOff
 
     val displayBand = hardwareRadio.band.uppercase()
-    val freqClean   = hardwareRadio.freq.replace(Regex("[^0-9.]"), "")
-    val freqFloat   = freqClean.toFloatOrNull()
-    val displayFreq = freqClean.ifEmpty { hardwareRadio.freq }
+    val displayFreq = hardwareRadio.freqDisplay
+    val freqFloat   = hardwareRadio.freqValue
     val displayUnit = if (hardwareRadio.isAm) "kHz" else "MHz"
+    val hasFreq     = freqFloat != null
 
     val chipInactiveBg = if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF1A1A1A)
     val chipActiveBg   = if (isDayMode) Color(0xFF222222) else Color(0xFFDDDDDD)
@@ -267,55 +289,12 @@ private fun RadioDeck(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // ── Row 1: band (chips when switchable, read-only chip otherwise) + power
+        // ── Row 1: power (on its own) + optional band chips (right side)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (hardwareRadio.canTune) {
-                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    listOf("FM1", "FM2", "FM3", "AM").forEach { b ->
-                        val active = displayBand == b
-                        Box(
-                            modifier = Modifier
-                                .height(22.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (active) chipActiveBg else chipInactiveBg)
-                                .border(1.dp, if (active) borderColor else borderColor.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
-                                .clickable { if (b == "AM") onRadioSwitchAm() else onRadioCycleFm() }
-                                .padding(horizontal = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                b,
-                                color = if (active) chipActiveText else dimColor,
-                                fontSize = 8.sp, fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
-                            )
-                        }
-                    }
-                }
-            } else {
-                // Session-mirrored tuner: band is whatever the radio app reports
-                Box(
-                    modifier = Modifier
-                        .height(22.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(chipActiveBg)
-                        .border(1.dp, borderColor, RoundedCornerShape(3.dp))
-                        .padding(horizontal = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        displayBand,
-                        color = chipActiveText,
-                        fontSize = 8.sp, fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
-                    )
-                }
-            }
-
             Box(
                 modifier = Modifier
                     .size(34.dp)
@@ -334,23 +313,92 @@ private fun RadioDeck(
                     modifier = Modifier.size(16.dp)
                 )
             }
+
+            if (showRadioBands) {
+                if (hardwareRadio.canTune) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        listOf("FM1", "FM2", "FM3", "AM").forEach { b ->
+                            val active = displayBand == b
+                            Box(
+                                modifier = Modifier
+                                    .height(22.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(if (active) chipActiveBg else chipInactiveBg)
+                                    .border(1.dp, if (active) borderColor else borderColor.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
+                                    .clickable { if (b == "AM") onRadioSwitchAm() else onRadioCycleFm() }
+                                    .padding(horizontal = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    b,
+                                    color = if (active) chipActiveText else dimColor,
+                                    fontSize = 8.sp, fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Session-mirrored tuner: band is whatever the radio app reports
+                    Box(
+                        modifier = Modifier
+                            .height(22.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(chipActiveBg)
+                            .border(1.dp, borderColor, RoundedCornerShape(3.dp))
+                            .padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            displayBand,
+                            color = chipActiveText,
+                            fontSize = 8.sp, fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+            }
         }
 
-        // ── Row 2: live frequency + station/RDS line ──────────────────────────
-        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    displayFreq,
-                    color = if (powerOn) contentColor else contentColor.copy(alpha = 0.3f),
-                    fontSize = 34.sp, fontWeight = FontWeight.Light,
-                    fontFamily = FontFamily.Monospace, letterSpacing = 0.sp
-                )
-                Text(
-                    displayUnit,
-                    color = dimColor, fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(bottom = 5.dp)
-                )
+        // ── Row 2: live frequency + station/RDS line (tap to open the radio app) ──
+        Column(
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+            modifier = Modifier.clickable { onLaunchHardwareRadio() }
+        ) {
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (hasFreq) {
+                    Text(
+                        displayFreq,
+                        color = if (powerOn) contentColor else contentColor.copy(alpha = 0.3f),
+                        fontSize = 34.sp, fontWeight = FontWeight.Light,
+                        fontFamily = FontFamily.Monospace, letterSpacing = 0.sp,
+                        maxLines = 1, softWrap = false
+                    )
+                    Text(
+                        displayUnit,
+                        color = dimColor, fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(bottom = 5.dp)
+                    )
+                } else {
+                    // No parseable frequency — keep it honest instead of a giant "—"
+                    Text(
+                        "—",
+                        color = if (powerOn) contentColor.copy(alpha = 0.6f) else contentColor.copy(alpha = 0.2f),
+                        fontSize = 22.sp, fontWeight = FontWeight.Light,
+                        fontFamily = FontFamily.Monospace, maxLines = 1
+                    )
+                    Text(
+                        "NO FREQ",
+                        color = dimColor, fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace, letterSpacing = 1.sp,
+                        modifier = Modifier.padding(bottom = 3.dp)
+                    )
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
@@ -365,19 +413,13 @@ private fun RadioDeck(
             }
         }
 
-        // ── Row 3: seek + open ────────────────────────────────────────────────
+        // ── Row 3: seek (open lives on the frequency text) ─────────────────────
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             RadioFlatButton(
                 label = "◄ SEEK", enabled = powerOn, active = false,
                 accent = accent, borderColor = borderColor, dimColor = dimColor,
                 modifier = Modifier.weight(1f),
                 onClick = onRadioSeekDown
-            )
-            RadioFlatButton(
-                label = "OPEN", enabled = true, active = false,
-                accent = accent, borderColor = borderColor, dimColor = dimColor,
-                modifier = Modifier.weight(1f),
-                onClick = onLaunchHardwareRadio
             )
             RadioFlatButton(
                 label = "SEEK ►", enabled = powerOn, active = false,
@@ -549,6 +591,8 @@ private fun StandardMinimalPlayer(
     onLaunchCarPlay: () -> Unit,
     onLaunchAndroidAuto: () -> Unit,
     onTapToOpenApp: () -> Unit,
+    logoScale: Float = 1.0f,
+    logoDim: Float = 0.25f,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -703,13 +747,13 @@ private fun StandardMinimalPlayer(
                     error = nonNullState.albumArt?.let {
                         androidx.compose.ui.graphics.painter.BitmapPainter(it.asImageBitmap())
                     },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize().scale(logoScale.coerceIn(0.5f, 1f))
                 )
-                // 25% dimming layer overlay
+                // Adjustable dark veil so controls/text stay legible over bright logos
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.25f))
+                        .background(Color.Black.copy(alpha = logoDim.coerceIn(0f, 0.8f)))
                 )
             }
 

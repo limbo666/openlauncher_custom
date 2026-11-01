@@ -22,6 +22,19 @@ enum class GradientDirection { TOP_TO_BOTTOM, LEFT_TO_RIGHT, DIAGONAL, RADIAL }
 enum class WeatherProvider { WTTR_IN, OPEN_METEO }
 enum class WidgetBgMode { DEFAULT, FOLLOW_THEME, CUSTOM }
 
+enum class FloatingActionType { HOME, VOL_UP, VOL_DOWN, MUTE, BLACKOUT, DAY_NIGHT, APP }
+
+data class FloatingPanelAction(
+    val type: FloatingActionType = FloatingActionType.HOME,
+    val packageName: String = ""
+)
+
+fun defaultFloatingActions() = listOf(
+    FloatingPanelAction(FloatingActionType.HOME),
+    FloatingPanelAction(FloatingActionType.VOL_DOWN),
+    FloatingPanelAction(FloatingActionType.VOL_UP)
+)
+
 enum class DefaultShortcutIcon {
     NONE,
     // Navigation & vehicle
@@ -159,6 +172,8 @@ data class AppSettings(
     val weatherForecastDays: Int = 5,
     val advancedWeatherIcons: Boolean = true,
     val showStatusIcons: Boolean = true,
+    val showNetworkSpeed: Boolean = false,
+    val showNetworkSpeedIndicator: Boolean = false,
     val appShortcutCount: Int = 4,
     val soundboardButtonCount: Int = 6,
     val showObd: Boolean = false,
@@ -177,7 +192,23 @@ data class AppSettings(
     val displayAnimation: Boolean = false,
     val carImageUri: String = "",
     // Page 1 (second home screen) overrides for widget content. null = mirror page 0.
-    val widgetContentAlt: WidgetContent? = null
+    val widgetContentAlt: WidgetContent? = null,
+    // Last settings category the user was viewing (persisted so Settings reopens there)
+    val settingsCategory: String = "Display",
+    // Now Playing / Radio widget options
+    val showRadioBands: Boolean = false,       // FM/AM band chips in the radio deck
+    val showRadioPopup: Boolean = false,       // glassmorphism station-change popup on the home screen
+    val nowPlayingLogoScale: Float = 1.0f,     // 0.5..1.0 — album-art/logo size in the player card
+    val nowPlayingLogoDim: Float = 0.25f,      // 0..0.8 — dark veil over the artwork for control contrast
+    // Floating quick-controls panel (drawn over other apps via SYSTEM_ALERT_WINDOW)
+    val floatingPanelEnabled: Boolean = false,
+    val floatingPanelActions: List<FloatingPanelAction> = defaultFloatingActions(),
+    val floatingPanelX: Int = -1,          // -1 = auto/default placement
+    val floatingPanelY: Int = -1,
+    val floatingPanelPositionSet: Boolean = false,  // true once the user has dragged it
+    val floatingPanelScale: Float = 1.0f,  // scales icons + panel padding
+    val floatingPanelOpacity: Float = 0.55f,
+    val floatingPanelVertical: Boolean = false  // stack buttons vertically instead of side-by-side
 )
 
 /**
@@ -231,6 +262,39 @@ fun AppSettings.withWidgetContent(page: Int, transform: (WidgetContent) -> Widge
     return copy(widgetContentAlt = updated)
 }
 
+/**
+ * Reconcile the per-page `enabled` flag with the global show flags.
+ *
+ * Fixes settings migrated from the old single-page model, where `removeWidget` only
+ * toggled the show flag and left `enabled = true` in the layout. Without this,
+ * re-adding a widget on page 2 (which turns the show flag back on) would resurrect a
+ * stale `enabled = true` copy on page 1.
+ */
+fun reconcileWidgetFlags(s: AppSettings): AppSettings {
+    val flags = mapOf(
+        "CLOCK" to s.showClock,
+        "WEATHER" to s.showWeather,
+        "NOW_PLAYING" to s.showNowPlaying,
+        "TELEMETRY" to s.showTelemetry,
+        "ALTIMETER" to s.showAltimeter,
+        "SPEEDOMETER" to s.showSpeedometer,
+        "VITALS" to s.showVitals,
+        "TRIP_TRACKER" to s.showTripTracker,
+        "SOUNDBOARD" to s.showSoundboard,
+        "VOLUME" to s.showVolume,
+        "QUICK_ACTIONS" to s.showQuickActions,
+        "APP_SHORTCUTS" to s.showAppShortcuts,
+        "OBD" to s.showObd,
+        "NETWORK_SPEED" to s.showNetworkSpeed
+    )
+    fun rec(layout: List<WidgetConfig>): List<WidgetConfig> =
+        layout.map { w -> if (flags[w.id] == false) w.copy(enabled = false) else w }
+    return s.copy(
+        widgetLayout = rec(s.widgetLayout),
+        homePageAltLayout = rec(s.homePageAltLayout)
+    )
+}
+
 fun defaultQuickActionButtons() = listOf("BLUETOOTH", "WIFI", "BLACKOUT", "MUTE", "SETTINGS")
 fun defaultVitalsElements() = listOf("CPU", "RAM", "TEMP")
 
@@ -270,6 +334,7 @@ fun AppSettings.activeWidgetIds(): Set<String> = buildSet {
     if (showQuickActions) add("QUICK_ACTIONS")
     if (showAppShortcuts) add("APP_SHORTCUTS")
     if (showObd) add("OBD")
+    if (showNetworkSpeed) add("NETWORK_SPEED")
 }
 
 /**

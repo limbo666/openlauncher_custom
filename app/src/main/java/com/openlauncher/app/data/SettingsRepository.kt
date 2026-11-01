@@ -86,6 +86,8 @@ class SettingsRepository(private val context: Context) {
         val WEATHER_FORECAST_DAYS = intPreferencesKey("weather_forecast_days")
         val ADVANCED_WEATHER_ICONS = booleanPreferencesKey("advanced_weather_icons")
         val SHOW_STATUS_ICONS     = booleanPreferencesKey("show_status_icons")
+        val SHOW_NETWORK_SPEED    = booleanPreferencesKey("show_network_speed")
+        val SHOW_NETWORK_SPEED_INDICATOR = booleanPreferencesKey("show_network_speed_indicator")
         val APP_SHORTCUT_COUNT    = intPreferencesKey("app_shortcut_count")
         val SOUNDBOARD_BUTTON_COUNT = intPreferencesKey("soundboard_button_count")
         val APP_DRAWER_FILTER     = stringPreferencesKey("app_drawer_filter")
@@ -100,6 +102,19 @@ class SettingsRepository(private val context: Context) {
         val DISPLAY_ANIMATION     = booleanPreferencesKey("display_animation")
         val CAR_IMAGE_URI         = stringPreferencesKey("car_image_uri")
         val WIDGET_CONTENT_ALT_JSON = stringPreferencesKey("widget_content_alt_json")
+        val FLOATING_PANEL_ENABLED  = booleanPreferencesKey("floating_panel_enabled")
+        val FLOATING_PANEL_ACTIONS_JSON = stringPreferencesKey("floating_panel_actions_json")
+        val FLOATING_PANEL_X        = intPreferencesKey("floating_panel_x")
+        val FLOATING_PANEL_Y        = intPreferencesKey("floating_panel_y")
+        val FLOATING_PANEL_POS_SET  = booleanPreferencesKey("floating_panel_position_set")
+        val SETTINGS_CATEGORY       = stringPreferencesKey("settings_category")
+        val SHOW_RADIO_BANDS        = booleanPreferencesKey("show_radio_bands")
+        val SHOW_RADIO_POPUP        = booleanPreferencesKey("show_radio_popup")
+        val NOW_PLAYING_LOGO_SCALE  = floatPreferencesKey("now_playing_logo_scale")
+        val NOW_PLAYING_LOGO_DIM    = floatPreferencesKey("now_playing_logo_dim")
+        val FLOATING_PANEL_SCALE    = floatPreferencesKey("floating_panel_scale")
+        val FLOATING_PANEL_OPACITY  = floatPreferencesKey("floating_panel_opacity")
+        val FLOATING_PANEL_VERTICAL = booleanPreferencesKey("floating_panel_vertical")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
@@ -257,6 +272,8 @@ class SettingsRepository(private val context: Context) {
                 weatherForecastDays = prefs[Keys.WEATHER_FORECAST_DAYS] ?: defaults.weatherForecastDays,
                 advancedWeatherIcons = prefs[Keys.ADVANCED_WEATHER_ICONS] ?: defaults.advancedWeatherIcons,
                 showStatusIcons       = prefs[Keys.SHOW_STATUS_ICONS] ?: defaults.showStatusIcons,
+                showNetworkSpeed      = prefs[Keys.SHOW_NETWORK_SPEED] ?: defaults.showNetworkSpeed,
+                showNetworkSpeedIndicator = prefs[Keys.SHOW_NETWORK_SPEED_INDICATOR] ?: defaults.showNetworkSpeedIndicator,
                 appShortcutCount      = prefs[Keys.APP_SHORTCUT_COUNT]?.coerceIn(1, 4) ?: defaults.appShortcutCount,
                 soundboardButtonCount = prefs[Keys.SOUNDBOARD_BUTTON_COUNT]?.coerceIn(1, 6) ?: defaults.soundboardButtonCount,
                 showObd               = prefs[Keys.SHOW_OBD] ?: defaults.showObd,
@@ -273,40 +290,25 @@ class SettingsRepository(private val context: Context) {
                     runCatching {
                         gson.fromJson<WidgetContent>(json, WidgetContent::class.java)
                     }.getOrNull()
-                }
+                },
+                floatingPanelEnabled  = prefs[Keys.FLOATING_PANEL_ENABLED] ?: defaults.floatingPanelEnabled,
+                floatingPanelActions  = prefs[Keys.FLOATING_PANEL_ACTIONS_JSON]?.let { json ->
+                    runCatching {
+                        gson.fromJson<List<FloatingPanelAction>>(json, object : com.google.gson.reflect.TypeToken<List<FloatingPanelAction>>() {}.type)
+                    }.getOrNull()
+                } ?: defaults.floatingPanelActions,
+                floatingPanelX        = prefs[Keys.FLOATING_PANEL_X] ?: defaults.floatingPanelX,
+                floatingPanelY        = prefs[Keys.FLOATING_PANEL_Y] ?: defaults.floatingPanelY,
+                floatingPanelPositionSet = prefs[Keys.FLOATING_PANEL_POS_SET] ?: defaults.floatingPanelPositionSet,
+                settingsCategory        = prefs[Keys.SETTINGS_CATEGORY] ?: defaults.settingsCategory,
+                showRadioBands          = prefs[Keys.SHOW_RADIO_BANDS] ?: defaults.showRadioBands,
+                showRadioPopup          = prefs[Keys.SHOW_RADIO_POPUP] ?: defaults.showRadioPopup,
+                nowPlayingLogoScale     = prefs[Keys.NOW_PLAYING_LOGO_SCALE]?.coerceIn(0.5f, 1f) ?: defaults.nowPlayingLogoScale,
+                nowPlayingLogoDim       = prefs[Keys.NOW_PLAYING_LOGO_DIM]?.coerceIn(0f, 0.8f) ?: defaults.nowPlayingLogoDim,
+                floatingPanelScale    = prefs[Keys.FLOATING_PANEL_SCALE]?.coerceIn(0.5f, 2f) ?: defaults.floatingPanelScale,
+                floatingPanelOpacity  = prefs[Keys.FLOATING_PANEL_OPACITY]?.coerceIn(0f, 1f) ?: defaults.floatingPanelOpacity,
+                floatingPanelVertical = prefs[Keys.FLOATING_PANEL_VERTICAL] ?: defaults.floatingPanelVertical
             ).let { s -> reconcileWidgetFlags(s) }
-    }
-
-    /**
-     * Reconcile the per-page `enabled` flag with the global show flags.
-     *
-     * Fixes settings migrated from the old single-page model, where `removeWidget` only
-     * toggled the show flag and left `enabled = true` in the layout. Without this,
-     * re-adding a widget on page 2 (which turns the show flag back on) would resurrect a
-     * stale `enabled = true` copy on page 1.
-     */
-    private fun reconcileWidgetFlags(s: AppSettings): AppSettings {
-        val flags = mapOf(
-            "CLOCK" to s.showClock,
-            "WEATHER" to s.showWeather,
-            "NOW_PLAYING" to s.showNowPlaying,
-            "TELEMETRY" to s.showTelemetry,
-            "ALTIMETER" to s.showAltimeter,
-            "SPEEDOMETER" to s.showSpeedometer,
-            "VITALS" to s.showVitals,
-            "TRIP_TRACKER" to s.showTripTracker,
-            "SOUNDBOARD" to s.showSoundboard,
-            "VOLUME" to s.showVolume,
-            "QUICK_ACTIONS" to s.showQuickActions,
-            "APP_SHORTCUTS" to s.showAppShortcuts,
-            "OBD" to s.showObd
-        )
-        fun rec(layout: List<WidgetConfig>): List<WidgetConfig> =
-            layout.map { w -> if (flags[w.id] == false) w.copy(enabled = false) else w }
-        return s.copy(
-            widgetLayout = rec(s.widgetLayout),
-            homePageAltLayout = rec(s.homePageAltLayout)
-        )
     }
 
     suspend fun saveSettings(s: AppSettings) {
@@ -389,6 +391,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.WEATHER_FORECAST_DAYS]   = s.weatherForecastDays
             prefs[Keys.ADVANCED_WEATHER_ICONS]  = s.advancedWeatherIcons
             prefs[Keys.SHOW_STATUS_ICONS]       = s.showStatusIcons
+            prefs[Keys.SHOW_NETWORK_SPEED]      = s.showNetworkSpeed
+            prefs[Keys.SHOW_NETWORK_SPEED_INDICATOR] = s.showNetworkSpeedIndicator
             prefs[Keys.APP_SHORTCUT_COUNT]      = s.appShortcutCount
             prefs[Keys.SOUNDBOARD_BUTTON_COUNT] = s.soundboardButtonCount
             prefs[Keys.APP_DRAWER_FILTER]       = s.appDrawerFilter.name
@@ -405,6 +409,19 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.CAR_IMAGE_URI]          = s.carImageUri
             val wca = s.widgetContentAlt
             if (wca != null) prefs[Keys.WIDGET_CONTENT_ALT_JSON] = gson.toJson(wca) else prefs.remove(Keys.WIDGET_CONTENT_ALT_JSON)
+            prefs[Keys.FLOATING_PANEL_ENABLED]   = s.floatingPanelEnabled
+            prefs[Keys.FLOATING_PANEL_ACTIONS_JSON] = gson.toJson(s.floatingPanelActions)
+            prefs[Keys.FLOATING_PANEL_X]         = s.floatingPanelX
+            prefs[Keys.FLOATING_PANEL_Y]         = s.floatingPanelY
+            prefs[Keys.FLOATING_PANEL_POS_SET]   = s.floatingPanelPositionSet
+            prefs[Keys.SETTINGS_CATEGORY]        = s.settingsCategory
+            prefs[Keys.SHOW_RADIO_BANDS]         = s.showRadioBands
+            prefs[Keys.SHOW_RADIO_POPUP]         = s.showRadioPopup
+            prefs[Keys.NOW_PLAYING_LOGO_SCALE]   = s.nowPlayingLogoScale
+            prefs[Keys.NOW_PLAYING_LOGO_DIM]     = s.nowPlayingLogoDim
+            prefs[Keys.FLOATING_PANEL_SCALE]     = s.floatingPanelScale
+            prefs[Keys.FLOATING_PANEL_OPACITY]   = s.floatingPanelOpacity
+            prefs[Keys.FLOATING_PANEL_VERTICAL]  = s.floatingPanelVertical
     }
 
     suspend fun resetToDefaults() {

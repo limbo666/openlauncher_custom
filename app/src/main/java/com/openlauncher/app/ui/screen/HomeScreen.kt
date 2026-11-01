@@ -63,6 +63,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.graphics.drawable.toBitmap
 import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.util.LocationData
+import com.openlauncher.app.util.NetworkSpeedState
+import com.openlauncher.app.util.formatBitRateShort
 
 private val WIDGET_RADIUS = RoundedCornerShape(0.dp)
 
@@ -86,7 +88,8 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("TRIP_TRACKER",  "TRIP TRACKER",  Icons.Default.Map,           "Trip logs & stats"),
     WidgetTypeInfo("SOUNDBOARD",    "SOUNDBOARD",    Icons.Default.Piano,         "Custom sound pads"),
     WidgetTypeInfo("APP_SHORTCUTS", "APP SHORTCUTS", Icons.Default.Apps,          "Quick app launch pad"),
-    WidgetTypeInfo("OBD",           "OBD2",          Icons.Default.Bluetooth,     "Live engine & sensor telemetry")
+    WidgetTypeInfo("OBD",           "OBD2",          Icons.Default.Bluetooth,     "Live engine & sensor telemetry"),
+    WidgetTypeInfo("NETWORK_SPEED", "NETWORK SPEED", Icons.Default.SwapVert,      "Upload & download speed")
 )
 
 private fun canAddWidget(settings: AppSettings, layout: List<WidgetConfig>): Boolean {
@@ -104,6 +107,7 @@ private fun canAddWidget(settings: AppSettings, layout: List<WidgetConfig>): Boo
         if (settings.showQuickActions) add("QUICK_ACTIONS")
         if (settings.showAppShortcuts) add("APP_SHORTCUTS")
         if (settings.showObd) add("OBD")
+        if (settings.showNetworkSpeed) add("NETWORK_SPEED")
     }
     val activeWidgets = layout.filter { it.enabled && it.id in visibleIds }
     val occupied = buildSet<Pair<Int, Int>> {
@@ -187,6 +191,7 @@ fun HomeScreen(
     onSelectObdAdapter: (address: String, name: String) -> Unit = { _, _ -> },
     carImageUri: String = "",
     carRestingVisible: Boolean = false,
+    networkSpeed: NetworkSpeedState = NetworkSpeedState(),
     modifier: Modifier = Modifier
 ) {
     val accent       = Color(settings.accentColor)
@@ -226,7 +231,8 @@ fun HomeScreen(
         animationSpec = tween(600)
     )
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize()) {
 
         // ── Header ──────────────────────────────────────────────────────────
         Row(
@@ -371,6 +377,22 @@ fun HomeScreen(
                 }
             }
             }
+
+            // Optional total up/down speed readout (independent of the status icons toggle)
+            if (settings.showNetworkSpeedIndicator) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "↓${formatBitRateShort(networkSpeed.rxBytesPerSec)}  ↑${formatBitRateShort(networkSpeed.txBytesPerSec)}",
+                    color = accent,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.5.sp,
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.width(84.dp)
+                )
+            }
         }
 
         HorizontalDivider(color = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF141414))
@@ -405,6 +427,7 @@ fun HomeScreen(
                 if (settings.showQuickActions) add("QUICK_ACTIONS")
                 if (settings.showAppShortcuts) add("APP_SHORTCUTS")
                 if (settings.showObd) add("OBD")
+                if (settings.showNetworkSpeed) add("NETWORK_SPEED")
             }
 
             // Keep only visible widgets exactly as configured in settings, allowing explicit resizing to dictate layout
@@ -636,7 +659,11 @@ fun HomeScreen(
                             onRadioCycleFm        = onRadioCycleFm,
                             onRadioSwitchAm       = onRadioSwitchAm,
                             onRadioTune           = onRadioTune,
-                            onAssignRadio         = onAssignRadio
+                            onAssignRadio         = onAssignRadio,
+                            showRadioBands        = settings.showRadioBands,
+                            logoScale             = settings.nowPlayingLogoScale,
+                            logoDim               = settings.nowPlayingLogoDim,
+                            assignedRadioPackage  = settings.radioPackage
                         )
                         "TELEMETRY" -> TelemetryWidget(
                             location           = location,
@@ -730,6 +757,13 @@ fun HomeScreen(
                             customContentColor = customContentColor,
                             isEditing          = editMode,
                             onSelectAdapter    = onSelectObdAdapter,
+                            modifier           = Modifier.fillMaxSize()
+                        )
+                        "NETWORK_SPEED" -> NetworkSpeedWidget(
+                            speed              = networkSpeed,
+                            accent             = widgetAccent,
+                            isDayMode          = widgetDayMode,
+                            customContentColor = customContentColor,
                             modifier           = Modifier.fillMaxSize()
                         )
                     }
@@ -1067,6 +1101,7 @@ fun HomeScreen(
             )
         }
     }
+    } // end Box
 }
 
 @Composable
@@ -1512,6 +1547,7 @@ private fun WidgetLibraryDialog(
         if (settings.showQuickActions) add("QUICK_ACTIONS")
         if (settings.showAppShortcuts) add("APP_SHORTCUTS")
         if (settings.showObd) add("OBD")
+        if (settings.showNetworkSpeed) add("NETWORK_SPEED")
     }
 
     val canAdd = canAddWidget(settings, layout)

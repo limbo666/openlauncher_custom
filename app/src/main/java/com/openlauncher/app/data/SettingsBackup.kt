@@ -15,7 +15,7 @@ object SettingsBackup {
     private val VALID_WIDGET_IDS = setOf(
         "CLOCK", "WEATHER", "NOW_PLAYING", "TELEMETRY", "VOLUME",
         "QUICK_ACTIONS", "ALTIMETER", "SPEEDOMETER", "VITALS",
-        "TRIP_TRACKER", "SOUNDBOARD", "APP_SHORTCUTS", "OBD"
+        "TRIP_TRACKER", "SOUNDBOARD", "APP_SHORTCUTS", "OBD", "NETWORK_SPEED"
     )
 
     fun encode(settings: AppSettings): String {
@@ -76,23 +76,48 @@ object SettingsBackup {
         val safeWallpaperDim = restored.wallpaperDim.coerceIn(0f, 1f)
         val safeForecastDays = restored.weatherForecastDays.coerceIn(1, 14)
         val safeShortcutCount = restored.appShortcutCount.coerceIn(1, 4)
-        val safeSoundboardCount = restored.soundboardButtonCount.coerceIn(1, 9)
+        val safeSoundboardCount = restored.soundboardButtonCount.coerceIn(1, 6)
         val safeSidebarWidth = restored.sidebarWidth.coerceIn(40, 120)
         val safeSidebarIconScale = restored.sidebarIconScale.coerceIn(0.6f, 1.8f)
         val safeTileAlpha = restored.tileAlpha.coerceIn(0f, 1f)
 
-        // Validate widget layout
-        val sanitizedLayout = restored.widgetLayout.filter { config ->
-            config.id in VALID_WIDGET_IDS &&
-            config.gridX in 0 until GRID_COLS &&
-            config.gridY in 0 until GRID_ROWS &&
-            config.spanX in 1..GRID_COLS &&
-            config.spanY in 1..GRID_ROWS
-        }.map { w ->
-            if (w.customBgColor != null && w.bgMode == WidgetBgMode.DEFAULT) w.copy(bgMode = WidgetBgMode.CUSTOM) else w
+        // Validate widget layouts (both home pages)
+        fun sanitizeLayout(layout: List<WidgetConfig>): List<WidgetConfig> =
+            layout.filter { config ->
+                config.id in VALID_WIDGET_IDS &&
+                config.gridX in 0 until GRID_COLS &&
+                config.gridY in 0 until GRID_ROWS &&
+                config.spanX in 1..GRID_COLS &&
+                config.spanY in 1..GRID_ROWS
+            }.map { w ->
+                if (w.customBgColor != null && w.bgMode == WidgetBgMode.DEFAULT) w.copy(bgMode = WidgetBgMode.CUSTOM) else w
+            }
+
+        val sanitizedLayout    = sanitizeLayout(restored.widgetLayout)
+        val sanitizedAltLayout = sanitizeLayout(restored.homePageAltLayout)
+
+        // Sanitize page-1 widget content overrides (guard against null/oversized lists)
+        val safeWidgetContentAlt = restored.widgetContentAlt?.let { alt ->
+            alt.copy(
+                vitalsElements       = alt.vitalsElements.orEmpty().ifEmpty { defaultVitalsElements() },
+                quickActionButtons   = alt.quickActionButtons.orEmpty().ifEmpty { defaultQuickActionButtons() },
+                soundboardPads       = alt.soundboardPads.orEmpty(),
+                appWidgetPackages    = (alt.appWidgetPackages.orEmpty() + List(4) { "" }).take(4),
+                appShortcutCount     = alt.appShortcutCount.coerceIn(1, 4),
+                soundboardButtonCount = alt.soundboardButtonCount.coerceIn(1, 6)
+            )
         }
 
-        return restored.copy(
+        // Sanitize the floating quick-controls panel (cap slots, valid actions, ranges)
+        val safeFloatingActions = restored.floatingPanelActions
+            .orEmpty()
+            .filter { it.packageName.isNotBlank() || it.type != FloatingActionType.APP }
+            .take(4)
+            .let { if (it.isEmpty()) defaultFloatingActions() else it }
+        val safeFloatingScale = restored.floatingPanelScale.coerceIn(0.5f, 2f)
+        val safeFloatingOpacity = restored.floatingPanelOpacity.coerceIn(0f, 1f)
+
+        return reconcileWidgetFlags(restored.copy(
             textScale = safeTextScale,
             uiScale = safeUiScale,
             wallpaperDim = safeWallpaperDim,
@@ -102,7 +127,12 @@ object SettingsBackup {
             sidebarWidth = safeSidebarWidth,
             sidebarIconScale = safeSidebarIconScale,
             tileAlpha = safeTileAlpha,
-            widgetLayout = if (sanitizedLayout.isNotEmpty()) sanitizedLayout else defaultWidgetLayout()
-        )
+            widgetLayout = if (sanitizedLayout.isNotEmpty()) sanitizedLayout else defaultWidgetLayout(),
+            homePageAltLayout = sanitizedAltLayout,
+            widgetContentAlt = safeWidgetContentAlt,
+            floatingPanelActions = safeFloatingActions,
+            floatingPanelScale = safeFloatingScale,
+            floatingPanelOpacity = safeFloatingOpacity
+        ))
     }
 }

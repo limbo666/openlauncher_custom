@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.database.ContentObserver
+import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -45,6 +46,8 @@ import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.service.MediaListenerService
 import com.openlauncher.app.util.FileLog
 import com.openlauncher.app.util.LocationCompassManager
+import com.openlauncher.app.util.NetworkSpeedManager
+import com.openlauncher.app.util.NetworkSpeedState
 import com.openlauncher.app.util.VolumeController
 import com.openlauncher.app.util.LocationData
 import com.openlauncher.app.util.musicStartupPackage
@@ -52,10 +55,34 @@ import com.openlauncher.app.util.selectMediaSession
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
+// ── Radio frequency helpers (file-private) ────────────────────────────────────
+// Shared by HardwareRadioState and the MCU/session parsers so the displayed
+// frequency is always normalized the same way — never a chopped token.
+
+/** Extracts the first well-formed number from a raw frequency token
+ *  ("90.10", "99,9", "1040 kHz", "—", "fm" → null). */
+private fun parseRadioFreqValue(raw: String): Float? {
+    val normalized = raw.replace(',', '.')
+    val match = Regex("""\d+(?:\.\d+)?""").find(normalized) ?: return null
+    return match.value.toFloatOrNull()
+}
+
+/** Renders a frequency for display: one decimal for FM (MHz), integer for AM (kHz).
+ *  Non-numeric input ("—", "fm") is passed through unchanged so it stays honest. */
+private fun formatRadioFrequency(raw: String, isAm: Boolean): String {
+    if (raw.isBlank()) return "—"
+    val value = parseRadioFreqValue(raw) ?: return raw
+    return if (isAm) "%.0f".format(java.util.Locale.US, value)
+           else       "%.1f".format(java.util.Locale.US, value)
+}
+
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
 
     private val settingsRepo = SettingsRepository(application)
     private val locationMgr  = LocationCompassManager(application)
+    private val networkSpeedMgr = NetworkSpeedManager()
+    val networkSpeed: StateFlow<NetworkSpeedState> = networkSpeedMgr.speed
+        .stateIn(viewModelScope, SharingStarted.Eagerly, NetworkSpeedState())
 
     // ── Settings ──────────────────────────────────────────────────────────────
     private val _settingsLoaded = MutableStateFlow(false)
@@ -190,7 +217,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             AppPickerTarget.CARPLAY      -> updateSettings { copy(carPlayPackage = app.packageName) }
             AppPickerTarget.ANDROID_AUTO -> updateSettings { copy(androidAutoPackage = app.packageName) }
             AppPickerTarget.PIP          -> updateSettings { copy(pipAppPackage = app.packageName) }
-            AppPickerTarget.RADIO        -> updateSettings { copy(radioPackage = app.packageName) }
+            AppPickerTarget.RADIO        -> {
+                FileLog.log("Radio", "assign radioPackage=${app.packageName}")
+                updateSettings { copy(radioPackage = app.packageName) }
+            }
             null -> {}
         }
         _appPickerTarget.value = null
@@ -223,6 +253,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         "QUICK_ACTIONS" -> copy(showQuickActions = false)
         "APP_SHORTCUTS" -> copy(showAppShortcuts = false)
         "OBD"           -> copy(showObd = false)
+        "NETWORK_SPEED" -> copy(showNetworkSpeed = false)
         else            -> this
     }
 
@@ -396,6 +427,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "VOLUME"        -> 2 to 1
                 "QUICK_ACTIONS" -> 2 to 1
                 "APP_SHORTCUTS" -> 2 to 1
+                "NETWORK_SPEED" -> 2 to 1
                 "OBD"           -> 2 to 2
                 "NOW_PLAYING"   -> 4 to 2
                 "TELEMETRY"     -> 2 to 4
@@ -439,6 +471,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "QUICK_ACTIONS" -> copy(showQuickActions = true)
                 "APP_SHORTCUTS" -> copy(showAppShortcuts = true)
                 "OBD"           -> copy(showObd = true)
+                "NETWORK_SPEED" -> copy(showNetworkSpeed = true)
                 else            -> this
             }
             val idx       = layout.indexOfFirst { it.id == id }
@@ -916,6 +949,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     ) {
         val display get() = "$band  $freq"
         val isAm    get() = band.equals("AM", ignoreCase = true)
+
+        /** Numeric frequency in native units (MHz for FM, kHz for AM), or null
+         *  when the source reports no parseable frequency. */
+        val freqValue: Float? get() = parseRadioFreqValue(freq)
+
+        /** Clean display string ("90.1" for FM, "1040" for AM). Falls back to
+         *  the raw token (e.g. "—") when the value isn't numeric. */
+        val freqDisplay: String get() = formatRadioFrequency(freq, isAm)
     }
 
     private val _mcuRadio = MutableStateFlow<HardwareRadioState?>(null)
@@ -943,7 +984,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             if (title.isEmpty()) return null
             val parts = title.trim().split("\\s+".toRegex())
             if (parts.size < 2) return null
-            HardwareRadioState(band = parts[0], freq = parts[1], canTune = true)
+            HardwareRadioState(
+                band        = parts[0],
+                freq        = parts[1],
+                stationName = parts.drop(2).joinToString(" ").takeIf { it.isNotBlank() },
+                canTune     = true
+            )
         } catch (e: Exception) {
             android.util.Log.e("RadioMcu", "parseRadioJson error", e)
             null
@@ -976,7 +1022,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private fun isRadioSessionPackage(pkg: String): Boolean {
         val assigned = settings.value.radioPackage
-        return if (assigned.isNotEmpty()) pkg == assigned else looksLikeRadioPackage(pkg)
+        if (assigned.isEmpty()) return looksLikeRadioPackage(pkg)
+        // Match the assigned package, tolerating service/component package variants
+        // (e.g. assigned "com.foo.radio" vs session "com.foo.radio.service").
+        return pkg == assigned ||
+            pkg.startsWith("$assigned.") ||
+            assigned.startsWith("$pkg.")
     }
 
     // Matches "FM1 90.10", "99.9 MHz", "FM 99.9 WXYZ", "1040 kHz", "99,9" …
@@ -987,7 +1038,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val pkg = np.controller?.packageName ?: return null
         if (!isRadioSessionPackage(pkg)) return null
 
-        val text = listOf(np.title, np.artist)
+        val text = listOf(np.title, np.artist, np.album, np.mediaId)
             .filter { it.isNotBlank() && it != "Unknown" }
             .joinToString("  ")
         val match   = sessionFreqPattern.find(text)
@@ -997,11 +1048,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val band = when {
             explicitBand.isNotEmpty()                 -> explicitBand
             freqVal != null && freqVal in 520f..1710f -> "AM"
+            Regex("""\bAM\b""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "AM"
             else                                      -> "FM"
         }
-        // Whatever isn't the frequency is the station / RDS text
-        val station = (if (match != null) text.replace(match.value, "") else text)
-            .trim(' ', '-', '|', '/', '•')
+        // Whatever isn't the frequency, band token or unit is the station / RDS text
+        val station = text
+            .replace(match?.value ?: "", "")
+            .replace(Regex("""\b(FM\s?\d?|AM|MHz|kHz)\b""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim(' ', '-', '|', '/', '•', ',', ':')
             .takeIf { it.isNotBlank() }
         val result = HardwareRadioState(band = band, freq = rawFreq ?: "—", stationName = station, canTune = false)
         FileLog.log("Radio", "pkg=$pkg text=\"$text\" band=$band freq=${rawFreq ?: "—"} station=${station ?: "null"}")
@@ -1013,6 +1068,62 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         combine(_mcuRadio, nowPlaying, settings) { mcu, np, _ ->
             mcu ?: np?.let { parseSessionRadio(it) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // ── Station-change popup (opt-in via settings) ─────────────────────────────
+    // Fires once per band/frequency transition (seek, preset, band switch) and
+    // then stays put as the latest snapshot; the UI decides how long to show it.
+    data class RadioPopupEvent(
+        val id: Long,             // monotonic change counter (drives fade re-trigger)
+        val stationName: String?, // RDS / station text, may be null
+        val freqText: String,     // e.g. "FM 90.1 MHz" / "AM 1040 kHz"
+        val artUri: String? = null,
+        val albumArt: Bitmap? = null
+    )
+
+    private val _radioPopup = MutableStateFlow<RadioPopupEvent?>(null)
+    val radioPopup: StateFlow<RadioPopupEvent?> = _radioPopup
+
+    private var lastRadioKey: String? = null
+    private var popupCounter = 0L
+    private var popupClearJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            hardwareRadio.collect { radio ->
+                if (radio == null) { lastRadioKey = null; return@collect }
+                val key = "${radio.band}|${radio.freqDisplay}"
+                // Seed on the first emission so an already-running radio doesn't
+                // pop up at boot — only real changes fire the toast.
+                if (lastRadioKey == null) { lastRadioKey = key; return@collect }
+                if (key == lastRadioKey) return@collect
+                lastRadioKey = key
+                popupCounter++
+                val np = nowPlaying.value
+                val unit = if (radio.isAm) "kHz" else "MHz"
+                val freqText = if (radio.freqValue != null) {
+                    "${radio.band.uppercase()} ${radio.freqDisplay} $unit"
+                } else {
+                    "${radio.band.uppercase()} ${radio.freqDisplay}"
+                }
+                val event = RadioPopupEvent(
+                    id          = popupCounter,
+                    stationName = radio.stationName,
+                    freqText    = freqText,
+                    // Logos only exist on the session-mirrored backend (MCU units
+                    // don't expose one), so avoid leaking a music-player logo here.
+                    artUri      = if (radio.canTune) null else np?.artUri,
+                    albumArt    = if (radio.canTune) null else np?.albumArt
+                )
+                _radioPopup.value = event
+                // Auto-dismiss so navigating away/back never replays a stale toast.
+                popupClearJob?.cancel()
+                popupClearJob = viewModelScope.launch {
+                    delay(3_000)
+                    if (_radioPopup.value?.id == event.id) _radioPopup.value = null
+                }
+            }
+        }
+    }
 
     private fun radioSessionController() = nowPlaying.value?.controller?.takeIf { c ->
         c.packageName?.let { isRadioSessionPackage(it) } == true

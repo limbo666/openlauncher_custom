@@ -23,11 +23,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.openlauncher.app.data.AppFont
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
@@ -36,6 +38,9 @@ import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.UnitSystem
 import com.openlauncher.app.data.WeatherProvider
+import com.openlauncher.app.data.FloatingActionType
+import com.openlauncher.app.data.FloatingPanelAction
+import com.openlauncher.app.data.defaultFloatingActions
 import com.openlauncher.app.data.withWidgetContent
 import com.openlauncher.app.data.widgetContentFor
 import androidx.compose.foundation.text.BasicTextField
@@ -53,11 +58,36 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import com.openlauncher.app.ui.components.ColorPickerDialog
 import com.openlauncher.app.ui.components.ConfirmDialog
+import com.openlauncher.app.ui.components.floatingActionIcon
+import com.openlauncher.app.ui.components.floatingActionLabel
 import com.openlauncher.app.data.SettingsBackup
 import com.openlauncher.app.obd.pairedAdapters
 import com.openlauncher.app.ui.widget.AdapterPickerDialog
 import androidx.compose.runtime.saveable.rememberSaveable
 import kotlin.math.roundToInt
+
+private val LocalSettingsSearchQuery = compositionLocalOf { "" }
+
+// Searchable terms per section so a query like "color" can highlight the sections
+// that actually contain color settings (Appearance, Tiles) without filtering others out.
+private val SECTION_KEYWORDS = mapOf(
+    "Appearance" to listOf("accent", "color", "background", "font color", "help text", "gradient", "wallpaper", "status bar", "network speed", "dim"),
+    "Typography" to listOf("font", "bold", "text scale", "ui scale", "scale"),
+    "Tiles" to listOf("tile", "color", "transparency", "opacity"),
+    "Sidebar" to listOf("sidebar", "menubar", "shortcuts", "slot", "icon size", "width", "position"),
+    "Vehicle & OBD" to listOf("vehicle", "name", "unit", "metric", "imperial", "obd", "adapter", "bluetooth"),
+    "Widgets" to listOf("widget", "shortcuts", "soundboard", "buttons", "page", "count"),
+    "Now Playing" to listOf("player", "radio", "fm", "am", "band", "artwork", "logo", "album", "dim", "size", "media", "popup", "station", "frequency"),
+    "Home Pages" to listOf("auto-switch", "driving", "page", "speed", "idle", "switch"),
+    "Display Animation" to listOf("animation", "car", "image"),
+    "Weather" to listOf("weather", "gps", "location", "provider", "icons", "forecast", "days"),
+    "GPS & Calibration" to listOf("gps", "a-gps", "magnetometer", "compass", "calibration", "offset"),
+    "Floating Panel" to listOf("floating", "panel", "overlay", "quick controls", "buttons", "opacity", "size", "draw over", "vertical", "horizontal", "orientation"),
+    "Backup & Restore" to listOf("backup", "export", "restore", "json"),
+    "Permissions" to listOf("permission", "launcher", "notification", "location", "draw over", "access"),
+    "Updates" to listOf("update", "github", "version"),
+    "Maintenance" to listOf("diagnostics", "status", "volume", "calibration", "debug", "log", "setup", "wizard", "reset", "defaults")
+)
 
 // Resolved at call site via LocalDayMode — see SettingsDivider / SettingsSection
 
@@ -69,6 +99,7 @@ fun SettingsScreen(
     onReset: () -> Unit,
     onOpenDiagnostics: () -> Unit = {},
     onOpenVolumeCalibration: () -> Unit = {},
+    apps: List<com.openlauncher.app.model.AppInfo> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -81,6 +112,8 @@ fun SettingsScreen(
     var showTileDarkPicker    by remember { mutableStateOf(false) }
     var showTileLightPicker   by remember { mutableStateOf(false) }
     var widgetContentPage     by remember { mutableStateOf(0) }
+    var floatingSlotEditor    by remember { mutableStateOf<Int?>(null) }
+    var showRadioAppPicker    by remember { mutableStateOf(false) }
 
     // OpenDocument (not GetContent): only SAF document URIs carry a persistable
     // grant, so this is what actually keeps the wallpaper readable after reboot
@@ -120,16 +153,31 @@ fun SettingsScreen(
     val specialBorderColor    = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF282828)
     val specialIconTint       = accentOnSurface(accent, specialCardColor)
 
-    var selectedCategory by rememberSaveable { mutableStateOf("All") }
-    val categories = listOf("All", "Display", "Dashboard", "Vehicle & OBD", "System")
+    val categories = listOf(
+        CategoryItem("All", "All", Icons.Default.Apps),
+        CategoryItem("Display", "Display", Icons.Default.Palette),
+        CategoryItem("Dashboard", "Dashboard", Icons.Default.Dashboard),
+        CategoryItem("Vehicle & OBD", "Vehicle", Icons.Default.DirectionsCar),
+        CategoryItem("Launcher", "Launcher", Icons.Default.Settings)
+    )
+    var selectedCategory by rememberSaveable { mutableStateOf(
+        settings.settingsCategory.takeIf { c -> categories.any { it.id == c } } ?: "Display"
+    ) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     val scrollState = rememberScrollState()
-    LaunchedEffect(selectedCategory) { scrollState.scrollTo(0) }
+    LaunchedEffect(selectedCategory, searchQuery) { scrollState.scrollTo(0) }
+    LaunchedEffect(selectedCategory) {
+        if (selectedCategory != settings.settingsCategory) {
+            onUpdate { copy(settingsCategory = selectedCategory) }
+        }
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(screenBg)
     ) {
+    CompositionLocalProvider(LocalSettingsSearchQuery provides searchQuery) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -137,39 +185,47 @@ fun SettingsScreen(
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // ── Title & Category Chips ──────────────────────────────────────────
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text          = "SETTINGS",
-                style         = MaterialTheme.typography.titleLarge,
-                color         = MaterialTheme.colorScheme.onBackground,
-                letterSpacing = 3.sp,
-                fontSize      = 14.sp
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                categories.forEach { cat ->
-                    val isSelected = selectedCategory == cat
-                    FilterChip(
-                        selected = isSelected,
-                        onClick  = { selectedCategory = cat },
-                        label    = {
-                            Text(
-                                text = cat,
-                                fontSize = 9.sp,
-                                letterSpacing = 0.5.sp
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = selectedChipContainer,
-                            selectedLabelColor     = selectedChipLabel,
-                            labelColor             = if (isDayMode) Color(0xFF999999) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-                        )
+        // ── Title ─────────────────────────────────────────────────────────────
+        Text(
+            text          = "SETTINGS",
+            style         = MaterialTheme.typography.titleLarge,
+            color         = MaterialTheme.colorScheme.onBackground,
+            letterSpacing = 3.sp,
+            fontSize      = 14.sp
+        )
+
+        // ── Category tiles + search (3 per row, two rows) ──────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                categories.take(3).forEach { cat ->
+                    CategoryTile(
+                        cat       = cat,
+                        selected  = selectedCategory == cat.id,
+                        accent    = accent,
+                        isDayMode = isDayMode,
+                        modifier  = Modifier.weight(1f),
+                        onClick   = { selectedCategory = cat.id }
                     )
                 }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                categories.drop(3).forEach { cat ->
+                    CategoryTile(
+                        cat       = cat,
+                        selected  = selectedCategory == cat.id,
+                        accent    = accent,
+                        isDayMode = isDayMode,
+                        modifier  = Modifier.weight(1f),
+                        onClick   = { selectedCategory = cat.id }
+                    )
+                }
+                SearchTile(
+                    query         = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    accent        = accent,
+                    isDayMode     = isDayMode,
+                    modifier      = Modifier.weight(1f)
+                )
             }
         }
 
@@ -225,7 +281,7 @@ fun SettingsScreen(
         }
 
         // ── Appearance ───────────────────────────────────────────────────────
-        if (selectedCategory == "All" || selectedCategory == "Display") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Display") {
         SettingsSection("Appearance") {
             // Display Mode
             SettingsRow(
@@ -507,11 +563,25 @@ fun SettingsScreen(
                     colors          = switchColors(accent)
                 )
             }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Network Speed Indicator",
+                sublabel = "Show live upload/download speed in the top bar",
+                icon     = Icons.Default.SwapVert
+            ) {
+                Switch(
+                    checked         = settings.showNetworkSpeedIndicator,
+                    onCheckedChange = { onUpdate { copy(showNetworkSpeedIndicator = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
         }
         }
 
         // ── Typography ───────────────────────────────────────────────────────
-        if (selectedCategory == "All" || selectedCategory == "Display") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Display") {
         SettingsSection("Typography") {
             Column(
                 modifier = Modifier
@@ -594,7 +664,7 @@ fun SettingsScreen(
         }
 
         // ── Tiles ─────────────────────────────────────────────────────────────
-        if (selectedCategory == "All" || selectedCategory == "Display") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Display") {
         SettingsSection("Tiles") {
             SettingsRow(
                 label    = "Tile Color (Dark)",
@@ -649,7 +719,7 @@ fun SettingsScreen(
         }
 
         // ── Vehicle & OBD ────────────────────────────────────────────────────
-        if (selectedCategory == "All" || selectedCategory == "Vehicle & OBD") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Vehicle & OBD") {
         SettingsSection("Vehicle & OBD") {
             var nameInput by remember(settings.vehicleName) { mutableStateOf(settings.vehicleName) }
             SettingsRow(
@@ -746,35 +816,11 @@ fun SettingsScreen(
                     }
                 }
             }
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Show OBD2 Widget",
-                sublabel = "Displays real-time RPM, speed, coolant temp & battery voltage on dashboard",
-                icon     = Icons.Default.Speed
-            ) {
-                Switch(
-                    checked         = settings.showObd,
-                    onCheckedChange = { on ->
-                        onUpdate {
-                            val updated = widgetLayout.map { w ->
-                                if (w.id == "OBD") w.copy(enabled = on) else w
-                            }
-                            val layout = if (on && updated.none { it.id == "OBD" }) {
-                                updated + com.openlauncher.app.data.WidgetConfig("OBD", gridX = 4, gridY = 3, spanX = 2, spanY = 1)
-                            } else updated
-                            copy(showObd = on, widgetLayout = layout)
-                        }
-                    },
-                    colors          = switchColors(accent)
-                )
-            }
         }
         }
 
         // ── Sidebar ──────────────────────────────────────────────────────────
-        if (selectedCategory == "All" || selectedCategory == "Display") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Display") {
         SettingsSection("Sidebar") {
             SettingsRow(
                 label    = "Sidebar Position",
@@ -902,12 +948,12 @@ fun SettingsScreen(
         }
 
         // ── Widgets ───────────────────────────────────────────────────────────
-        if (selectedCategory == "All" || selectedCategory == "Dashboard") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
         SettingsSection("Widgets") {
             // Page selector — widget content is configured independently per page
             SettingsRow(
-                label    = "Edit Content On",
-                sublabel = "Shortcuts, soundboard, quick actions & vitals content are stored per page",
+                label    = "Editing Page",
+                sublabel = "App shortcuts & soundboard counts below are stored per page — pick which page to edit",
                 icon     = Icons.Default.SwapHoriz
             ) {
                 Row(
@@ -1009,8 +1055,90 @@ fun SettingsScreen(
         }
         }
 
+        // ── Now Playing / Radio widget ─────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
+        SettingsSection("Now Playing") {
+            SettingsRow(
+                label    = "Radio App",
+                sublabel = if (settings.radioPackage.isNotEmpty()) settings.radioPackage else "Auto-detect — or pick your head unit's radio app",
+                icon     = Icons.Default.Radio
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { showRadioAppPicker = true }) {
+                        Text(if (settings.radioPackage.isEmpty()) "Choose" else "Change", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    if (settings.radioPackage.isNotEmpty()) {
+                        TextButton(onClick = { onUpdate { copy(radioPackage = "") } }) {
+                            Text("Auto", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Show FM/AM Band Chips",
+                sublabel = "Band switch chips in the radio deck (FM1/FM2/FM3/AM)",
+                icon     = Icons.Default.Radio
+            ) {
+                Switch(
+                    checked         = settings.showRadioBands,
+                    onCheckedChange = { onUpdate { copy(showRadioBands = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Station Change Popup",
+                sublabel = "Fade in a glass panel with station name, frequency and logo on seek/preset change",
+                icon     = Icons.Default.Notifications
+            ) {
+                Switch(
+                    checked         = settings.showRadioPopup,
+                    onCheckedChange = { onUpdate { copy(showRadioPopup = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Artwork Size",
+                sublabel = "${"%.0f".format(settings.nowPlayingLogoScale * 100)}% — player card logo/album art",
+                icon     = Icons.Default.AspectRatio
+            ) {}
+            Slider(
+                value         = settings.nowPlayingLogoScale,
+                onValueChange = { onUpdate { copy(nowPlayingLogoScale = it) } },
+                valueRange    = 0.5f..1f,
+                steps         = 4,
+                colors        = sliderColors(accent),
+                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            )
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Artwork Dim",
+                sublabel = "${"%.0f".format(settings.nowPlayingLogoDim * 100)}% dark veil — improves control/text contrast",
+                icon     = Icons.Default.BrightnessLow
+            ) {}
+            Slider(
+                value         = settings.nowPlayingLogoDim,
+                onValueChange = { onUpdate { copy(nowPlayingLogoDim = it) } },
+                valueRange    = 0f..0.8f,
+                steps         = 7,
+                colors        = sliderColors(accent),
+                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            )
+        }
+        }
+
         // ── Home Pages (swipe left/right) ─────────────────────────────────────
-        if (selectedCategory == "All" || selectedCategory == "Dashboard") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
         SettingsSection("Home Pages") {
             SettingsRow(
                 label    = "Auto-Switch Pages",
@@ -1090,7 +1218,7 @@ fun SettingsScreen(
         }
 
         // ── Display Animation (car image) ──────────────────────────────────────
-        if (selectedCategory == "All" || selectedCategory == "Dashboard") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
         SettingsSection("Display Animation") {
             SettingsRow(
                 label    = "Display Animation",
@@ -1125,7 +1253,7 @@ fun SettingsScreen(
         }
 
         // ── Weather Service & Location ───────────────────────────────────────
-        if (selectedCategory == "All" || selectedCategory == "Dashboard") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
         SettingsSection("Weather") {
             // 1. Dynamic GPS vs Manual Location Toggle
             SettingsRow(
@@ -1272,7 +1400,7 @@ fun SettingsScreen(
         }
 
         // ── GPS & Calibration ───────────────────────────────────────────────
-        if (selectedCategory == "All" || selectedCategory == "Dashboard") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Vehicle & OBD") {
         SettingsSection("GPS & Calibration") {
             var calibrationStatus by remember { mutableStateOf<String?>(null) }
             val coroutineScope = rememberCoroutineScope()
@@ -1360,7 +1488,7 @@ fun SettingsScreen(
         }
 
         // ── Backup & Restore ──────────────────────────────────────────────────
-        if (selectedCategory == "All" || selectedCategory == "System") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
         SettingsSection("Backup & Restore") {
             var backupStatusMessage by remember { mutableStateOf<String?>(null) }
             var pendingRestoredSettings by remember { mutableStateOf<AppSettings?>(null) }
@@ -1447,7 +1575,152 @@ fun SettingsScreen(
                 )
             }
         }
+        }
 
+        // ── Floating Panel ────────────────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
+        SettingsSection("Floating Panel") {
+            SettingsRow(
+                label    = "Floating Quick Controls",
+                sublabel = "A draggable panel of buttons that stays on top of other apps",
+                icon     = Icons.Default.Dashboard
+            ) {
+                Switch(
+                    checked         = settings.floatingPanelEnabled,
+                    onCheckedChange = { onUpdate { copy(floatingPanelEnabled = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            if (settings.floatingPanelEnabled) {
+                if (!Settings.canDrawOverlays(context)) {
+                    SettingsDivider()
+                    SettingsButton(
+                        label    = "Overlay Permission Required",
+                        sublabel = "Grant 'Draw over other apps' in Permissions to show the panel over other apps",
+                        icon     = Icons.Default.Warning,
+                        accent   = Color(0xFF993333),
+                        onClick  = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:${context.packageName}")
+                                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                        }
+                    )
+                }
+
+                SettingsDivider()
+
+                SettingsRow(
+                    label    = "Panel Size",
+                    sublabel = "${"%.0f".format(settings.floatingPanelScale * 100)}% — scales buttons and spacing",
+                    icon     = Icons.Default.AspectRatio
+                ) {}
+                Slider(
+                    value         = settings.floatingPanelScale,
+                    onValueChange = { onUpdate { copy(floatingPanelScale = it) } },
+                    valueRange    = 0.7f..1.6f,
+                    steps         = 8,
+                    colors        = sliderColors(accent),
+                    modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+
+                SettingsDivider()
+
+                SettingsRow(
+                    label    = "Panel Opacity",
+                    sublabel = "${"%.0f".format(settings.floatingPanelOpacity * 100)}% background",
+                    icon     = Icons.Default.Opacity
+                ) {}
+                Slider(
+                    value         = settings.floatingPanelOpacity,
+                    onValueChange = { onUpdate { copy(floatingPanelOpacity = it) } },
+                    valueRange    = 0.2f..0.9f,
+                    steps         = 6,
+                    colors        = sliderColors(accent),
+                    modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+
+                SettingsDivider()
+
+                SettingsRow(
+                    label    = "Vertical Layout",
+                    sublabel = "Stack the buttons vertically instead of side-by-side",
+                    icon     = Icons.Default.SwapVert
+                ) {
+                    Switch(
+                        checked         = settings.floatingPanelVertical,
+                        onCheckedChange = { onUpdate { copy(floatingPanelVertical = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+
+                SettingsDivider()
+
+                SettingsRow(
+                    label    = "Buttons",
+                    sublabel = "Tap a button to change its action (up to 4)",
+                    icon     = Icons.Default.TouchApp
+                ) {}
+
+                val slotLabelColor = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
+                val slotSubColor   = LocalHelpTextColor.current ?: if (isDayMode) Color(0xFF888888) else Color(0xFF444444)
+                val slotBg         = if (isDayMode) Color(0xFFF0F0F0) else Color(0xFF161616)
+
+                settings.floatingPanelActions.forEachIndexed { index, action ->
+                    val appName = if (action.type == FloatingActionType.APP && action.packageName.isNotBlank()) {
+                        apps.find { it.packageName == action.packageName }?.appName ?: action.packageName
+                    } else null
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(slotBg)
+                            .clickable { floatingSlotEditor = index }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(floatingActionIcon(action.type), null, tint = accent, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(floatingActionLabel(action.type), color = slotLabelColor, fontSize = 12.sp)
+                            if (appName != null) {
+                                Text(appName, color = slotSubColor, fontSize = 10.sp, maxLines = 1, softWrap = false)
+                            }
+                        }
+                        IconButton(
+                            onClick = { onUpdate { copy(floatingPanelActions = floatingPanelActions.filterIndexed { i, _ -> i != index }) } },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Close, "Remove", tint = Color(0xFFCC5555), modifier = Modifier.size(15.dp))
+                        }
+                    }
+                }
+
+                if (settings.floatingPanelActions.size < 4) {
+                    TextButton(
+                        onClick = { onUpdate { copy(floatingPanelActions = floatingPanelActions + FloatingPanelAction(FloatingActionType.HOME)) } }
+                    ) {
+                        Text(
+                            "+ ADD BUTTON (${settings.floatingPanelActions.size}/4)",
+                            color = accent,
+                            fontSize = 10.sp,
+                            letterSpacing = 1.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+        }
+
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
         // ── Permissions ──────────────────────────────────────────────────────
         SettingsSection("Permissions") {
             val isMediaConnected by com.openlauncher.app.service.MediaListenerService.isConnected.collectAsState()
@@ -1565,9 +1838,9 @@ fun SettingsScreen(
             SettingsDivider()
             SettingsButton(
                 label    = "Draw Over Other Apps",
-                sublabel = "Optional — reserved for a future PiP feature (not active yet)",
+                sublabel = if (Settings.canDrawOverlays(context)) "Granted — the Floating Panel can show over other apps" else "Required for the Floating Panel quick controls",
                 icon     = Icons.Default.Layers,
-                accent   = accent,
+                accent   = if (Settings.canDrawOverlays(context)) accent else Color(0xFF993333),
                 onClick  = {
                     if (android.os.Build.VERSION.SDK_INT >= 23) {
                         runCatching {
@@ -1681,6 +1954,7 @@ fun SettingsScreen(
                 .padding(bottom = 16.dp)
         )
     }
+    } // end CompositionLocalProvider
     } // end Box
 
     // ── Dialogs ──────────────────────────────────────────────────────────────
@@ -1770,6 +2044,45 @@ fun SettingsScreen(
             onDismiss       = { showTileLightPicker = false }
         )
     }
+
+    floatingSlotEditor?.let { slot ->
+        FloatingSlotDialog(
+            slotIndex = slot,
+            current   = settings.floatingPanelActions.getOrNull(slot),
+            apps      = apps,
+            accent    = accent,
+            isDayMode = isDayMode,
+            onSelectType = { type ->
+                onUpdate {
+                    copy(floatingPanelActions = floatingPanelActions.toMutableList().also { list ->
+                        if (slot in list.indices) list[slot] = list[slot].copy(type = type, packageName = if (type == FloatingActionType.APP) list[slot].packageName else "")
+                    })
+                }
+                floatingSlotEditor = null
+            },
+            onSelectApp = { pkg ->
+                onUpdate {
+                    copy(floatingPanelActions = floatingPanelActions.toMutableList().also { list ->
+                        if (slot in list.indices) list[slot] = list[slot].copy(type = FloatingActionType.APP, packageName = pkg)
+                    })
+                }
+                floatingSlotEditor = null
+            },
+            onDismiss = { floatingSlotEditor = null }
+        )
+    }
+
+    if (showRadioAppPicker) {
+        RadioAppPickerDialog(
+            current   = settings.radioPackage,
+            apps      = apps,
+            accent    = accent,
+            isDayMode = isDayMode,
+            onSelect  = { pkg -> onUpdate { copy(radioPackage = pkg) }; showRadioAppPicker = false },
+            onClear   = { onUpdate { copy(radioPackage = "") }; showRadioAppPicker = false },
+            onDismiss = { showRadioAppPicker = false }
+        )
+    }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -1779,8 +2092,14 @@ private fun SettingsSection(
     title: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val query = LocalSettingsSearchQuery.current
+    val searching = query.isNotBlank()
+    val keywords = SECTION_KEYWORDS[title] ?: emptyList()
+    val matched = title.contains(query, ignoreCase = true) || keywords.any { it.contains(query, ignoreCase = true) }
+    if (searching && !matched) return  // keep only sections that contain the term
     val isDayMode     = LocalDayMode.current
-    val sectionColor  = LocalHelpTextColor.current ?: if (isDayMode) Color(0xFF888888) else Color(0xFF3A3A3A)
+    val sectionColor  = if (searching && matched) MaterialTheme.colorScheme.primary
+                        else LocalHelpTextColor.current ?: if (isDayMode) Color(0xFF888888) else Color(0xFF3A3A3A)
     val dividerColor  = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF1E1E1E)
     Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
         Text(
@@ -1788,6 +2107,7 @@ private fun SettingsSection(
             style         = MaterialTheme.typography.labelSmall,
             color         = sectionColor,
             letterSpacing = 2.sp,
+            fontWeight    = if (searching && matched) FontWeight.Bold else FontWeight.Normal,
             modifier      = Modifier.padding(top = 16.dp, bottom = 6.dp)
         )
         HorizontalDivider(color = dividerColor)
@@ -1919,4 +2239,241 @@ private fun fontDisplayName(font: AppFont): String = when (font) {
     AppFont.GEOM              -> "Geom"
     AppFont.NOTO_SANS_DISPLAY -> "Noto Sans Display"
     AppFont.ROBOTO            -> "Roboto"
+}
+
+private data class CategoryItem(
+    val id: String,
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+@Composable
+private fun CategoryTile(
+    cat: CategoryItem,
+    selected: Boolean,
+    accent: Color,
+    isDayMode: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val bg = if (selected) accent else if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF161616)
+    val fg = if (selected) Color.Black else if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
+    val border = if (selected) accent else if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF282828)
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = bg,
+        border = androidx.compose.foundation.BorderStroke(1.dp, border),
+        modifier = modifier.height(68.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(cat.icon, null, tint = fg, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = cat.label,
+                color = fg,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchTile(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    accent: Color,
+    isDayMode: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val bg = if (isDayMode) Color(0xFFE6EEF6) else Color(0xFF12263C)
+    val textColor = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = bg,
+        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.55f)),
+        modifier = modifier.height(68.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Search, null, tint = accent, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                singleLine = true,
+                textStyle = TextStyle(color = textColor, fontSize = 12.sp),
+                cursorBrush = SolidColor(accent),
+                modifier = Modifier.weight(1f),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (query.isEmpty()) {
+                            Text("Search…", color = textColor.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1, softWrap = false)
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun FloatingSlotDialog(
+    slotIndex: Int,
+    current: FloatingPanelAction?,
+    apps: List<com.openlauncher.app.model.AppInfo>,
+    accent: Color,
+    isDayMode: Boolean,
+    onSelectType: (FloatingActionType) -> Unit,
+    onSelectApp: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var showAppPicker by remember { mutableStateOf(false) }
+    val dialogBg   = if (isDayMode) Color(0xFFF7F7F7) else Color(0xFF161616)
+    val borderC    = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF282828)
+    val textColor  = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(dialogBg)
+                .border(1.dp, borderC, RoundedCornerShape(10.dp))
+                .padding(16.dp)
+                .widthIn(min = 280.dp, max = 460.dp)
+                .heightIn(max = 480.dp)
+        ) {
+            Text(
+                text          = "BUTTON ${slotIndex + 1}",
+                color         = accent,
+                fontSize      = 12.sp,
+                letterSpacing = 2.sp,
+                fontWeight    = FontWeight.Bold
+            )
+            Spacer(Modifier.height(12.dp))
+
+            if (!showAppPicker) {
+                FloatingActionType.entries.forEach { type ->
+                    val selected = current?.type == type
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (selected) accent.copy(alpha = 0.15f) else Color.Transparent)
+                            .clickable {
+                                if (type == FloatingActionType.APP) showAppPicker = true else onSelectType(type)
+                            }
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(floatingActionIcon(type), null, tint = accent, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(floatingActionLabel(type), color = textColor, fontSize = 13.sp)
+                        if (type == FloatingActionType.APP) {
+                            Spacer(Modifier.weight(1f))
+                            Icon(Icons.Default.ChevronRight, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("CHOOSE APP", color = accent, fontSize = 11.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { showAppPicker = false }) {
+                        Text("BACK", color = textColor.copy(alpha = 0.7f), fontSize = 10.sp, letterSpacing = 1.sp)
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    apps.sortedBy { it.appName.lowercase() }.forEach { app ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onSelectApp(app.packageName) }
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(app.appName, color = textColor, fontSize = 13.sp, maxLines = 1, softWrap = false)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RadioAppPickerDialog(
+    current: String,
+    apps: List<com.openlauncher.app.model.AppInfo>,
+    accent: Color,
+    isDayMode: Boolean,
+    onSelect: (String) -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val dialogBg  = if (isDayMode) Color(0xFFF7F7F7) else Color(0xFF161616)
+    val borderC   = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF282828)
+    val textColor = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(dialogBg)
+                .border(1.dp, borderC, RoundedCornerShape(10.dp))
+                .padding(16.dp)
+                .widthIn(min = 280.dp, max = 460.dp)
+                .heightIn(max = 480.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("RADIO APP", color = accent, fontSize = 12.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onClear) {
+                    Text("AUTO-DETECT", color = textColor.copy(alpha = 0.7f), fontSize = 10.sp, letterSpacing = 1.sp)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                apps.sortedBy { it.appName.lowercase() }.forEach { app ->
+                    val selected = app.packageName == current
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (selected) accent.copy(alpha = 0.15f) else Color.Transparent)
+                            .clickable { onSelect(app.packageName) }
+                            .padding(horizontal = 10.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = app.appName,
+                            color = if (selected) accent else textColor,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

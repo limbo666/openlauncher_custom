@@ -109,6 +109,7 @@ class MediaListenerService : NotificationListenerService() {
             ?: meta?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
             ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
             ?: ""
+        val album = meta?.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
         // Prefer the largest bitmap the source provides; many apps put a
         // downscaled image in ALBUM_ART and the full one in ART (or vice versa).
         // DISPLAY_ICON is deliberately excluded — it's the app's own icon, not
@@ -156,6 +157,8 @@ class MediaListenerService : NotificationListenerService() {
             NowPlayingState(
                 title         = title,
                 artist        = artist,
+                album         = album,
+                mediaId       = meta?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID) ?: "",
                 albumArt      = art,
                 artUri        = artUri,
                 isPlaying     = isPlaying,

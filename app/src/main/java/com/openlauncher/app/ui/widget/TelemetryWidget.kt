@@ -255,10 +255,11 @@ private fun CompassDial(
             )
         }
 
-        // Fixed digital heading in the dial centre — degrees only, perfectly centred
-        val headingFont = (dialSize.value * 0.20f).coerceIn(14f, 36f).sp
+        // Fixed digital heading in the dial centre — number only (the ° symbol made
+        // the numeral read off-centre), sized to stay inside the centre backing disc
+        val headingFont = (dialSize.value * 0.15f).coerceIn(11f, 28f).sp
         Text(
-            text = String.format(java.util.Locale.US, "%.0f°", heading),
+            text = String.format(java.util.Locale.US, "%.0f", heading),
             color = accent,
             fontSize = headingFont,
             fontWeight = FontWeight.Bold,

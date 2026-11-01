@@ -35,8 +35,10 @@ import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.SidebarPosition
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.model.NavDestination
+import com.openlauncher.app.service.FloatingPanelService
 import com.openlauncher.app.service.MediaListenerService
 import com.openlauncher.app.ui.components.CarDriveOverlay
+import com.openlauncher.app.ui.components.RadioChangePopup
 import com.openlauncher.app.ui.components.Sidebar
 import com.openlauncher.app.ui.screen.*
 import com.openlauncher.app.ui.theme.OpenLauncherTheme
@@ -112,9 +114,11 @@ class MainActivity : ComponentActivity() {
             val isDayModeVM by vm.isDayMode.collectAsStateWithLifecycle()
             val isScreenBlanked by vm.isScreenBlanked.collectAsStateWithLifecycle()
             val hardwareRadio by vm.hardwareRadio.collectAsStateWithLifecycle()
+            val radioPopup by vm.radioPopup.collectAsStateWithLifecycle()
             val mediaSessions by MediaListenerService.sessions.collectAsStateWithLifecycle()
             val rearrangeMode by vm.rearrangeMode.collectAsStateWithLifecycle()
             val carPhase by vm.carPhase.collectAsStateWithLifecycle()
+            val networkSpeed by vm.networkSpeed.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isCustom = settings.dayNightMode == DayNightMode.CUSTOM
             val isDayMode = if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
@@ -123,6 +127,15 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(settings.volumeProtocol) {
                 VolumeController.setProtocol(settings.volumeProtocol)
+            }
+
+            // Start/stop the floating quick-controls service with its toggle.
+            LaunchedEffect(settings.floatingPanelEnabled) {
+                if (settings.floatingPanelEnabled) {
+                    FloatingPanelService.start(this@MainActivity)
+                } else {
+                    FloatingPanelService.stop(this@MainActivity)
+                }
             }
 
             // System Back on any non-home screen returns to the launcher home page.
@@ -348,7 +361,8 @@ class MainActivity : ComponentActivity() {
                                             vm.updateSettings { copy(obdDeviceAddress = address, obdDeviceName = name) }
                                         },
                                         carImageUri           = settings.carImageUri,
-                                        carRestingVisible     = settings.displayAnimation && carPhase == LauncherViewModel.CarPhase.RESTING
+                                        carRestingVisible     = settings.displayAnimation && carPhase == LauncherViewModel.CarPhase.RESTING,
+                                        networkSpeed          = networkSpeed
                                     )
                                             }
                                             // Page indicator dots (tap to switch — safer while driving than swiping)
@@ -374,6 +388,15 @@ class MainActivity : ComponentActivity() {
                                             carImageUri = settings.carImageUri,
                                             active = settings.displayAnimation && carPhase == LauncherViewModel.CarPhase.DRIVING,
                                             onDone = { vm.clearCarPhase() }
+                                        )
+                                        RadioChangePopup(
+                                            event = radioPopup,
+                                            enabled = settings.showRadioPopup,
+                                            accent = accent,
+                                            isDayMode = isDayMode,
+                                            modifier = Modifier
+                                                .align(Alignment.TopCenter)
+                                                .padding(top = 4.dp)
                                         )
                                         }
                                     }
@@ -409,7 +432,8 @@ class MainActivity : ComponentActivity() {
                                         onUpdate = { block -> vm.updateSettings(block) },
                                         onReset  = { vm.resetSettings() },
                                         onOpenDiagnostics = { vm.navigate(NavDestination.DIAGNOSTICS) },
-                                        onOpenVolumeCalibration = { vm.navigate(NavDestination.VOLUME_CALIBRATION) }
+                                        onOpenVolumeCalibration = { vm.navigate(NavDestination.VOLUME_CALIBRATION) },
+                                        apps = apps
                                     )
 
                                     NavDestination.DIAGNOSTICS -> DiagnosticsScreen(
@@ -475,6 +499,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        FloatingPanelService.setLauncherVisible(true)
         vm.refreshConnectivity()
         vm.refreshBluetoothStatus()
         vm.refreshMedia()
@@ -495,6 +520,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        FloatingPanelService.setLauncherVisible(false)
         vm.stopLocationUpdates()
     }
 
