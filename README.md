@@ -30,10 +30,35 @@ This project is built upon the wonderful work of the open-source community:
 - **OBD-II Bluetooth Telemetry Widget (`ObdWidget`)**:
   - Direct connection to ELM327 Bluetooth OBD-II adapters without needing external companion apps.
   - Live vehicle gauges: Engine RPM (`010C`), Speed (`010D`), Coolant Temperature (`0105`), Throttle Position (`0111`), Calculated Engine Load (`0104`), Fuel Level (`012F`), Intake Air Temperature (`010F`), and Battery Voltage (`ATRV`).
+  - Redesigned automotive-styled adapter picker dialog with one-click access to system pairing.
   - Robust parser filtering out echoes, prompts, and noisy multi-ECU replies.
 - **Car Display Animation & Avatar (`CarAnimation`)**:
   - Set a custom car PNG image on your dashboard.
   - **Drive-by Overlay**: Smooth, full-screen animation where your vehicle drives across the dashboard upon movement detection.
+
+---
+
+### 🎵 Audio Spectrum Visualizer & Sound Analyzer
+- **Real-Time Equalizer Spectrum Widget (`SpectrumWidget`)**:
+  - Audio spectrum analyzer with animated dancing bars reacting to playing media.
+  - Dual analysis engine via **`SoundVisualizerManager`**:
+    - **Native Visualizer Engine**: Attaches directly to active media session IDs or global mix via Android AudioFX for true Fast Fourier Transform (FFT) frequency bands.
+    - **Procedural Beat-Reactive Fallback**: Automatically activates if firmware/SELinux prevents direct audio stream access, ensuring fluid, organic equalizer animations without crashing or dropping frames.
+  - Visual customization: configurable bar count (8 to 32 bars), sensitivity gain, peak-hold meters, and custom accent/gradient color styling.
+
+---
+
+### 🎛️ Floating Action Panel & Universal Controls
+- **System-Wide Floating Assistive Panel (`FloatingPanelService`)**:
+  - Overlay floating bubble or dockable bar that stays accessible across any third-party app (navigation, music, OBD apps).
+  - Quick hardware actions at your fingertips:
+    - Volume Up, Volume Down, and 1-tap Mute toggle.
+    - Direct Home shortcut.
+    - System Back navigation via Accessibility service (`GlobalActionService`).
+    - App Library drawer overlay.
+    - Day/Night theme switch.
+    - Screen Blackout mode for dark nighttime driving.
+  - Draggable, dockable edge snapping with auto-collapsing handle and opacity controls.
 
 ---
 
@@ -50,6 +75,22 @@ Many Android car head units do not use standard Android audio streams for the ph
   - Non-root, non-ADB diagnostic tool. Watches `Settings.System`/`Settings.Global` changes and system broadcast intents in real time when you turn the physical volume knob to discover your unit's volume protocol.
 - **Volume Calibration Wizard (`VolumeCalibrationScreen`)**:
   - Step-by-step interactive test wizard with audio test tones to test each protocol and lock in the right one for your vehicle.
+
+---
+
+### 📻 Head-Unit Radio Integration & Station Alerts
+- **Hardware & MediaSession Radio Deck**:
+  - Full support for head-unit vendor radio apps and MCU tuner broadcasts.
+  - Frequency dial, AM/FM band switching, station presets, and steering-wheel seek controls.
+- **Station Change Popup (`RadioChangePopup`)**:
+  - Unobtrusive floating banner that pops up on frequency/station changes and auto-dismisses after a few seconds.
+
+---
+
+### 🌐 Network & System Performance
+- **Live Network Speed Widget (`NetworkSpeedWidget`)**:
+  - Compact real-time speedometer tile tracking instantaneous download and upload transfer rates (`NetworkSpeedManager`).
+  - Formats traffic dynamically (KB/s, MB/s) with visual arrows and network connectivity indicators (Wi-Fi, Cellular, Ethernet).
 
 ---
 
@@ -82,7 +123,7 @@ Many Android car head units do not use standard Android audio streams for the ph
 - **Full Diagnostics Screen (`DiagnosticsScreen`)**: Real-time display of GPS coordinates, altitude, bearing, accuracy, sensors, active media playback sessions, network status, OBD connection status, and head unit hardware/firmware details.
 - **Settings Backup & Restore (`SettingsBackup`)**: Versioned JSON export and import for all launcher preferences, coordinates, and widget layouts.
 - **SAF Safe Export (`SafeExport`)**: Dual-write verification with internal fallback to prevent 0-byte corrupt exports on unstable head-unit storage providers.
-- **Enhanced App Library (`AppLibraryScreen`)**: Filter applications by categories (User, System, Tools, Selected) and uninstall apps directly from the launcher.
+- **Enhanced App Library (`AppLibraryScreen`)**: Filter applications by categories (User, System, Tools, Selected), memory of last selected tab, and direct app uninstall capability.
 
 ---
 
@@ -97,11 +138,17 @@ Many Android car head units do not use standard Android audio streams for the ph
 
 ---
 
+### 📦 Build & Release Packaging
+- **Automatic APK Artifact Naming**:
+  - Custom Gradle build task (`RenameApk`) automatically packages and versions the output APK into `app/build/dist/OpenLauncher_Custom-v<versionName>.apk`.
+
+---
+
 ## 📥 Building & Installing
 
 ### Prerequisites
 - Android Studio Ladybug | 2024.2.1 or newer (or command line Gradle)
-- Android SDK 36 (minSdk 21)
+- Android SDK 36 (minSdk 21, targetSdk 34)
 - JDK 17
 
 ### Build via Command Line
@@ -113,10 +160,10 @@ cd openlauncher_custom
 # Build debug APK
 ./gradlew assembleDebug
 
-# Build release APK
+# Build signed release APK
 ./gradlew assembleRelease
 ```
-The compiled APK will be located in `app/build/outputs/apk/`.
+The compiled APK will be located in `app/build/outputs/apk/` and friendly named in `app/build/dist/`.
 
 ---
 
