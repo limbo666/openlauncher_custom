@@ -18,21 +18,21 @@
   <tr>
     <td align="center" width="50%">
       <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard1.png" alt="Dashboard 1" width="100%" />
-      <br /><sub><b>App Drawer</b></sub>
+      <br /><sub><b>Dashboard 3</b></sub>
     </td>
     <td align="center" width="50%">
       <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard2.png" alt="Dashboard 2" width="100%" />
-      <br /><sub><b>Dashboard 1</b></sub>
+      <br /><sub><b>Dashboard 2</b></sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
       <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard3.png" alt="Dashboard 3" width="100%" />
-      <br /><sub><b>Dashboard 2</b></sub>
+      <br /><sub><b>Dashboard 3</b></sub>
     </td>
     <td align="center" width="50%">
       <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/app_drawer.png" alt="Dashboard 3" width="100%" />
-      <br /><sub><b>Dashboard 3</b></sub>
+      <br /><sub><b>App Drawer</b></sub>
     </td>
   </tr>
   <tr>
