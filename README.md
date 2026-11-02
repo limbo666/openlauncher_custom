@@ -14,19 +14,53 @@
 
 ---
 
-## 🌟 Credits & Acknowledgements
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard1.png" alt="Dashboard 1" width="100%" />
+      <br /><sub><b>App Drawer</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard2.png" alt="Dashboard 2" width="100%" />
+      <br /><sub><b>Dashboard 1</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard3.png" alt="Dashboard 3" width="100%" />
+      <br /><sub><b>Dashboard 2</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/app_drawer.png" alt="Dashboard 3" width="100%" />
+      <br /><sub><b>Dashboard 3</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/system_status.png" alt="System Status" width="100%" />
+      <br /><sub><b>System Status</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/widget_settings.png" alt="Widget Settings" width="100%" />
+      <br /><sub><b>Widget Settings</b></sub>
+    </td>
+  </tr>
+</table>
+
+
+## Credits & Acknowledgements
 
 This project is built upon the wonderful work of the open-source community:
 
 - **David ([@dw2lam](https://github.com/dw2lam))**: Huge thanks to David for creating the original [Open Launcher](https://github.com/dw2lam/openlauncher). The core launcher architecture, lightweight design, and car-centric foundation originate from his work.  
-  ☕ **Please consider supporting David for his original work:** [Donate via PayPal](https://paypal.me/dw2lam)
+  **Please consider supporting David for his original work:** [Donate via PayPal](https://paypal.me/dw2lam)
 - **itsTwistys ([@itsTwistys](https://github.com/itsTwistys))**: Special thanks to [itsTwistys/openlauncher](https://github.com/itsTwistys/openlauncher) for the great ideas, inspiration, and concepts that guided many of the additional features and enhancements implemented in this fork.
 
 ---
 
-## 🚀 Key Features & Enhancements in This Fork
+## Key Features & Enhancements in This Fork
 
-### 🚗 Vehicle Integration & Telemetry
+### Vehicle Integration & Telemetry
 - **OBD-II Bluetooth Telemetry Widget (`ObdWidget`)**:
   - Direct connection to ELM327 Bluetooth OBD-II adapters without needing external companion apps.
   - Live vehicle gauges: Engine RPM (`010C`), Speed (`010D`), Coolant Temperature (`0105`), Throttle Position (`0111`), Calculated Engine Load (`0104`), Fuel Level (`012F`), Intake Air Temperature (`010F`), and Battery Voltage (`ATRV`).
@@ -38,7 +72,7 @@ This project is built upon the wonderful work of the open-source community:
 
 ---
 
-### 🎵 Audio Spectrum Visualizer & Sound Analyzer
+### Audio Spectrum Visualizer & Sound Analyzer
 - **Real-Time Equalizer Spectrum Widget (`SpectrumWidget`)**:
   - Audio spectrum analyzer with animated dancing bars reacting to playing media.
   - Dual analysis engine via **`SoundVisualizerManager`**:
@@ -48,7 +82,7 @@ This project is built upon the wonderful work of the open-source community:
 
 ---
 
-### 🎛️ Floating Action Panel & Universal Controls
+### Floating Action Panel & Universal Controls
 - **System-Wide Floating Assistive Panel (`FloatingPanelService`)**:
   - Overlay floating bubble or dockable bar that stays accessible across any third-party app (navigation, music, OBD apps).
   - Quick hardware actions at your fingertips:
@@ -62,7 +96,7 @@ This project is built upon the wonderful work of the open-source community:
 
 ---
 
-### 🔊 Advanced Head Unit Volume Protocols & Calibration
+### Advanced Head Unit Volume Protocols & Calibration
 Many Android car head units do not use standard Android audio streams for the physical volume dial. This fork introduces deep head-unit audio integration:
 - **Multiple Built-in Volume Protocols**:
   - Standard Android (`STREAM_MUSIC`) — for emulators, phones, and Qualcomm/Snapdragon units.
@@ -78,7 +112,7 @@ Many Android car head units do not use standard Android audio streams for the ph
 
 ---
 
-### 📻 Head-Unit Radio Integration & Station Alerts
+### Head-Unit Radio Integration & Station Alerts
 - **Hardware & MediaSession Radio Deck**:
   - Full support for head-unit vendor radio apps and MCU tuner broadcasts.
   - Frequency dial, AM/FM band switching, station presets, and steering-wheel seek controls.
@@ -87,14 +121,14 @@ Many Android car head units do not use standard Android audio streams for the ph
 
 ---
 
-### 🌐 Network & System Performance
+### Network & System Performance
 - **Live Network Speed Widget (`NetworkSpeedWidget`)**:
   - Compact real-time speedometer tile tracking instantaneous download and upload transfer rates (`NetworkSpeedManager`).
   - Formats traffic dynamically (KB/s, MB/s) with visual arrows and network connectivity indicators (Wi-Fi, Cellular, Ethernet).
 
 ---
 
-### 📱 Dual-Page Dashboard & Driving State Auto-Switching
+### Dual-Page Dashboard & Driving State Auto-Switching
 - **Two Independent Home Pages**: Swipe left/right between Page 0 and Page 1, each supporting its own distinct widget grid layout and widget content configurations.
 - **Smart Driving Mode Auto-Switch**:
   - Automatically switches to a dedicated "Driving" dashboard page when vehicle GPS speed exceeds a configured threshold (e.g. 8 km/h).
@@ -102,7 +136,7 @@ Many Android car head units do not use standard Android audio streams for the ph
 
 ---
 
-### 🧩 Reworked & New Widgets
+### Reworked & New Widgets
 - **Expanded Grid (6×4)**: More flexible widget sizing and layout options.
 - **Volume Widget (`VolumeWidget`)**: Dedicated tile with quick slider, step controls, mute toggle, and protocol status.
 - **Quick Actions Widget (`QuickActionsWidget`)**: 1-tap toggles for Bluetooth, Wi-Fi, Screen Blackout (for night driving), Mute, and Launcher Settings.
@@ -119,7 +153,7 @@ Many Android car head units do not use standard Android audio streams for the ph
 
 ---
 
-### 🛠️ Diagnostics, Safety & Backup Tools
+### Diagnostics, Safety & Backup Tools
 - **Full Diagnostics Screen (`DiagnosticsScreen`)**: Real-time display of GPS coordinates, altitude, bearing, accuracy, sensors, active media playback sessions, network status, OBD connection status, and head unit hardware/firmware details.
 - **Settings Backup & Restore (`SettingsBackup`)**: Versioned JSON export and import for all launcher preferences, coordinates, and widget layouts.
 - **SAF Safe Export (`SafeExport`)**: Dual-write verification with internal fallback to prevent 0-byte corrupt exports on unstable head-unit storage providers.
@@ -127,7 +161,7 @@ Many Android car head units do not use standard Android audio streams for the ph
 
 ---
 
-### 🎨 Personalization & Visual Styling
+### Personalization & Visual Styling
 - **Expanded Fonts**: Includes 8 typography choices: JetBrains Mono, Source Code Pro, Cal Sans, Fugaz One, Geom Variable, Noto Sans Display, Roboto, and System default.
 - **Flexible Theming**: Dark, Light, Custom, Auto (day/night based on sunrise/sunset or light sensor), and System modes.
 - **Per-Tile Widget Colors**: Each widget can follow the active theme, use default styling, or use a custom background color and transparency.
@@ -138,13 +172,13 @@ Many Android car head units do not use standard Android audio streams for the ph
 
 ---
 
-### 📦 Build & Release Packaging
+### Build & Release Packaging
 - **Automatic APK Artifact Naming**:
   - Custom Gradle build task (`RenameApk`) automatically packages and versions the output APK into `app/build/dist/OpenLauncher_Custom-v<versionName>.apk`.
 
 ---
 
-## 📥 Building & Installing
+## Building & Installing
 
 ### Prerequisites
 - Android Studio Ladybug | 2024.2.1 or newer (or command line Gradle)
@@ -163,21 +197,11 @@ cd openlauncher_custom
 # Build signed release APK
 ./gradlew assembleRelease
 ```
-The compiled APK will be located in `app/build/outputs/apk/` and friendly named in `app/build/dist/`.
+
 
 ---
 
-## 🤝 Contributing & Feedback
-
-Since aftermarket car head units run highly diverse Android forks, MCU boards, and custom hardware configurations, testing on real-world head units is invaluable.
-
-If you encounter issues or have suggestions:
-- Open an [Issue](https://github.com/limbo666/openlauncher_custom/issues) with your head unit model, MCU version, and Android version.
-- Pull requests are always welcome!
-
----
-
-## ☕ Support Original Creators
+## Support Original Creators
 
 Please remember to support David for the original project that made this possible:
 - **Original Repository:** [https://github.com/dw2lam/openlauncher](https://github.com/dw2lam/openlauncher)
