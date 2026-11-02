@@ -8,6 +8,16 @@
 </div>
 
 ---
+### Why this fork exists
+
+Android head units are quite different from each other, and there are many models on the market. On top of that, every driver prefers different information and layouts. Although the original OpenLauncher is an amazing base and implementation, I found that it didn't quite fit my specific needs.
+
+Having a stable open-source project like OpenLauncher provides a great foundation to develop further and add features that are useful for me, and potentially for others as well. Features like volume control, auto-launching apps, auto-switching widgets, and color/style customization can be essential for users.
+
+> **Note:** While development is faster with AI tools, testing on an actual physical unit is still required, and nothing can guarantee 100% compatibility across every head unit model. Real-world testing is essential, and tweaking may be needed to fit specific devices. For this reason, built-in calibration tools and system information extraction utilities have been added to help with setup and troubleshooting.
+
+---
+
 
 > [!WARNING]
 > **Work in Progress:** This customized fork is actively under development and evolving. While tested on specific hardware, it needs to be thoroughly verified across different Android head units, screen resolutions, and MCU architectures. Feedback, bug reports, and test results from various head units are warmly welcomed!
