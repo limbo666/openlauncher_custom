@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.defaultQuickActionButtons
 import com.openlauncher.app.util.FileLog
+import com.openlauncher.app.util.TapSound
 import com.openlauncher.app.util.VolumeController
 import kotlinx.coroutines.delay
 
@@ -396,7 +397,7 @@ fun QuickActionsWidget(
                     .padding(end = 4.dp, top = 2.dp)
                     .size(20.dp)
                     .clip(RoundedCornerShape(3.dp))
-                    .clickable(onClick = onOpenConfig),
+                    .clickable(onClick = { TapSound.play(); onOpenConfig() }),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -426,7 +427,7 @@ private fun QuickActionTile(
             .clip(RoundedCornerShape(5.dp))
             .background(if (item.isActive) item.activeColor.copy(alpha = if (isLight) 0.22f else 0.18f) else bgColor)
             .border(1.dp, if (item.isActive) item.activeColor.copy(alpha = 0.85f) else borderColor, RoundedCornerShape(5.dp))
-            .clickable(onClick = item.onClick)
+            .clickable(onClick = { TapSound.play(); item.onClick() })
     ) {
         val tileHeight = maxHeight
         val tileWidth = maxWidth

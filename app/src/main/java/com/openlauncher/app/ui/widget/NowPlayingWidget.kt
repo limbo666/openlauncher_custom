@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.service.MediaListenerService
+import com.openlauncher.app.util.TapSound
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 
@@ -189,13 +190,13 @@ fun NowPlayingWidget(
                 label = "PLAYER", selected = selectedSource != "FM/AM Radio",
                 accent = accent, activeBg = segActiveBg, inactiveBg = segInactiveBg,
                 activeText = segActiveText, dimText = segDimText, border = segBorder,
-                onClick = { selectedSource = "Any Player" }
+                onClick = { selectedSource = "Any Player"; TapSound.play() }
             )
             SourceTab(
                 label = "RADIO", selected = selectedSource == "FM/AM Radio",
                 accent = accent, activeBg = segActiveBg, inactiveBg = segInactiveBg,
                 activeText = segActiveText, dimText = segDimText, border = segBorder,
-                onClick = { selectedSource = "FM/AM Radio" }
+                onClick = { selectedSource = "FM/AM Radio"; TapSound.play() }
             )
         }
     }
@@ -271,7 +272,7 @@ private fun RadioDeck(
                     .height(26.dp)
                     .border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(3.dp))
                     .clip(RoundedCornerShape(3.dp))
-                    .clickable { if (hasAssigned) onLaunchHardwareRadio() else onAssignRadio() }
+                    .clickable { TapSound.play(); if (hasAssigned) onLaunchHardwareRadio() else onAssignRadio() }
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -322,6 +323,7 @@ private fun RadioDeck(
                     .background(if (powerOn) chipActiveBg else chipInactiveBg)
                     .border(1.5.dp, borderColor, CircleShape)
                     .clickable {
+                        TapSound.play()
                         if (powerOn) { onStopHardwareRadio(); isManuallyOff = true }
                         else { onLaunchHardwareRadio(); isManuallyOff = false }
                     },
@@ -345,7 +347,7 @@ private fun RadioDeck(
                                     .clip(RoundedCornerShape(3.dp))
                                     .background(if (active) chipActiveBg else chipInactiveBg)
                                     .border(1.dp, if (active) borderColor else borderColor.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
-                                    .clickable { if (b == "AM") onRadioSwitchAm() else onRadioCycleFm() }
+                                    .clickable { TapSound.play(); if (b == "AM") onRadioSwitchAm() else onRadioCycleFm() }
                                     .padding(horizontal = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -383,7 +385,7 @@ private fun RadioDeck(
         // ── Row 2: live frequency + station/RDS line (tap to open the radio app) ──
         Column(
             verticalArrangement = Arrangement.spacedBy(1.dp),
-            modifier = Modifier.clickable { onLaunchHardwareRadio() }
+            modifier = Modifier.clickable { TapSound.play(); onLaunchHardwareRadio() }
         ) {
             Row(
                 verticalAlignment = Alignment.Bottom,
@@ -439,13 +441,13 @@ private fun RadioDeck(
                 label = "◄ SEEK", enabled = powerOn, active = false,
                 accent = accent, borderColor = borderColor, dimColor = dimColor,
                 modifier = Modifier.weight(1f),
-                onClick = onRadioSeekDown
+                onClick = { TapSound.play(); onRadioSeekDown() }
             )
             RadioFlatButton(
                 label = "SEEK ►", enabled = powerOn, active = false,
                 accent = accent, borderColor = borderColor, dimColor = dimColor,
                 modifier = Modifier.weight(1f),
-                onClick = onRadioSeekUp
+                onClick = { TapSound.play(); onRadioSeekUp() }
             )
         }
 
@@ -496,7 +498,7 @@ private fun RadioDeck(
                             .background(presetBg)
                             .combinedClickable(
                                 enabled = powerOn,
-                                onClick = { onRadioTune(displayBand, presetFreq) },
+                                onClick = { TapSound.play(); onRadioTune(displayBand, presetFreq) },
                                 onLongClick = {
                                     // Store the REAL current frequency on this preset
                                     freqFloat?.let { f ->
@@ -756,6 +758,11 @@ private fun StandardMinimalPlayer(
                             .data(uri)
                             .memoryCacheKey("$uri#${nonNullState.title.hashCode()}")
                             .diskCacheKey("$uri#${nonNullState.title.hashCode()}")
+                            // Decode at the exact view size for the sharpest
+                            // downscale, and fade between tracks instead of
+                            // hard-swapping the artwork.
+                            .precision(coil.size.Precision.EXACT)
+                            .crossfade(200)
                             .build()
                     }
                 }
@@ -831,7 +838,7 @@ private fun StandardMinimalPlayer(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        IconButton(onClick = { if (!isEditing) onPrev() }, modifier = Modifier.size(32.dp)) {
+                        IconButton(onClick = { if (!isEditing) { TapSound.play(); onPrev() } }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.SkipPrevious, "Prev", tint = currentIconColor, modifier = Modifier.size(20.dp))
                         }
                         Box(
@@ -841,7 +848,7 @@ private fun StandardMinimalPlayer(
                                 .clip(CircleShape)
                                 .background(currentPlayBgColor)
                         ) {
-                            IconButton(onClick = { if (!isEditing) onPlayPause() }, modifier = Modifier.size(42.dp)) {
+                            IconButton(onClick = { if (!isEditing) { TapSound.play(); onPlayPause() } }, modifier = Modifier.size(42.dp)) {
                                 Icon(
                                     imageVector = if (nonNullState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (nonNullState.isPlaying) "Pause" else "Play",
@@ -850,7 +857,7 @@ private fun StandardMinimalPlayer(
                                 )
                             }
                         }
-                        IconButton(onClick = { if (!isEditing) onNext() }, modifier = Modifier.size(32.dp)) {
+                        IconButton(onClick = { if (!isEditing) { TapSound.play(); onNext() } }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.SkipNext, "Next", tint = currentIconColor, modifier = Modifier.size(20.dp))
                         }
                     }

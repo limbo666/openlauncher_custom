@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.openlauncher.app.data.SoundPadConfig
+import com.openlauncher.app.util.TapSound
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -270,6 +271,7 @@ private fun SoundPadButton(
             .then(
                 if (!isEditing) Modifier.combinedClickable(
                     onClick = {
+                        TapSound.play()
                         if (pad.label == "+" || (pad.audioUri.isEmpty() && pad.synthType.isEmpty())) {
                             onAssign()
                         } else {

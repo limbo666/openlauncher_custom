@@ -1,6 +1,7 @@
 package com.openlauncher.app.ui.widget
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -36,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.window.Dialog
+import coil.compose.AsyncImage
 import com.openlauncher.app.obd.ObdReading
 import com.openlauncher.app.obd.ObdSession
 import com.openlauncher.app.obd.PairedAdapter
@@ -69,6 +72,7 @@ fun ObdWidget(
     customContentColor: Color? = null,
     isEditing: Boolean = false,
     onSelectAdapter: (address: String, name: String) -> Unit,
+    fallbackImageUri: String = "",
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -188,7 +192,16 @@ fun ObdWidget(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                when {
+                val connected = adapterAddress.isNotEmpty() && permitted &&
+                    session.status == ObdSession.Status.CONNECTED
+                if (!connected && fallbackImageUri.isNotEmpty()) {
+                    AsyncImage(
+                        model = Uri.parse(fallbackImageUri),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else when {
                     adapterAddress.isEmpty() -> {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,

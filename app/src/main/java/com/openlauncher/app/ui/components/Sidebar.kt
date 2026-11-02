@@ -40,8 +40,11 @@ import androidx.core.graphics.drawable.toBitmap
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DefaultShortcutIcon
 import com.openlauncher.app.data.ShortcutConfig
+import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.ui.theme.LocalDayMode
+import com.openlauncher.app.ui.theme.effectiveAccent
+import com.openlauncher.app.util.TapSound
 import kotlin.math.roundToInt
 
 // Menubar sizing is user-configurable (AppSettings.sidebarWidth / sidebarIconScale).
@@ -57,10 +60,11 @@ private const val MIN_SLOT_SIZE            = 36
 fun Sidebar(
     currentDest: NavDestination,
     settings: AppSettings,
+    apps: List<AppInfo> = emptyList(),
     installedIconFor: (String) -> Drawable?,
     onNavigate: (NavDestination) -> Unit,
     onShortcutClick: (Int) -> Unit,
-    onShortcutLongPress: (Int) -> Unit,
+    onShortcutAssignApp: (Int, String) -> Unit,
     onShortcutRemove: (Int) -> Unit,
     onShortcutSetIcon: (Int, DefaultShortcutIcon?) -> Unit,
     onReorder: (from: Int, to: Int) -> Unit,
@@ -68,7 +72,7 @@ fun Sidebar(
     modifier: Modifier = Modifier
 ) {
     val isDayMode    = LocalDayMode.current
-    val accent       = Color(settings.accentColor)
+    val accent       = settings.effectiveAccent()
     val sidebarBg    = if (isDayMode) Color(0xFFE0E0E0) else MaterialTheme.colorScheme.background.copy(alpha = 0.7f)
     val iconInactive = if (isDayMode) Color(0xFF777777) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
     val dividerColor = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
@@ -81,6 +85,7 @@ fun Sidebar(
 
     var actionSheetSlot by remember { mutableStateOf<Int?>(null) }
     var iconPickerSlot  by remember { mutableStateOf<Int?>(null) }
+    var appPickSlot     by remember { mutableStateOf<Int?>(null) }
 
     var draggingIndex by remember { mutableIntStateOf(-1) }
     var dragOffsetPx  by remember { mutableFloatStateOf(0f) }
@@ -115,7 +120,11 @@ fun Sidebar(
                 isHorizontal    = isHorizontal,
                 slotSize        = slotSize,
                 iconScale       = iconScale,
-                onClick         = { onShortcutClick(index) },
+                onClick         = {
+                    // Empty slots open the unified app picker; assigned slots launch.
+                    if (shortcut.packageName.isEmpty()) appPickSlot = index
+                    else onShortcutClick(index)
+                },
                 onLongPress     = { actionSheetSlot = index },
                 onDragStart = {
                     draggingIndex = index
@@ -246,7 +255,7 @@ fun Sidebar(
             },
             onChangeApp = {
                 actionSheetSlot = null
-                onShortcutLongPress(slot)
+                appPickSlot = slot
             },
             onCustomizeIcon = {
                 actionSheetSlot = null
@@ -271,6 +280,25 @@ fun Sidebar(
                 onShortcutSetIcon(slot, icon)
             },
             onDismiss = { iconPickerSlot = null }
+        )
+    }
+
+    // ── Unified app picker (assign / change a shortcut's target app) ──────────
+    appPickSlot?.let { slot ->
+        AppPickerDialog(
+            title          = "SHORTCUT ${slot + 1}",
+            currentPackage = settings.shortcuts.getOrNull(slot)?.packageName.orEmpty(),
+            apps           = apps,
+            accent         = accent,
+            isDayMode      = isDayMode,
+            selectedAppPackages = settings.selectedAppPackages,
+            toolsAppPackages    = settings.toolsAppPackages,
+            clearLabel     = null, // removal stays in the long-press action sheet
+            onSelect       = { pkg ->
+                appPickSlot = null
+                onShortcutAssignApp(slot, pkg)
+            },
+            onDismiss      = { appPickSlot = null }
         )
     }
 }
@@ -314,7 +342,7 @@ private fun ShortcutSlot(
                 alpha = if (isDragging) 0.55f else 1f
             }
             .combinedClickable(
-                onClick     = { currentOnClick() },
+                onClick     = { TapSound.play(); currentOnClick() },
                 onLongClick = { }
             )
             .pointerInput(isHorizontal) {
@@ -447,7 +475,7 @@ private fun ActionRow(label: String, icon: ImageVector, tint: Color, onClick: ()
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .tapClickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -587,7 +615,7 @@ private fun NavButton(
                 else              Modifier.fillMaxWidth().height(slotSize)
             )
             .background(if (isActive) activeBg else Color.Transparent)
-            .clickable(onClick = onClick)
+            .tapClickable(onClick = onClick)
     ) {
         Icon(
             imageVector        = icon,

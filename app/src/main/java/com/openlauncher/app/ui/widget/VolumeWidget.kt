@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.openlauncher.app.util.TapSound
 import com.openlauncher.app.util.VolumeController
 
 @Composable
@@ -91,7 +92,7 @@ fun VolumeWidget(
                         .clip(RoundedCornerShape(4.dp))
                         .background(if (isMuted) Color(0xFFE03131).copy(alpha = 0.22f) else buttonBg)
                         .border(1.dp, if (isMuted) Color(0xFFE03131).copy(alpha = 0.7f) else buttonBorder, RoundedCornerShape(4.dp))
-                        .clickable(onClick = toggleMute),
+                        .clickable(onClick = { TapSound.play(); toggleMute() }),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -109,7 +110,7 @@ fun VolumeWidget(
                         .clip(RoundedCornerShape(4.dp))
                         .background(buttonBg)
                         .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                        .clickable { adjustVolume(AudioManager.ADJUST_LOWER) },
+                        .clickable { TapSound.play(); adjustVolume(AudioManager.ADJUST_LOWER) },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Default.Remove, "Volume Down", tint = contentColor, modifier = Modifier.size(15.dp))
@@ -172,7 +173,7 @@ fun VolumeWidget(
                         .clip(RoundedCornerShape(4.dp))
                         .background(buttonBg)
                         .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                        .clickable { adjustVolume(AudioManager.ADJUST_RAISE) },
+                        .clickable { TapSound.play(); adjustVolume(AudioManager.ADJUST_RAISE) },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Default.Add, "Volume Up", tint = contentColor, modifier = Modifier.size(15.dp))
@@ -234,7 +235,7 @@ fun VolumeWidget(
                                 if (isMuted) Color(0xFFE03131).copy(alpha = 0.75f) else buttonBorder,
                                 RoundedCornerShape(4.dp)
                             )
-                            .clickable(onClick = toggleMute),
+                            .clickable(onClick = { TapSound.play(); toggleMute() }),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
@@ -301,7 +302,7 @@ fun VolumeWidget(
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(buttonBg)
                                 .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                                .clickable { adjustVolume(AudioManager.ADJUST_LOWER) },
+                                .clickable { TapSound.play(); adjustVolume(AudioManager.ADJUST_LOWER) },
                             contentAlignment = Alignment.Center
                         ) {
                             Row(
@@ -322,7 +323,7 @@ fun VolumeWidget(
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(buttonBg)
                                 .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                                .clickable { adjustVolume(AudioManager.ADJUST_RAISE) },
+                                .clickable { TapSound.play(); adjustVolume(AudioManager.ADJUST_RAISE) },
                             contentAlignment = Alignment.Center
                         ) {
                             Row(

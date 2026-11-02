@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
@@ -94,6 +95,7 @@ fun BoxScope.RadioChangePopup(
                                 model = ev.artUri,
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
+                                filterQuality = FilterQuality.High,
                                 modifier = Modifier.size(30.dp)
                             )
                         } else if (ev.albumArt != null) {
@@ -101,6 +103,7 @@ fun BoxScope.RadioChangePopup(
                                 bitmap = ev.albumArt.asImageBitmap(),
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
+                                filterQuality = FilterQuality.High,
                                 modifier = Modifier.size(30.dp)
                             )
                         }

@@ -57,7 +57,8 @@ object SettingsBackup {
             "gradientDirection" to GradientDirection.entries.map { it.name },
             "appDrawerFilter" to AppDrawerFilter.entries.map { it.name },
             "weatherProvider" to WeatherProvider.entries.map { it.name },
-            "spectrumStyle" to SpectrumStyle.entries.map { it.name }
+            "spectrumStyle" to SpectrumStyle.entries.map { it.name },
+            "tapSoundType" to TapSoundType.entries.map { it.name }
         )
 
         enumChecks.forEach { (key, validNames) ->

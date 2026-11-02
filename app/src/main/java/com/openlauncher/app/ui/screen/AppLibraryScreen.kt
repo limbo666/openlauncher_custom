@@ -42,6 +42,7 @@ import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.ui.theme.accentOnSurface
 import com.openlauncher.app.ui.theme.contentColorOn
+import com.openlauncher.app.util.TapSound
 
 private typealias AppFilter = AppDrawerFilter
 
@@ -51,8 +52,6 @@ private val TILE_RADIUS = RoundedCornerShape(4.dp)
 fun AppLibraryScreen(
     apps: List<AppInfo>,
     isLoading: Boolean,
-    isPickerMode: Boolean,
-    pickerSlot: Int?,
     isCarPlayPickerMode: Boolean,
     carPlayPickerLabel: String = "CHOOSE CARPLAY APP",
     accent: Color,
@@ -61,7 +60,6 @@ fun AppLibraryScreen(
     currentFilter: AppDrawerFilter = AppDrawerFilter.USER,
     onFilterChange: (AppDrawerFilter) -> Unit = {},
     onAppClick: (AppInfo) -> Unit,
-    onPickerSelect: (Int, AppInfo) -> Unit,
     onCarPlaySelect: (AppInfo) -> Unit,
     onToggleSelectedApp: (String) -> Unit = {},
     onToggleToolsApp: (String) -> Unit = {},
@@ -79,16 +77,15 @@ fun AppLibraryScreen(
     val fieldTextC    = MaterialTheme.colorScheme.onBackground
     val fieldBorderU  = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f)
 
-    val anyPickerMode = isPickerMode || isCarPlayPickerMode
     var query         by remember { mutableStateOf("") }
     var appFilter     by remember(currentFilter) { mutableStateOf(currentFilter) }
     var appForManagement by remember { mutableStateOf<AppInfo?>(null) }
 
-    val filtered = remember(apps, query, appFilter, anyPickerMode, selectedAppPackages, toolsAppPackages) {
+    val filtered = remember(apps, query, appFilter, isCarPlayPickerMode, selectedAppPackages, toolsAppPackages) {
         val byName = if (query.isBlank()) apps
                      else apps.filter { it.appName.contains(query, ignoreCase = true) }
-        // In picker mode always show everything so shortcuts can be set to any app
-        if (anyPickerMode) byName
+        // In CarPlay/AA/PiP picker mode always show everything so any app can be chosen
+        if (isCarPlayPickerMode) byName
         else when (appFilter) {
             AppFilter.SELECTED -> byName.filter { it.packageName in selectedAppPackages }
             AppFilter.TOOLS    -> byName.filter { it.packageName in toolsAppPackages }
@@ -110,20 +107,20 @@ fun AppLibraryScreen(
             Text(
                 text          = when {
                     isCarPlayPickerMode -> carPlayPickerLabel
-                    anyPickerMode       -> "CHOOSE APP"
                     else                -> "APPS"
                 },
                 style         = MaterialTheme.typography.titleLarge,
-                color         = if (anyPickerMode) accent else headerColor,
+                color         = if (isCarPlayPickerMode) accent else headerColor,
                 letterSpacing = 3.sp,
                 fontSize      = 14.sp
             )
-            if (!anyPickerMode) {
+            if (!isCarPlayPickerMode) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     AppFilter.entries.forEach { filter ->
                         FilterChip(
                             selected = appFilter == filter,
                             onClick  = { 
+                                TapSound.play()
                                 appFilter = filter
                                 onFilterChange(filter)
                             },
@@ -224,13 +221,9 @@ fun AppLibraryScreen(
                     isSelected  = app.packageName in selectedAppPackages,
                     isTool      = app.packageName in toolsAppPackages,
                     onClick     = {
-                        when {
-                            isCarPlayPickerMode                -> onCarPlaySelect(app)
-                            isPickerMode && pickerSlot != null -> onPickerSelect(pickerSlot, app)
-                            else                               -> onAppClick(app)
-                        }
+                        if (isCarPlayPickerMode) onCarPlaySelect(app) else onAppClick(app)
                     },
-                    onLongClick = if (!anyPickerMode) {
+                    onLongClick = if (!isCarPlayPickerMode) {
                         { appForManagement = app }
                     } else null
                 )
@@ -274,7 +267,7 @@ private fun AppTile(
             .background(tileBg)
             .border(1.dp, tileBorder, TILE_RADIUS)
             .combinedClickable(
-                onClick = onClick,
+                onClick = { TapSound.play(); onClick() },
                 onLongClick = onLongClick
             )
             .padding(7.dp)
@@ -419,6 +412,7 @@ private fun AppManagementDialog(
                     .background(if (isSelected) activeRowBg else Color.Transparent)
                     .border(1.dp, if (isSelected) activeRowBorder else Color.Transparent, RoundedCornerShape(6.dp))
                     .clickable {
+                        TapSound.play()
                         onToggleSelected()
                         onDismiss()
                     }
@@ -448,6 +442,7 @@ private fun AppManagementDialog(
                     .background(if (isTool) activeRowBg else Color.Transparent)
                     .border(1.dp, if (isTool) activeRowBorder else Color.Transparent, RoundedCornerShape(6.dp))
                     .clickable {
+                        TapSound.play()
                         onToggleTools()
                         onDismiss()
                     }
@@ -477,6 +472,7 @@ private fun AppManagementDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(6.dp))
                         .clickable {
+                            TapSound.play()
                             onUninstall()
                             onDismiss()
                         }

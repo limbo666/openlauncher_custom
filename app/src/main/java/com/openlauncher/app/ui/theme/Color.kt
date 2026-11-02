@@ -2,6 +2,8 @@ package com.openlauncher.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
+import com.openlauncher.app.data.AppSettings
 
 val Black       = Color(0xFF000000)
 val White       = Color(0xFFFFFFFF)
@@ -17,6 +19,27 @@ val AccentBlue  = Color(0xFF2979FF)
 val AccentGreen = Color(0xFF00E676)
 val AccentAmber = Color(0xFFFFAB00)
 val AccentRed   = Color(0xFFFF1744)
+
+// Retro 80s LCD theme (hidden easter egg) — phosphor-on-dark-green palette
+// adapted from the AW11 dashboard look of the retro-launcher fork.
+val RetroBackground = Color(0xFF050600)
+val RetroPrimary    = Color(0xFFD7E800)
+val RetroSecondary  = Color(0xFF8A9300)
+val RetroDim        = Color(0xFF555900)
+val RetroBorder     = Color(0xFF626900)
+val RetroWarning    = Color(0xFFFFAA00)
+
+/**
+ * The accent color actually in effect: the retro LCD easter egg overrides the
+ * user's accent with the phosphor green everywhere it is applied. Any code that
+ * reads [AppSettings.accentColor] directly should go through this so the retro
+ * theme recolors it too.
+ */
+fun AppSettings.effectiveAccent(): Color =
+    if (retroThemeEnabled) RetroPrimary else Color(accentColor)
+
+fun AppSettings.effectiveAccentArgb(): Int =
+    if (retroThemeEnabled) RetroPrimary.toArgb() else accentColor
 
 val accentPresets      = listOf(AccentBlack, AccentWhite, AccentBlue, AccentGreen, AccentAmber, AccentRed)
 val accentPresetLabels = listOf("Black", "White", "Blue", "Green", "Amber", "Red")

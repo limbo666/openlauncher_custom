@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import com.openlauncher.app.model.AppInfo
+import com.openlauncher.app.util.TapSound
 
 /**
  * App Shortcuts Widget: Displays configurable number of app icons targeting apps on the device.
@@ -314,6 +315,7 @@ private fun AppShortcutSlot(
                 )
                 .combinedClickable(
                     onClick = {
+                        TapSound.play()
                         if (isAssigned) onLaunch(packageName) else onConfigure(index)
                     },
                     onLongClick = {

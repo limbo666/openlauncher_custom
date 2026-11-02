@@ -149,6 +149,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settingsRepo.updateSettings { it.copy(volumeProtocol = id) } }
     }
 
+    fun switchProfile(id: Int) {
+        viewModelScope.launch { settingsRepo.switchProfile(id) }
+    }
+
     fun resetSettings() {
         viewModelScope.launch { settingsRepo.resetToDefaults() }
     }
@@ -165,15 +169,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun navigate(dest: NavDestination) { _nav.value = dest }
 
-    // ── Shortcut picker ───────────────────────────────────────────────────────
-    private val _shortcutPickerSlot = MutableStateFlow<Int?>(null)
-    val shortcutPickerSlot: StateFlow<Int?> = _shortcutPickerSlot
-
-    fun startShortcutPicker(slot: Int) {
-        _shortcutPickerSlot.value = slot
-        _nav.value = NavDestination.APP_LIBRARY
-    }
-
     fun assignShortcut(slot: Int, app: AppInfo) {
         updateSettings {
             copy(shortcuts = shortcuts.toMutableList().also { list ->
@@ -186,8 +181,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 )
             })
         }
-        _shortcutPickerSlot.value = null
-        _nav.value = NavDestination.HOME
     }
 
     fun removeShortcut(slot: Int) {
@@ -215,10 +208,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 if (slot in list.indices) list[slot] = list[slot].copy(customIconOverride = icon)
             })
         }
-    }
-
-    fun cancelShortcutPicker() {
-        _shortcutPickerSlot.value = null
     }
 
     // ── CarPlay / Android Auto picker ─────────────────────────────────────────
@@ -957,6 +946,26 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     val isData: StateFlow<Boolean> = _isData
     val isOnline: StateFlow<Boolean> = _isOnline
 
+    // Current Wi-Fi SSID (null when off Wi-Fi or redacted). Drives the
+    // profile auto-switch rules below.
+    private val _wifiSsid = MutableStateFlow<String?>(null)
+
+    private fun currentWifiSsid(cm: ConnectivityManager): String? = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val net = cm.activeNetwork
+            val caps = cm.getNetworkCapabilities(net)
+            if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true) return@runCatching null
+            val info = caps.transportInfo as? android.net.wifi.WifiInfo
+            info?.ssid
+        } else {
+            @Suppress("DEPRECATION")
+            val wm = getApplication<Application>().getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            val ci = wm?.connectionInfo
+            if (ci == null || ci.networkId == -1) null else ci.ssid
+        }
+    }.getOrNull()?.trim()?.trim('"')?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" }
+
     private val _isBluetoothOn = MutableStateFlow(false)
     private val _isBluetoothConnected = MutableStateFlow(false)
     val isBluetoothOn: StateFlow<Boolean> = _isBluetoothOn
@@ -1316,6 +1325,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             _isWifi.value = hasWifi || (legacyConnected && legacyType == ConnectivityManager.TYPE_WIFI)
             _isData.value = hasCell || (legacyConnected && legacyType == ConnectivityManager.TYPE_MOBILE)
             _isOnline.value = hasInternet || hasWifi || hasCell || hasEth || hasVpn || hasBt || legacyConnected
+            _wifiSsid.value = if (hasWifi) currentWifiSsid(cm) else null
         } else {
             // activeNetwork requires API 23 — legacy path for Android 5.x head units
             @Suppress("DEPRECATION")
@@ -1327,6 +1337,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             _isWifi.value = connected && type == ConnectivityManager.TYPE_WIFI
             _isData.value = connected && type == ConnectivityManager.TYPE_MOBILE
             _isOnline.value = connected
+            _wifiSsid.value = if (connected && type == ConnectivityManager.TYPE_WIFI) currentWifiSsid(cm) else null
         }
     }
 
@@ -1463,6 +1474,34 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 delay(3000L)
                 refreshConnectivity()
                 refreshBluetoothStatus()
+            }
+        }
+
+        // ── Profile auto-switch by Wi-Fi SSID ───────────────────────────────────
+        // Fires when the SSID actually changes (connect / reconnect) or when the
+        // rules themselves change (feature toggled on, SSID edited) — never on
+        // unrelated settings writes, so a manual profile switch is never fought.
+        viewModelScope.launch {
+            val ruleChanges = settings
+                .map { Triple(it.profileAutoSwitchEnabled, it.profileHotspotSsids, it.profileNames) }
+                .distinctUntilChanged()
+            merge(
+                _wifiSsid, // StateFlow already dedupes consecutive equal values
+                ruleChanges.map { _wifiSsid.value }
+            ).collect { ssid ->
+                if (ssid == null) return@collect
+                val s = settings.value
+                if (!s.profileAutoSwitchEnabled) return@collect
+                val idx = s.profileHotspotSsids.indexOfFirst {
+                    it.isNotBlank() && it.equals(ssid, ignoreCase = true)
+                }
+                if (idx in 0..3 && idx != s.activeProfile) {
+                    FileLog.log(
+                        "ProfileWifi",
+                        "ssid=\"$ssid\" -> profile $idx (${s.profileNames.getOrNull(idx) ?: "?"})"
+                    )
+                    switchProfile(idx)
+                }
             }
         }
 

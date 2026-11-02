@@ -8,6 +8,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 
@@ -130,6 +131,15 @@ class SettingsRepository(private val context: Context) {
         val AUTO_LAUNCH_DELAY_SEC  = intPreferencesKey("auto_launch_delay_sec")
         val GESTURE_TWO_FINGER     = stringPreferencesKey("gesture_two_finger")
         val GESTURE_THREE_FINGER   = stringPreferencesKey("gesture_three_finger")
+        val TAP_SOUND_ENABLED      = booleanPreferencesKey("tap_sound_enabled")
+        val TAP_SOUND_TYPE         = stringPreferencesKey("tap_sound_type")
+        val OBD_FALLBACK_URI       = stringPreferencesKey("obd_fallback_uri")
+        val ACTIVE_PROFILE         = intPreferencesKey("active_profile")
+        val PROFILE_NAMES_JSON     = stringPreferencesKey("profile_names_json")
+        val PROFILE_AUTO_SWITCH    = booleanPreferencesKey("profile_auto_switch_enabled")
+        val PROFILE_HOTSPOT_JSON   = stringPreferencesKey("profile_hotspot_ssids_json")
+        val RETRO_THEME_ENABLED    = booleanPreferencesKey("retro_theme_enabled")
+        fun PROFILE_SNAPSHOT(id: Int) = stringPreferencesKey("profile_snapshot_$id")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
@@ -337,7 +347,19 @@ class SettingsRepository(private val context: Context) {
                 autoLaunchPackage    = prefs[Keys.AUTO_LAUNCH_PACKAGE] ?: defaults.autoLaunchPackage,
                 autoLaunchDelaySec   = prefs[Keys.AUTO_LAUNCH_DELAY_SEC]?.coerceIn(1, 30) ?: defaults.autoLaunchDelaySec,
                 gestureTwoFingerPackage = prefs[Keys.GESTURE_TWO_FINGER] ?: defaults.gestureTwoFingerPackage,
-                gestureThreeFingerPackage = prefs[Keys.GESTURE_THREE_FINGER] ?: defaults.gestureThreeFingerPackage
+                gestureThreeFingerPackage = prefs[Keys.GESTURE_THREE_FINGER] ?: defaults.gestureThreeFingerPackage,
+                tapSoundEnabled       = prefs[Keys.TAP_SOUND_ENABLED] ?: defaults.tapSoundEnabled,
+                tapSoundType          = prefs[Keys.TAP_SOUND_TYPE]?.let { runCatching { com.openlauncher.app.data.TapSoundType.valueOf(it) }.getOrNull() } ?: defaults.tapSoundType,
+                obdFallbackImageUri   = prefs[Keys.OBD_FALLBACK_URI] ?: defaults.obdFallbackImageUri,
+                activeProfile         = prefs[Keys.ACTIVE_PROFILE]?.coerceIn(0, 3) ?: defaults.activeProfile,
+                profileNames          = prefs[Keys.PROFILE_NAMES_JSON]?.let { json ->
+                    runCatching { gson.fromJson<List<String>>(json, object : TypeToken<List<String>>() {}.type) }.getOrNull()
+                }?.let { names -> (names + defaultProfileNames()).take(4) } ?: defaults.profileNames,
+                profileAutoSwitchEnabled = prefs[Keys.PROFILE_AUTO_SWITCH] ?: defaults.profileAutoSwitchEnabled,
+                profileHotspotSsids  = prefs[Keys.PROFILE_HOTSPOT_JSON]?.let { json ->
+                    runCatching { gson.fromJson<List<String>>(json, object : TypeToken<List<String>>() {}.type) }.getOrNull()
+                }?.let { ssids -> (ssids + listOf("", "", "", "")).take(4) } ?: defaults.profileHotspotSsids,
+                retroThemeEnabled    = prefs[Keys.RETRO_THEME_ENABLED] ?: defaults.retroThemeEnabled
             ).let { s -> reconcileWidgetFlags(s) }
     }
 
@@ -467,6 +489,43 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.AUTO_LAUNCH_DELAY_SEC]   = s.autoLaunchDelaySec
             prefs[Keys.GESTURE_TWO_FINGER]      = s.gestureTwoFingerPackage
             prefs[Keys.GESTURE_THREE_FINGER]    = s.gestureThreeFingerPackage
+            prefs[Keys.TAP_SOUND_ENABLED]       = s.tapSoundEnabled
+            prefs[Keys.TAP_SOUND_TYPE]          = s.tapSoundType.name
+            prefs[Keys.OBD_FALLBACK_URI]        = s.obdFallbackImageUri
+            prefs[Keys.ACTIVE_PROFILE]          = s.activeProfile
+            prefs[Keys.PROFILE_NAMES_JSON]      = gson.toJson(s.profileNames)
+            prefs[Keys.PROFILE_AUTO_SWITCH]     = s.profileAutoSwitchEnabled
+            prefs[Keys.PROFILE_HOTSPOT_JSON]    = gson.toJson(s.profileHotspotSsids)
+            prefs[Keys.RETRO_THEME_ENABLED]     = s.retroThemeEnabled
+    }
+
+    /**
+     * Switches the active user profile. The current settings are snapshotted to
+     * the old profile's slot, then the target profile's snapshot (or a fresh
+     * default when it has never been used) is loaded. Hardware-tied fields
+     * (OBD pairing, radio app, volume channel, CarPlay/AA/PiP apps, onboarding)
+     * are carried over so every driver shares them.
+     */
+    suspend fun switchProfile(newProfile: Int) {
+        val target = newProfile.coerceIn(0, 3)
+        val current = settingsFlow.first()
+        if (current.activeProfile == target) return
+
+        val currentJson = SettingsBackup.encode(current)
+
+        val targetKey = Keys.PROFILE_SNAPSHOT(target)
+        val targetJson = context.dataStore.data.first()[targetKey]
+        val loaded = targetJson?.let { runCatching { SettingsBackup.decode(it) }.getOrNull() }
+            ?: AppSettings()
+
+        val merged = loaded
+            .withSharedFieldsFrom(current)
+            .copy(activeProfile = target)
+
+        context.dataStore.edit { prefs ->
+            prefs[Keys.PROFILE_SNAPSHOT(current.activeProfile)] = currentJson
+            writeSettings(prefs, merged)
+        }
     }
 
     suspend fun resetToDefaults() {

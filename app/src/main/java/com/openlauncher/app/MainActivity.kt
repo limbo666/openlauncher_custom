@@ -30,19 +30,25 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.SidebarPosition
 import com.openlauncher.app.data.GradientDirection
+import com.openlauncher.app.data.AppFont
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.service.FloatingPanelService
 import com.openlauncher.app.service.MediaListenerService
 import com.openlauncher.app.ui.components.CarDriveOverlay
 import com.openlauncher.app.ui.components.RadioChangePopup
+import com.openlauncher.app.ui.components.RetroDisplayOverlay
 import com.openlauncher.app.ui.components.Sidebar
 import com.openlauncher.app.ui.screen.*
 import com.openlauncher.app.ui.theme.OpenLauncherTheme
+import com.openlauncher.app.ui.theme.RetroBackground
+import com.openlauncher.app.ui.theme.RetroPrimary
+import com.openlauncher.app.util.TapSound
 import com.openlauncher.app.util.VolumeController
 import com.openlauncher.app.viewmodel.LauncherViewModel
 
@@ -127,8 +133,11 @@ class MainActivity : ComponentActivity() {
             val soundVisualizerStatus by vm.soundVisualizerStatus.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isCustom = settings.dayNightMode == DayNightMode.CUSTOM
-            val isDayMode = if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
-            val pickerSlot      by vm.shortcutPickerSlot.collectAsStateWithLifecycle()
+            // Retro LCD easter egg: force the dark phosphor look regardless of
+            // the day/night setting — the green-on-black palette is inherently dark.
+            val retroOn = settings.retroThemeEnabled
+            val isDayMode = if (retroOn) false
+                else if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
             val appPickerTarget by vm.appPickerTarget.collectAsStateWithLifecycle()
 
             LaunchedEffect(settings.volumeProtocol) {
@@ -142,6 +151,12 @@ class MainActivity : ComponentActivity() {
                     kotlinx.coroutines.delay(settings.autoLaunchDelaySec * 1000L)
                     vm.launchApp(settings.autoLaunchPackage)
                 }
+            }
+
+            // Keep the tap-sound util in sync with settings.
+            LaunchedEffect(settings.tapSoundEnabled, settings.tapSoundType) {
+                TapSound.enabled = settings.tapSoundEnabled
+                TapSound.type = settings.tapSoundType
             }
 
             // Start/stop the floating quick-controls service with its toggle.
@@ -175,13 +190,17 @@ class MainActivity : ComponentActivity() {
                 vm.navigate(NavDestination.HOME)
             }
 
-            val accent         = Color(settings.accentColor)
-            val bg             = if (isCustom && settings.useCustomBackgroundColor) {
+            val accent         = if (retroOn) RetroPrimary else Color(settings.accentColor)
+            val bg             = if (retroOn) {
+                RetroBackground
+            } else if (isCustom && settings.useCustomBackgroundColor) {
                 Color(settings.backgroundColor)
             } else {
                 if (isDayMode) Color(0xFFEEEEEE) else Color.Black
             }
-            val textColor      = if (isDayMode) {
+            val textColor      = if (retroOn) {
+                Color.White
+            } else if (isDayMode) {
                 Color(0xFF111111)
             } else if (isCustom) {
                 Color(settings.fontColor)
@@ -214,11 +233,11 @@ class MainActivity : ComponentActivity() {
                     textColor  = textColor,
                     fontBold   = settings.fontBold,
                     textScale  = settings.textScale,
-                    appFont    = settings.appFont,
+                    appFont    = if (retroOn) AppFont.IBM_VGA_9X16 else settings.appFont,
                     isDayMode  = isDayMode,
                     isCustom   = isCustom,
-                    useCustomBg = isCustom && settings.useCustomBackgroundColor,
-                    helpTextColor = settings.helpTextColor?.let { Color(it) }
+                    useCustomBg = isCustom && settings.useCustomBackgroundColor && !retroOn,
+                    helpTextColor = if (retroOn) null else settings.helpTextColor?.let { Color(it) }
                 ) {
                 if (!settings.onboardingCompleted) {
                     OnboardingScreen(
@@ -258,11 +277,11 @@ class MainActivity : ComponentActivity() {
                                     currentDest   = nav,
                                     settings      = settings,
                                     isHorizontal  = isBottomBar,
+                                    apps          = apps,
                                     installedIconFor = { pkg ->
                                         apps.find { it.packageName == pkg }?.icon
                                     },
                                     onNavigate    = { dest ->
-                                        vm.cancelShortcutPicker()
                                         vm.cancelCarPlayPicker()
                                         vm.exitRearrangeMode()
                                         vm.navigate(dest)
@@ -271,11 +290,11 @@ class MainActivity : ComponentActivity() {
                                         val shortcut = settings.shortcuts.getOrNull(slot)
                                         if (shortcut != null && shortcut.packageName.isNotEmpty()) {
                                             vm.launchApp(shortcut.packageName)
-                                        } else {
-                                            vm.startShortcutPicker(slot)
                                         }
                                     },
-                                    onShortcutLongPress  = { slot -> vm.startShortcutPicker(slot) },
+                                    onShortcutAssignApp = { slot, pkg ->
+                                        apps.find { it.packageName == pkg }?.let { vm.assignShortcut(slot, it) }
+                                    },
                                     onShortcutRemove     = { slot -> vm.removeShortcut(slot) },
                                     onShortcutSetIcon    = { slot, icon -> vm.setShortcutIcon(slot, icon) },
                                     onReorder            = { from, to -> vm.reorderShortcut(from, to) }
@@ -397,7 +416,8 @@ class MainActivity : ComponentActivity() {
                                         networkSpeed          = networkSpeed,
                                         soundSpectrum         = soundSpectrum,
                                         soundVisualizerAvailable = soundVisualizerAvailable,
-                                        soundVisualizerHasSignal = soundVisualizerHasSignal
+                                        soundVisualizerHasSignal = soundVisualizerHasSignal,
+                                        onSwitchProfile      = { id -> vm.switchProfile(id) }
                                     )
                                             }
                                             // Page indicator dots (tap to switch — safer while driving than swiping)
@@ -439,8 +459,6 @@ class MainActivity : ComponentActivity() {
                                     NavDestination.APP_LIBRARY -> AppLibraryScreen(
                                         apps                = apps,
                                         isLoading           = appsLoading,
-                                        isPickerMode        = pickerSlot != null,
-                                        pickerSlot          = pickerSlot,
                                         isCarPlayPickerMode = appPickerTarget != null,
                                         carPlayPickerLabel  = when (appPickerTarget) {
                                             com.openlauncher.app.viewmodel.LauncherViewModel.AppPickerTarget.ANDROID_AUTO -> "CHOOSE ANDROID AUTO APP"
@@ -454,7 +472,6 @@ class MainActivity : ComponentActivity() {
                                         currentFilter       = settings.appDrawerFilter,
                                         onFilterChange      = { filter -> vm.updateSettings { copy(appDrawerFilter = filter) } },
                                         onAppClick          = { app -> vm.launchApp(app.packageName) },
-                                        onPickerSelect      = { slot, app -> vm.assignShortcut(slot, app) },
                                         onCarPlaySelect     = { app -> vm.assignPickerApp(app) },
                                         onToggleSelectedApp = vm::toggleSelectedApp,
                                         onToggleToolsApp    = vm::toggleToolsApp,
@@ -468,6 +485,7 @@ class MainActivity : ComponentActivity() {
                                         onReset  = { vm.resetSettings() },
                                         onOpenDiagnostics = { vm.navigate(NavDestination.DIAGNOSTICS) },
                                         onOpenVolumeCalibration = { vm.navigate(NavDestination.VOLUME_CALIBRATION) },
+                                        onSwitchProfile = { id -> vm.switchProfile(id) },
                                         apps = apps
                                     )
 
@@ -526,6 +544,16 @@ class MainActivity : ComponentActivity() {
                                     sidebarContent()
                                 }
                             }
+                        }
+
+                        // Retro LCD easter egg: full-screen CRT overlay drawn on
+                        // top of everything (draw-only — cannot intercept touches).
+                        if (retroOn) {
+                            RetroDisplayOverlay(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .zIndex(1000f)
+                            )
                         }
                     }
                 }

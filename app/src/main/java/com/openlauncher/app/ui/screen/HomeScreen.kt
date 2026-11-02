@@ -53,8 +53,11 @@ import com.openlauncher.app.data.WidgetConfig
 import com.openlauncher.app.data.widgetContentFor
 import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.model.WeatherState
+import com.openlauncher.app.ui.components.AppPickerDialog
 import com.openlauncher.app.ui.components.CarImage
+import com.openlauncher.app.ui.components.tapClickable
 import com.openlauncher.app.ui.theme.LocalDayMode
+import com.openlauncher.app.ui.theme.effectiveAccent
 import com.openlauncher.app.ui.theme.surfaceFrom
 import com.openlauncher.app.ui.widget.*
 import java.util.Calendar
@@ -67,6 +70,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.util.LocationData
 import com.openlauncher.app.util.NetworkSpeedState
+import com.openlauncher.app.util.TapSound
 import com.openlauncher.app.util.formatBitRateShort
 
 private val WIDGET_RADIUS = RoundedCornerShape(0.dp)
@@ -233,9 +237,10 @@ fun HomeScreen(
     soundSpectrum: FloatArray = FloatArray(0),
     soundVisualizerAvailable: Boolean = false,
     soundVisualizerHasSignal: Boolean = false,
+    onSwitchProfile: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val accent       = Color(settings.accentColor)
+    val accent       = settings.effectiveAccent()
     val content      = settings.widgetContentFor(if (isAltPage) 1 else 0)
     val pageLayout   = widgetLayoutOverride ?: settings.widgetLayout
     val gap          = 6.dp
@@ -265,6 +270,7 @@ fun HomeScreen(
     val isLandscape      = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     var editMode         by remember { mutableStateOf(false) }
     var widgetLibraryOpen by remember { mutableStateOf(false) }
+    var profilePickerOpen by remember { mutableStateOf(false) }
 
     // Car "resting" indication beside the vehicle name — soft fade in/out.
     val restingAlpha by animateFloatAsState(
@@ -311,7 +317,7 @@ fun HomeScreen(
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
-                            ) { editMode = false }
+                            ) { TapSound.play(); editMode = false }
                     )
 
                     Spacer(Modifier.width(10.dp))
@@ -326,7 +332,7 @@ fun HomeScreen(
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
-                            ) { widgetLibraryOpen = true }
+                            ) { TapSound.play(); widgetLibraryOpen = true }
                     )
                 } else {
                     Icon(
@@ -338,7 +344,7 @@ fun HomeScreen(
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
-                            ) { editMode = true }
+                            ) { TapSound.play(); editMode = true }
                     )
                 }
 
@@ -353,13 +359,30 @@ fun HomeScreen(
 
                 Spacer(Modifier.width(10.dp))
 
-                Text(
-                    text          = settings.vehicleName.uppercase(),
-                    style         = MaterialTheme.typography.titleLarge,
-                    color         = speedColor((location?.speedMps ?: 0f) * 3.6f, headerTextColor),
-                    letterSpacing = 3.sp,
-                    fontSize      = 14.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { TapSound.play(); profilePickerOpen = true }
+                ) {
+                    Text(
+                        text          = settings.vehicleName.uppercase(),
+                        style         = MaterialTheme.typography.titleLarge,
+                        color         = speedColor((location?.speedMps ?: 0f) * 3.6f, headerTextColor),
+                        letterSpacing = 3.sp,
+                        fontSize      = 14.sp
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = "Switch driver profile",
+                        tint = statusIconColor,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
 
                 if (carImageUri.isNotEmpty() && restingAlpha > 0.01f) {
                     Spacer(Modifier.width(8.dp))
@@ -811,6 +834,7 @@ fun HomeScreen(
                             customContentColor = customContentColor,
                             isEditing          = editMode,
                             onSelectAdapter    = onSelectObdAdapter,
+                            fallbackImageUri   = settings.obdFallbackImageUri,
                             modifier           = Modifier.fillMaxSize()
                         )
                         "NETWORK_SPEED" -> NetworkSpeedWidget(
@@ -1085,13 +1109,19 @@ fun HomeScreen(
     // ── App Shortcuts Slot Assignment Dialog ─────────────────────────────────
     appPickerSlotIndex?.let { slot ->
         val currentPkg = content.appWidgetPackages.getOrNull(slot).orEmpty()
-        AppPickerModalDialog(
-            slotIndex      = slot,
+        AppPickerDialog(
+            title          = "APP SHORTCUT ${slot + 1}",
             currentPackage = currentPkg,
             apps           = installedApps,
             accent         = accent,
             isDayMode      = isDayMode,
-            onSelectApp    = { pkg -> onSetAppShortcutPackage(slot, pkg) },
+            selectedAppPackages = settings.selectedAppPackages,
+            toolsAppPackages    = settings.toolsAppPackages,
+            onSelect       = { pkg ->
+                onSetAppShortcutPackage(slot, pkg)
+                appPickerSlotIndex = null
+            },
+            onClear        = { onSetAppShortcutPackage(slot, "") },
             onDismiss      = { appPickerSlotIndex = null }
         )
     }
@@ -1147,6 +1177,21 @@ fun HomeScreen(
             onAdd     = { id -> onAddWidget(id) },
             onRemove  = { id -> onRemoveWidget(id) },
             onDismiss = { widgetLibraryOpen = false }
+        )
+    }
+
+    // ── Driver Profile Picker (tap the vehicle name) ──────────────────────────
+    if (profilePickerOpen) {
+        ProfilePickerDialog(
+            profileNames    = settings.profileNames,
+            activeProfile   = settings.activeProfile,
+            accent          = accent,
+            isDayMode       = isDayMode,
+            onSelectProfile = { id ->
+                if (id != settings.activeProfile) onSwitchProfile(id)
+                profilePickerOpen = false
+            },
+            onDismiss       = { profilePickerOpen = false }
         )
     }
 
@@ -1395,7 +1440,7 @@ private fun ContextRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .tapClickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1681,6 +1726,101 @@ private fun WidgetLibraryDialog(
 
 
 @Composable
+private fun ProfilePickerDialog(
+    profileNames: List<String>,
+    activeProfile: Int,
+    accent: Color,
+    isDayMode: Boolean,
+    onSelectProfile: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val dialogBg     = if (isDayMode) Color(0xFFEEEEEE) else Color(0xFF0C0C0C)
+    val dialogBorder = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF1E1E1E)
+    val titleColor   = if (isDayMode) Color(0xFF495057) else Color(0xFF555555)
+    val closeColor   = if (isDayMode) Color(0xFF495057) else Color(0xFF444444)
+    val nameColor    = if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(dialogBg)
+                .border(1.dp, dialogBorder, RoundedCornerShape(4.dp))
+                .padding(16.dp)
+                .widthIn(min = 280.dp, max = 420.dp)
+        ) {
+            Row(
+                modifier          = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text          = "DRIVER PROFILE",
+                    color         = titleColor,
+                    fontSize      = 9.sp,
+                    letterSpacing = 2.sp
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { TapSound.play(); onDismiss() }, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Close, null, tint = closeColor, modifier = Modifier.size(14.dp))
+                }
+            }
+
+            Text(
+                text          = "Tap to switch — each profile keeps its own widgets, colors, layout & settings",
+                color         = closeColor,
+                fontSize      = 10.sp,
+                lineHeight    = 14.sp,
+                modifier      = Modifier.padding(bottom = 12.dp)
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                (0..3).forEach { id ->
+                    val isActive = id == activeProfile
+                    val name     = profileNames.getOrElse(id) { "DRIVER ${id + 1}" }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isActive) accent.copy(alpha = 0.18f) else Color.Transparent)
+                            .border(
+                                width = 1.dp,
+                                color = if (isActive) accent else dialogBorder,
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { TapSound.play(); onSelectProfile(id) }
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text          = name.uppercase(),
+                            color         = if (isActive) accent else nameColor,
+                            fontSize      = 12.sp,
+                            fontWeight    = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                            letterSpacing = 1.sp,
+                            maxLines      = 1,
+                            overflow      = TextOverflow.Ellipsis,
+                            modifier      = Modifier.weight(1f)
+                        )
+                        if (isActive) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Active",
+                                tint        = accent,
+                                modifier    = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
 private fun WidgetLibraryCard(
     info: WidgetTypeInfo,
     isActive: Boolean,
@@ -1724,7 +1864,7 @@ private fun WidgetLibraryCard(
             .clip(RoundedCornerShape(6.dp))
             .background(cardBg)
             .border(1.dp, cardBorder, RoundedCornerShape(6.dp))
-            .clickable(enabled = enabled, onClick = onToggle)
+            .clickable(enabled = enabled, onClick = { TapSound.play(); onToggle() })
             .padding(6.dp)
     ) {
         val side = minOf(maxWidth, maxHeight)
@@ -1954,158 +2094,6 @@ private fun WidgetColorDialog(
         }
     }
 }
-
-
-// ── App Shortcuts Slot Assignment Dialog ──────────────────────────────────────
-
-@Composable
-private fun AppPickerModalDialog(
-    slotIndex: Int,
-    currentPackage: String,
-    apps: List<AppInfo>,
-    accent: Color,
-    isDayMode: Boolean,
-    onSelectApp: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val accentLum = 0.299f * accent.red + 0.587f * accent.green + 0.114f * accent.blue
-    val effectiveAccent = if (isDayMode && accentLum > 0.65f) Color(0xFF111111)
-                          else if (!isDayMode && accentLum < 0.25f) Color(0xFFEEEEEE)
-                          else accent
-
-    var searchQuery by remember { mutableStateOf("") }
-    val filteredApps = remember(searchQuery, apps) {
-        if (searchQuery.isBlank()) apps
-        else apps.filter { it.appName.contains(searchQuery, ignoreCase = true) }
-    }
-
-    val dialogBg = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF111111)
-    val dialogBorder = if (isDayMode) Color(0xFFDDE1E5) else Color(0xFF222222)
-    val searchBg = if (isDayMode) Color(0xFFF1F3F5) else Color(0xFF1A1A1A)
-    val textColor = if (isDayMode) Color(0xFF111111) else Color(0xFFEEEEEE)
-
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(dialogBg)
-                .border(1.dp, dialogBorder, RoundedCornerShape(8.dp))
-                .padding(16.dp)
-                .widthIn(min = 340.dp, max = 540.dp)
-                .heightIn(max = 480.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "SELECT APP FOR SHORTCUT #${slotIndex + 1}",
-                    color = if (isDayMode) Color(0xFF333333) else Color(0xFF888888),
-                    fontSize = 10.sp,
-                    letterSpacing = 1.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.weight(1f))
-                if (currentPackage.isNotBlank()) {
-                    TextButton(
-                        onClick = {
-                            onSelectApp("")
-                            onDismiss()
-                        },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text("CLEAR", color = Color(0xFFE03131), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-                IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Close, null, tint = if (isDayMode) Color(0xFF666666) else Color(0xFF888888), modifier = Modifier.size(16.dp))
-                }
-            }
-
-            // Search input field
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(searchBg)
-                    .border(1.dp, if (isDayMode) Color(0xFFD0D0D0) else Color(0xFF282828), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-            ) {
-                BasicTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    textStyle = TextStyle(color = textColor, fontSize = 12.sp),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    decorationBox = { innerTextField ->
-                        if (searchQuery.isEmpty()) {
-                            Text("Search installed apps...", color = if (isDayMode) Color(0xFF999999) else Color(0xFF555555), fontSize = 12.sp)
-                        }
-                        innerTextField()
-                    }
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.weight(1f).fillMaxWidth()
-            ) {
-                items(filteredApps) { app ->
-                    val isCurrent = app.packageName == currentPackage
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(
-                                if (isCurrent) effectiveAccent.copy(alpha = if (isDayMode) 0.12f else 0.2f)
-                                else if (isDayMode) Color(0xFFF8F9FA) else Color(0xFF161616)
-                            )
-                            .border(
-                                1.dp,
-                                if (isCurrent) effectiveAccent else (if (isDayMode) Color(0xFFCED4DA) else Color(0xFF242424)),
-                                RoundedCornerShape(6.dp)
-                            )
-                            .clickable {
-                                onSelectApp(app.packageName)
-                                onDismiss()
-                            }
-                            .padding(8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        val bmp = remember(app.icon) {
-                            runCatching { app.icon.toBitmap(56, 56) }.getOrNull()
-                        }
-                        if (bmp != null) {
-                            Icon(
-                                painter = BitmapPainter(bmp.asImageBitmap()),
-                                contentDescription = app.appName,
-                                tint = Color.Unspecified,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        } else {
-                            Icon(Icons.Default.Apps, null, tint = effectiveAccent, modifier = Modifier.size(32.dp))
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = app.appName,
-                            color = textColor,
-                            fontSize = 8.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
 
 // ── Quick Actions Button Configuration Dialog ─────────────────────────────────
 

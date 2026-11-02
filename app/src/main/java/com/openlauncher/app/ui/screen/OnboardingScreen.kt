@@ -39,6 +39,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.openlauncher.app.data.AppSettings
+import com.openlauncher.app.util.TapSound
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -273,7 +274,7 @@ fun OnboardingScreen(
                     // Back button (left aligned)
                     if (currentStep > 0) {
                         TextButton(
-                            onClick = { currentStep-- },
+                            onClick = { TapSound.play(); currentStep-- },
                             shape = RoundedCornerShape(4.dp),
                             modifier = Modifier.height(44.dp)
                         ) {
@@ -309,6 +310,7 @@ fun OnboardingScreen(
                     if (isPrimary) {
                         Button(
                             onClick = {
+                                TapSound.play()
                                 if (currentStep < 4) {
                                     currentStep++
                                 } else {
@@ -326,6 +328,7 @@ fun OnboardingScreen(
                     } else {
                         OutlinedButton(
                             onClick = {
+                                TapSound.play()
                                 currentStep++
                             },
                             shape = RoundedCornerShape(4.dp),
@@ -466,7 +469,7 @@ private fun LocationStep(accent: Color, isGranted: Boolean, onGrant: () -> Unit)
         if (!isGranted) {
             Spacer(Modifier.height(16.dp))
             Button(
-                onClick = onGrant,
+                onClick = { TapSound.play(); onGrant() },
                 shape = RoundedCornerShape(4.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent),
                 modifier = Modifier.height(44.dp)
@@ -535,7 +538,7 @@ private fun MediaStep(accent: Color, isGranted: Boolean, onGrant: () -> Unit) {
         if (!isGranted) {
             Spacer(Modifier.height(16.dp))
             Button(
-                onClick = onGrant,
+                onClick = { TapSound.play(); onGrant() },
                 shape = RoundedCornerShape(4.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent),
                 modifier = Modifier.height(44.dp)
@@ -603,7 +606,7 @@ private fun AudioStep(
         }
         if (!micGranted) {
             Button(
-                onClick = onGrantMic,
+                onClick = { TapSound.play(); onGrantMic() },
                 shape = RoundedCornerShape(4.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent),
                 modifier = Modifier.height(40.dp)
@@ -643,7 +646,7 @@ private fun AudioStep(
         }
         if (!usageGranted) {
             Button(
-                onClick = onGrantUsage,
+                onClick = { TapSound.play(); onGrantUsage() },
                 shape = RoundedCornerShape(4.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent),
                 modifier = Modifier.height(40.dp)
@@ -677,7 +680,7 @@ private fun FinalStep(accent: Color, onSetDefault: () -> Unit) {
         Spacer(Modifier.height(20.dp))
 
         Button(
-            onClick = onSetDefault,
+            onClick = { TapSound.play(); onSetDefault() },
             shape = RoundedCornerShape(4.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E1E)),
             modifier = Modifier.height(44.dp)

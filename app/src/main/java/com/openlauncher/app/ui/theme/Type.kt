@@ -60,6 +60,22 @@ val Roboto = FontFamily(
     Font(R.font.roboto_black, FontWeight.Black)
 )
 
+// VFD-style 14-segment display font — big numeric readouts
+val Dseg14Classic = FontFamily(
+    Font(R.font.dseg14_classic_regular, FontWeight.Normal),
+    Font(R.font.dseg14_classic_regular, FontWeight.Medium),
+    Font(R.font.dseg14_classic_regular, FontWeight.SemiBold),
+    Font(R.font.dseg14_classic_regular, FontWeight.Bold)
+)
+
+// IBM VGA 9x16 bitmap font — 1980s terminal look for general text
+val IbmVga9x16 = FontFamily(
+    Font(R.font.ibm_vga_9x16, FontWeight.Normal),
+    Font(R.font.ibm_vga_9x16, FontWeight.Medium),
+    Font(R.font.ibm_vga_9x16, FontWeight.SemiBold),
+    Font(R.font.ibm_vga_9x16, FontWeight.Bold)
+)
+
 val FontAwesomeRegular = FontFamily(
     Font(R.font.fa_regular_400, FontWeight.Normal)
 )
@@ -78,6 +94,8 @@ fun AppFont.toFontFamily(): FontFamily = when (this) {
     AppFont.GEOM              -> Geom
     AppFont.NOTO_SANS_DISPLAY -> NotoSansDisplay
     AppFont.ROBOTO            -> Roboto
+    AppFont.DSEG14_CLASSIC    -> Dseg14Classic
+    AppFont.IBM_VGA_9X16      -> IbmVga9x16
 }
 
 fun launcherTypography(bold: Boolean, scale: Float, fontFamily: FontFamily = FontFamily.Default): Typography {

@@ -13,7 +13,9 @@ enum class AppFont {
     FUGAZ_ONE,
     GEOM,
     NOTO_SANS_DISPLAY,
-    ROBOTO
+    ROBOTO,
+    DSEG14_CLASSIC,
+    IBM_VGA_9X16
 }
 enum class DayNightMode { DARK, LIGHT, CUSTOM, AUTO, SYSTEM }
 enum class AppDrawerFilter { SELECTED, TOOLS, USER, SYSTEM, ALL }
@@ -25,6 +27,8 @@ enum class SpectrumStyle { BARS, ROUNDED, DOTS }
 
 enum class FloatingActionType { HOME, BACK, VOL_UP, VOL_DOWN, MUTE, BLACKOUT, DAY_NIGHT, APP }
 
+enum class TapSoundType { TICK, BEEP }
+
 data class FloatingPanelAction(
     val type: FloatingActionType = FloatingActionType.HOME,
     val packageName: String = ""
@@ -35,6 +39,8 @@ fun defaultFloatingActions() = listOf(
     FloatingPanelAction(FloatingActionType.VOL_DOWN),
     FloatingPanelAction(FloatingActionType.VOL_UP)
 )
+
+fun defaultProfileNames() = listOf("DRIVER 1", "DRIVER 2", "DRIVER 3", "DRIVER 4")
 
 enum class DefaultShortcutIcon {
     NONE,
@@ -227,7 +233,43 @@ data class AppSettings(
     val autoLaunchDelaySec: Int = 5,          // 1..30
     // Multi-finger tap gestures on the home screen → launch a chosen app ("" = disabled)
     val gestureTwoFingerPackage: String = "",
-    val gestureThreeFingerPackage: String = ""
+    val gestureThreeFingerPackage: String = "",
+    // Tap sound (tick / light beep) for interactive taps
+    val tapSoundEnabled: Boolean = false,
+    val tapSoundType: TapSoundType = TapSoundType.TICK,
+    // OBD2 widget: fallback image shown when there's no adapter connection
+    val obdFallbackImageUri: String = "",
+    // User profiles (0..3) — each profile keeps its own widgets, colors, layout & settings
+    val activeProfile: Int = 0,
+    val profileNames: List<String> = defaultProfileNames(),
+    // Auto-switch profile by Wi-Fi: when the unit connects to profile i's SSID,
+    // that profile is activated automatically ("" = no rule, feature opt-in below).
+    val profileAutoSwitchEnabled: Boolean = false,
+    val profileHotspotSsids: List<String> = listOf("", "", "", ""),
+    // Hidden retro LCD theme (easter egg — long-press the version line in Settings)
+    val retroThemeEnabled: Boolean = false
+)
+
+/**
+ * Fields tied to the unit rather than to a driver (OBD pairing, the radio app,
+ * the MCU volume channel, CarPlay/AA/PiP app assignments and onboarding state).
+ * These are preserved when switching profiles so every driver shares the
+ * hardware-level configuration. Everything else — colors, widgets, layouts,
+ * gestures, sounds — is per-profile.
+ */
+fun AppSettings.withSharedFieldsFrom(source: AppSettings): AppSettings = copy(
+    obdDeviceAddress    = source.obdDeviceAddress,
+    obdDeviceName       = source.obdDeviceName,
+    radioPackage        = source.radioPackage,
+    volumeProtocol      = source.volumeProtocol,
+    carPlayPackage      = source.carPlayPackage,
+    androidAutoPackage  = source.androidAutoPackage,
+    pipAppPackage       = source.pipAppPackage,
+    onboardingCompleted = source.onboardingCompleted,
+    profileNames        = source.profileNames,
+    profileAutoSwitchEnabled = source.profileAutoSwitchEnabled,
+    profileHotspotSsids = source.profileHotspotSsids,
+    retroThemeEnabled   = source.retroThemeEnabled
 )
 
 /**

@@ -19,6 +19,11 @@ Having a stable open-source project like OpenLauncher provides a great foundatio
 ---
 
 
+> [!TIP]
+> 📖 **Comprehensive Documentation:** Looking for full setup instructions, widget breakdowns, gesture shortcuts, or driver profile configuration? Check out the **[Complete User Guide & Reference (USER_GUIDE.md)](USER_GUIDE.md)**.
+
+---
+
 > [!WARNING]
 > **Work in Progress:** This customized fork is actively under development and evolving. While tested on specific hardware, it needs to be thoroughly verified across different Android head units, screen resolutions, and MCU architectures. Feedback, bug reports, and test results from various head units are warmly welcomed!
 

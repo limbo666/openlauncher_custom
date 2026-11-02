@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -29,12 +30,14 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.window.Dialog
 import com.openlauncher.app.data.AppFont
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.SidebarPosition
 import com.openlauncher.app.data.SpectrumStyle
+import com.openlauncher.app.data.TapSoundType
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.UnitSystem
@@ -47,20 +50,27 @@ import com.openlauncher.app.data.widgetContentFor
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.ui.theme.LocalIsCustomMode
 import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import com.openlauncher.app.ui.theme.accentOnSurface
 import com.openlauncher.app.ui.theme.contentColorOn
+import com.openlauncher.app.ui.theme.effectiveAccent
 import com.openlauncher.app.util.FileLog
 import com.openlauncher.app.util.SafeExport
 import com.openlauncher.app.util.SunriseSunset
+import com.openlauncher.app.util.TapSound
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import com.openlauncher.app.ui.components.AppPickerDialog
 import com.openlauncher.app.ui.components.ColorPickerDialog
 import com.openlauncher.app.ui.components.ConfirmDialog
 import com.openlauncher.app.ui.components.floatingActionIcon
 import com.openlauncher.app.ui.components.floatingActionLabel
+import com.openlauncher.app.ui.components.tapClickable
+import com.openlauncher.app.ui.components.TapFilterChip
+import com.openlauncher.app.ui.components.TapSwitch
 import com.openlauncher.app.data.SettingsBackup
 import com.openlauncher.app.obd.pairedAdapters
 import com.openlauncher.app.ui.widget.AdapterPickerDialog
@@ -76,7 +86,8 @@ private val SECTION_KEYWORDS = mapOf(
     "Typography" to listOf("font", "bold", "text scale", "ui scale", "scale"),
     "Tiles" to listOf("tile", "color", "transparency", "opacity"),
     "Sidebar" to listOf("sidebar", "menubar", "shortcuts", "slot", "icon size", "width", "position"),
-    "Vehicle & OBD" to listOf("vehicle", "name", "unit", "metric", "imperial", "obd", "adapter", "bluetooth"),
+    "Vehicle & OBD" to listOf("vehicle", "name", "unit", "metric", "imperial", "obd", "adapter", "bluetooth", "fallback", "image"),
+    "Sound on Tap" to listOf("sound", "tap", "tick", "beep", "click", "feedback", "audio"),
     "Widget Content" to listOf("widget", "shortcuts", "soundboard", "buttons", "page", "count"),
     "Now Playing" to listOf("player", "radio", "fm", "am", "band", "artwork", "logo", "album", "dim", "size", "media", "popup", "station", "frequency"),
     "Spectrum" to listOf("spectrum", "visualizer", "bars", "rise", "fall", "falloff", "attack", "decay", "response", "curve", "sensitivity", "peaking", "motion", "gain", "fallback", "logo", "image", "audio", "color", "style", "mirror"),
@@ -88,6 +99,7 @@ private val SECTION_KEYWORDS = mapOf(
     "Backup & Restore" to listOf("backup", "export", "restore", "json"),
     "Permissions" to listOf("permission", "launcher", "notification", "location", "draw over", "access", "microphone", "mic", "record", "usage", "accessibility", "back"),
     "Gestures" to listOf("gesture", "two finger", "three finger", "tap", "multi", "touch"),
+    "Profiles" to listOf("profile", "driver", "user", "switch", "person", "account", "wifi", "hotspot", "ssid"),
     "Startup" to listOf("startup", "auto-launch", "auto launch", "boot", "delay", "launch", "open app"),
     "Recovery" to listOf("restart", "recovery", "reload", "reboot", "crash", "fix", "defence"),
     "Updates" to listOf("update", "github", "version"),
@@ -104,6 +116,7 @@ fun SettingsScreen(
     onReset: () -> Unit,
     onOpenDiagnostics: () -> Unit = {},
     onOpenVolumeCalibration: () -> Unit = {},
+    onSwitchProfile: (Int) -> Unit = {},
     apps: List<com.openlauncher.app.model.AppInfo> = emptyList(),
     modifier: Modifier = Modifier
 ) {
@@ -163,6 +176,20 @@ fun SettingsScreen(
                 )
             }
             onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumFallbackImageUri = uri.toString()) } }
+        }
+    }
+
+    // OBD2 widget fallback image (shown when there's no adapter connection).
+    val obdImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            onUpdate { copy(obdFallbackImageUri = uri.toString()) }
         }
     }
 
@@ -332,7 +359,7 @@ fun SettingsScreen(
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     DayNightMode.entries.forEach { mode ->
-                        FilterChip(
+                        TapFilterChip(
                             selected = settings.dayNightMode == mode,
                             onClick  = {
                                 onUpdate {
@@ -376,7 +403,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .size(32.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color(settings.accentColor))
+                        .background(settings.effectiveAccent())
                         .border(1.dp, swatchBorderColor, RoundedCornerShape(8.dp))
                         .clickable { showAccentPicker = true }
                 )
@@ -499,7 +526,7 @@ fun SettingsScreen(
                 SettingsDivider()
 
                 SettingsRow(label = "Use Gradient", sublabel = "Blend two colors as background", icon = Icons.Default.Gradient) {
-                    Switch(checked = settings.useGradient,
+                    TapSwitch(checked = settings.useGradient,
                         onCheckedChange = { onUpdate { copy(useGradient = it, useCustomBackgroundColor = true) } },
                         colors = switchColors(accent))
                 }
@@ -518,7 +545,7 @@ fun SettingsScreen(
                     ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             GradientDirection.entries.forEach { dir ->
-                                FilterChip(
+                                TapFilterChip(
                                     selected = settings.gradientDirection == dir,
                                     onClick  = { onUpdate { copy(gradientDirection = dir) } },
                                     label    = {
@@ -586,7 +613,7 @@ fun SettingsScreen(
                 sublabel = if (settings.showStatusIcons) "Wi-Fi, Bluetooth & Cellular icons visible in top bar" else "Hidden (prevents duplication with system status bar)",
                 icon     = Icons.Default.Wifi
             ) {
-                Switch(
+                TapSwitch(
                     checked         = settings.showStatusIcons,
                     onCheckedChange = { onUpdate { copy(showStatusIcons = it) } },
                     colors          = switchColors(accent)
@@ -600,7 +627,7 @@ fun SettingsScreen(
                 sublabel = "Show live upload/download speed in the top bar",
                 icon     = Icons.Default.SwapVert
             ) {
-                Switch(
+                TapSwitch(
                     checked         = settings.showNetworkSpeedIndicator,
                     onCheckedChange = { onUpdate { copy(showNetworkSpeedIndicator = it) } },
                     colors          = switchColors(accent)
@@ -631,7 +658,7 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     com.openlauncher.app.data.AppFont.entries.forEach { font ->
-                        FilterChip(
+                        TapFilterChip(
                             selected = settings.appFont == font,
                             onClick  = { onUpdate { copy(appFont = font) } },
                             label    = { Text(fontDisplayName(font), fontSize = 11.sp, letterSpacing = 0.5.sp) },
@@ -647,7 +674,7 @@ fun SettingsScreen(
             SettingsDivider()
 
             SettingsRow(label = "Bold Font", sublabel = "Heavier weight across all text", icon = Icons.Default.FormatBold) {
-                Switch(
+                TapSwitch(
                     checked         = settings.fontBold,
                     onCheckedChange = { onUpdate { copy(fontBold = it) } },
                     colors          = switchColors(accent)
@@ -782,7 +809,7 @@ fun SettingsScreen(
                 icon     = Icons.Default.Straighten
             ) {
                 Row {
-                    FilterChip(
+                    TapFilterChip(
                         selected = settings.unitSystem == UnitSystem.METRIC,
                         onClick  = { onUpdate { copy(unitSystem = UnitSystem.METRIC) } },
                         label    = { Text("Metric", fontSize = 11.sp) },
@@ -792,7 +819,7 @@ fun SettingsScreen(
                         )
                     )
                     Spacer(Modifier.width(6.dp))
-                    FilterChip(
+                    TapFilterChip(
                         selected = settings.unitSystem == UnitSystem.IMPERIAL,
                         onClick  = { onUpdate { copy(unitSystem = UnitSystem.IMPERIAL) } },
                         label    = { Text("Imperial", fontSize = 11.sp) },
@@ -845,6 +872,32 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            SettingsDivider()
+
+            // OBD2 widget fallback image when there's no connection
+            SettingsRow(
+                label    = "Fallback Image",
+                sublabel = if (settings.obdFallbackImageUri.isNotEmpty())
+                    "Shown in the OBD2 widget when there's no adapter connection"
+                else
+                    "Optional — shown in the OBD2 widget when there's no adapter connection",
+                icon     = Icons.Default.Image
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { obdImagePicker.launch(arrayOf("image/*")) }) {
+                        Text(
+                            if (settings.obdFallbackImageUri.isEmpty()) "Choose" else "Change",
+                            color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                        )
+                    }
+                    if (settings.obdFallbackImageUri.isNotEmpty()) {
+                        TextButton(onClick = { onUpdate { copy(obdFallbackImageUri = "") } }) {
+                            Text("Clear", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
         }
         }
 
@@ -862,7 +915,7 @@ fun SettingsScreen(
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     SidebarPosition.entries.forEach { pos ->
-                        FilterChip(
+                        TapFilterChip(
                             selected = settings.sidebarPosition == pos,
                             onClick  = { onUpdate { copy(sidebarPosition = pos) } },
                             label    = {
@@ -928,7 +981,7 @@ fun SettingsScreen(
                     sublabel = if (settings.bottomBarShortcutsRight) "Right — nav buttons on left" else "Left — nav buttons on right",
                     icon     = Icons.Default.FormatAlignRight
                 ) {
-                    Switch(
+                    TapSwitch(
                         checked         = settings.bottomBarShortcutsRight,
                         onCheckedChange = { onUpdate { copy(bottomBarShortcutsRight = it) } },
                         colors          = switchColors(accent)
@@ -1234,7 +1287,7 @@ fun SettingsScreen(
                 sublabel = "Reflect the bars around the vertical center",
                 icon     = Icons.Default.Flip
             ) {
-                Switch(
+                TapSwitch(
                     checked         = settings.widgetContentFor(widgetContentPage).spectrumMirror,
                     onCheckedChange = { mirror -> onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumMirror = mirror) } } },
                     colors          = switchColors(accent)
@@ -1250,7 +1303,7 @@ fun SettingsScreen(
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Accent", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 10.sp)
-                    Switch(
+                    TapSwitch(
                         checked         = settings.widgetContentFor(widgetContentPage).spectrumColor == null,
                         onCheckedChange = { follow ->
                             onUpdate {
@@ -1337,7 +1390,7 @@ fun SettingsScreen(
                 sublabel = "Band switch chips in the radio deck (FM1/FM2/FM3/AM)",
                 icon     = Icons.Default.Radio
             ) {
-                Switch(
+                TapSwitch(
                     checked         = settings.showRadioBands,
                     onCheckedChange = { onUpdate { copy(showRadioBands = it) } },
                     colors          = switchColors(accent)
@@ -1351,7 +1404,7 @@ fun SettingsScreen(
                 sublabel = "Fade in a glass panel with station name, frequency and logo on seek/preset change",
                 icon     = Icons.Default.Notifications
             ) {
-                Switch(
+                TapSwitch(
                     checked         = settings.showRadioPopup,
                     onCheckedChange = { onUpdate { copy(showRadioPopup = it) } },
                     colors          = switchColors(accent)
@@ -1400,7 +1453,7 @@ fun SettingsScreen(
                 sublabel = "Switch pages automatically by driving state (GPS speed)",
                 icon     = Icons.Default.SwapHoriz
             ) {
-                Switch(
+                TapSwitch(
                     checked         = settings.autoSwitchPages,
                     onCheckedChange = { onUpdate { copy(autoSwitchPages = it) } },
                     colors          = switchColors(accent)
@@ -1480,7 +1533,7 @@ fun SettingsScreen(
                 sublabel = "Car image beside the vehicle name — drives across when moving, rests when stopped",
                 icon     = Icons.Default.DirectionsCar
             ) {
-                Switch(
+                TapSwitch(
                     checked         = settings.displayAnimation,
                     onCheckedChange = { onUpdate { copy(displayAnimation = it) } },
                     colors          = switchColors(accent)
@@ -1516,7 +1569,7 @@ fun SettingsScreen(
                 sublabel = if (settings.weatherUseGps) "Weather automatically tracks vehicle GPS coordinates" else "Using custom location specified below",
                 icon     = Icons.Default.MyLocation
             ) {
-                Switch(
+                TapSwitch(
                     checked         = settings.weatherUseGps,
                     onCheckedChange = { onUpdate { copy(weatherUseGps = it) } },
                     colors          = switchColors(accent)
@@ -1742,6 +1795,153 @@ fun SettingsScreen(
         }
         }
 
+        // ── Profiles ──────────────────────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
+        SettingsSection("Profiles") {
+            SettingsRow(
+                label    = "Active Profile",
+                sublabel = "Each driver keeps their own widgets, colors, layout & settings — hardware (Bluetooth OBD, radio app, volume channel) stays shared",
+                icon     = Icons.Default.Person
+            ) {}
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
+                    .padding(2.dp)
+            ) {
+                (0..3).forEach { id ->
+                    val active = settings.activeProfile == id
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(if (active) accent else Color.Transparent)
+                            .clickable { TapSound.play(); if (!active) onSwitchProfile(id) }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = settings.profileNames.getOrElse(id) { "DRIVER ${id + 1}" },
+                                color = if (active) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
+                                fontSize = 10.sp,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                letterSpacing = 1.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            val profileNameInput = remember(settings.activeProfile, settings.profileNames) {
+                mutableStateOf(settings.profileNames.getOrElse(settings.activeProfile) { "DRIVER ${settings.activeProfile + 1}" })
+            }
+            SettingsRow(
+                label    = "Rename Profile",
+                sublabel = "Name the currently active driver profile",
+                icon     = Icons.Default.Edit
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    OutlinedTextField(
+                        value         = profileNameInput.value,
+                        onValueChange = { profileNameInput.value = it },
+                        placeholder   = { Text("DRIVER ${settings.activeProfile + 1}", color = if (isDayMode) Color(0xFF999999) else Color(0xFF444444), fontSize = 12.sp) },
+                        singleLine    = true,
+                        textStyle     = LocalTextStyle.current.copy(fontSize = 12.sp, color = if (isDayMode) Color(0xFF111111) else Color.White),
+                        colors        = outlinedFieldColors(accent),
+                        modifier      = Modifier.width(140.dp)
+                    )
+                    if (profileNameInput.value.isNotBlank() &&
+                        profileNameInput.value != settings.profileNames.getOrElse(settings.activeProfile) { "DRIVER ${settings.activeProfile + 1}" }) {
+                        IconButton(
+                            onClick = {
+                                TapSound.play()
+                                onUpdate {
+                                    val updated = profileNames.toMutableList()
+                                    updated[activeProfile] = profileNameInput.value.trim()
+                                    copy(profileNames = updated.toList())
+                                }
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Check, "Save", tint = accent, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            // ── Auto-switch profile by Wi-Fi hotspot ──────────────────────────
+            SettingsRow(
+                label    = "Auto-Switch by Wi-Fi",
+                sublabel = "When the unit connects to a phone's hotspot, the matching profile is activated automatically",
+                icon     = Icons.Default.Wifi
+            ) {
+                TapSwitch(
+                    checked         = settings.profileAutoSwitchEnabled,
+                    onCheckedChange = { onUpdate { copy(profileAutoSwitchEnabled = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            if (settings.profileAutoSwitchEnabled) {
+                SettingsDivider()
+                Text(
+                    text          = "Set the hotspot name (SSID) for each profile — leave blank to skip. The active profile switches the moment that Wi-Fi connects.",
+                    color         = if (isDayMode) Color(0xFF888888) else Color(0xFF444444),
+                    fontSize      = 10.sp,
+                    lineHeight    = 14.sp,
+                    modifier      = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                (0..3).forEach { id ->
+                    val ssidInput = remember(id, settings.profileHotspotSsids) {
+                        mutableStateOf(settings.profileHotspotSsids.getOrElse(id) { "" })
+                    }
+                    SettingsRow(
+                        label    = "Hotspot for ${settings.profileNames.getOrElse(id) { "DRIVER ${id + 1}" }}",
+                        sublabel = "Profile ${id + 1} activates on this Wi-Fi",
+                        icon     = if (id == settings.activeProfile) Icons.Default.Person else Icons.Default.PersonOutline
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            OutlinedTextField(
+                                value         = ssidInput.value,
+                                onValueChange = { ssidInput.value = it },
+                                placeholder   = { Text("No rule", color = if (isDayMode) Color(0xFF999999) else Color(0xFF444444), fontSize = 12.sp) },
+                                singleLine    = true,
+                                textStyle     = LocalTextStyle.current.copy(fontSize = 12.sp, color = if (isDayMode) Color(0xFF111111) else Color.White),
+                                colors        = outlinedFieldColors(accent),
+                                modifier      = Modifier.width(180.dp)
+                            )
+                            if (ssidInput.value.trim() != settings.profileHotspotSsids.getOrElse(id) { "" }) {
+                                IconButton(
+                                    onClick = {
+                                        TapSound.play()
+                                        onUpdate {
+                                            val updated = profileHotspotSsids.toMutableList()
+                                            while (updated.size <= id) updated.add("")
+                                            updated[id] = ssidInput.value.trim()
+                                            copy(profileHotspotSsids = updated.toList())
+                                        }
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Check, "Save", tint = accent, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+
         // ── Gestures ──────────────────────────────────────────────────────────
         if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
         SettingsSection("Gestures") {
@@ -1799,7 +1999,7 @@ fun SettingsScreen(
                 sublabel = "Open a chosen app automatically when the launcher starts",
                 icon     = Icons.Default.PlayArrow
             ) {
-                Switch(
+                TapSwitch(
                     checked         = settings.autoLaunchEnabled,
                     onCheckedChange = { onUpdate { copy(autoLaunchEnabled = it) } },
                     colors          = switchColors(accent)
@@ -1840,6 +2040,62 @@ fun SettingsScreen(
                     colors        = sliderColors(accent),
                     modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
+            }
+        }
+        }
+
+        // ── Sound on Tap ──────────────────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
+        SettingsSection("Sound on Tap") {
+            SettingsRow(
+                label    = "Tap Sound",
+                sublabel = "Play a short sound when tapping home-screen widgets",
+                icon     = Icons.Default.VolumeUp
+            ) {
+                TapSwitch(
+                    checked         = settings.tapSoundEnabled,
+                    onCheckedChange = { onUpdate { copy(tapSoundEnabled = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            if (settings.tapSoundEnabled) {
+                SettingsDivider()
+                SettingsRow(
+                    label    = "Sound",
+                    sublabel = "Tick (short click) or a light beep",
+                    icon     = Icons.Default.GraphicEq
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
+                            .padding(2.dp)
+                    ) {
+                        listOf(
+                            "TICK" to TapSoundType.TICK,
+                            "BEEP" to TapSoundType.BEEP
+                        ).forEach { (label, st) ->
+                            val selected = settings.tapSoundType == st
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(if (selected) accent else Color.Transparent)
+                                    .clickable { onUpdate { copy(tapSoundType = st) } }
+                                    .padding(horizontal = 12.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
+                                    fontSize = 10.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
         }
@@ -1971,7 +2227,7 @@ fun SettingsScreen(
                 sublabel = "A draggable panel of buttons that stays on top of other apps",
                 icon     = Icons.Default.Dashboard
             ) {
-                Switch(
+                TapSwitch(
                     checked         = settings.floatingPanelEnabled,
                     onCheckedChange = { onUpdate { copy(floatingPanelEnabled = it) } },
                     colors          = switchColors(accent)
@@ -2038,7 +2294,7 @@ fun SettingsScreen(
                     sublabel = "Stack the buttons vertically instead of side-by-side",
                     icon     = Icons.Default.SwapVert
                 ) {
-                    Switch(
+                    TapSwitch(
                         checked         = settings.floatingPanelVertical,
                         onCheckedChange = { onUpdate { copy(floatingPanelVertical = it) } },
                         colors          = switchColors(accent)
@@ -2423,6 +2679,15 @@ fun SettingsScreen(
             modifier      = Modifier
                 .align(Alignment.CenterHorizontally)
                 .padding(bottom = 16.dp)
+                // Hidden easter egg: long-press toggles the retro 80s LCD theme.
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onLongPress = {
+                            TapSound.play()
+                            onUpdate { copy(retroThemeEnabled = !retroThemeEnabled) }
+                        }
+                    )
+                }
         )
     }
     } // end CompositionLocalProvider
@@ -2442,7 +2707,7 @@ fun SettingsScreen(
     if (showAccentPicker) {
         ColorPickerDialog(
             title           = "Accent Color",
-            initialColor    = Color(settings.accentColor),
+            initialColor    = settings.effectiveAccent(),
             onColorSelected = { c -> onUpdate { copy(accentColor = c.toArgb()) } },
             onDismiss       = { showAccentPicker = false }
         )
@@ -2532,6 +2797,8 @@ fun SettingsScreen(
             apps      = apps,
             accent    = accent,
             isDayMode = isDayMode,
+            selectedAppPackages = settings.selectedAppPackages,
+            toolsAppPackages    = settings.toolsAppPackages,
             onSelectType = { type ->
                 onUpdate {
                     copy(floatingPanelActions = floatingPanelActions.toMutableList().also { list ->
@@ -2553,33 +2820,39 @@ fun SettingsScreen(
     }
 
     if (showRadioAppPicker) {
-        RadioAppPickerDialog(
-            current   = settings.radioPackage,
-            apps      = apps,
-            accent    = accent,
-            isDayMode = isDayMode,
-            onSelect  = { pkg -> onUpdate { copy(radioPackage = pkg) }; showRadioAppPicker = false },
-            onClear   = { onUpdate { copy(radioPackage = "") }; showRadioAppPicker = false },
-            onDismiss = { showRadioAppPicker = false }
+        AppPickerDialog(
+            title          = "RADIO APP",
+            currentPackage = settings.radioPackage,
+            apps           = apps,
+            accent         = accent,
+            isDayMode      = isDayMode,
+            selectedAppPackages = settings.selectedAppPackages,
+            toolsAppPackages    = settings.toolsAppPackages,
+            clearLabel     = "AUTO-DETECT",
+            onSelect       = { pkg -> onUpdate { copy(radioPackage = pkg) }; showRadioAppPicker = false },
+            onClear        = { onUpdate { copy(radioPackage = "") } },
+            onDismiss      = { showRadioAppPicker = false }
         )
     }
 
     pendingAppPick?.let { target ->
-        SimpleAppPickerDialog(
-            title    = when (target) {
+        AppPickerDialog(
+            title          = when (target) {
                 0 -> "AUTO-LAUNCH APP"
                 1 -> "TWO-FINGER TAP"
                 else -> "THREE-FINGER TAP"
             },
-            current  = when (target) {
+            currentPackage = when (target) {
                 0 -> settings.autoLaunchPackage
                 1 -> settings.gestureTwoFingerPackage
                 else -> settings.gestureThreeFingerPackage
             },
-            apps     = apps,
-            accent   = accent,
-            isDayMode = isDayMode,
-            onSelect = { pkg ->
+            apps           = apps,
+            accent         = accent,
+            isDayMode      = isDayMode,
+            selectedAppPackages = settings.selectedAppPackages,
+            toolsAppPackages    = settings.toolsAppPackages,
+            onSelect       = { pkg ->
                 onUpdate {
                     when (target) {
                         0 -> copy(autoLaunchPackage = pkg)
@@ -2589,7 +2862,7 @@ fun SettingsScreen(
                 }
                 pendingAppPick = null
             },
-            onClear  = {
+            onClear        = {
                 onUpdate {
                     when (target) {
                         0 -> copy(autoLaunchPackage = "")
@@ -2689,7 +2962,7 @@ private fun ColumnScope.SettingsButton(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .tapClickable(onClick = onClick)
             .padding(horizontal = 0.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -2758,6 +3031,8 @@ private fun fontDisplayName(font: AppFont): String = when (font) {
     AppFont.GEOM              -> "Geom"
     AppFont.NOTO_SANS_DISPLAY -> "Noto Sans Display"
     AppFont.ROBOTO            -> "Roboto"
+    AppFont.DSEG14_CLASSIC    -> "DSEG14 LCD"
+    AppFont.IBM_VGA_9X16      -> "IBM VGA 9x16"
 }
 
 private data class CategoryItem(
@@ -2779,7 +3054,7 @@ private fun CategoryTile(
     val fg = if (selected) Color.Black else if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
     val border = if (selected) accent else if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF282828)
     Surface(
-        onClick = onClick,
+        onClick = { TapSound.play(); onClick() },
         shape = RoundedCornerShape(10.dp),
         color = bg,
         border = androidx.compose.foundation.BorderStroke(1.dp, border),
@@ -2854,6 +3129,8 @@ private fun FloatingSlotDialog(
     apps: List<com.openlauncher.app.model.AppInfo>,
     accent: Color,
     isDayMode: Boolean,
+    selectedAppPackages: List<String> = emptyList(),
+    toolsAppPackages: List<String> = emptyList(),
     onSelectType: (FloatingActionType) -> Unit,
     onSelectApp: (String) -> Unit,
     onDismiss: () -> Unit
@@ -2862,6 +3139,22 @@ private fun FloatingSlotDialog(
     val dialogBg   = if (isDayMode) Color(0xFFF7F7F7) else Color(0xFF161616)
     val borderC    = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF282828)
     val textColor  = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
+
+    if (showAppPicker) {
+        AppPickerDialog(
+            title          = "BUTTON ${slotIndex + 1} APP",
+            currentPackage = current?.packageName.orEmpty(),
+            apps           = apps,
+            accent         = accent,
+            isDayMode      = isDayMode,
+            selectedAppPackages = selectedAppPackages,
+            toolsAppPackages    = toolsAppPackages,
+            clearLabel     = null,
+            onSelect       = { pkg -> onSelectApp(pkg) },
+            onDismiss      = { showAppPicker = false }
+        )
+        return
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -2882,54 +3175,26 @@ private fun FloatingSlotDialog(
             )
             Spacer(Modifier.height(12.dp))
 
-            if (!showAppPicker) {
-                FloatingActionType.entries.forEach { type ->
-                    val selected = current?.type == type
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (selected) accent.copy(alpha = 0.15f) else Color.Transparent)
-                            .clickable {
-                                if (type == FloatingActionType.APP) showAppPicker = true else onSelectType(type)
-                            }
-                            .padding(horizontal = 10.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(floatingActionIcon(type), null, tint = accent, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Text(floatingActionLabel(type), color = textColor, fontSize = 13.sp)
-                        if (type == FloatingActionType.APP) {
-                            Spacer(Modifier.weight(1f))
-                            Icon(Icons.Default.ChevronRight, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
-                        }
-                    }
-                }
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("CHOOSE APP", color = accent, fontSize = 11.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { showAppPicker = false }) {
-                        Text("BACK", color = textColor.copy(alpha = 0.7f), fontSize = 10.sp, letterSpacing = 1.sp)
-                    }
-                }
-                Spacer(Modifier.height(6.dp))
-                Column(
+            FloatingActionType.entries.forEach { type ->
+                val selected = current?.type == type
+                Row(
                     modifier = Modifier
-                        .weight(1f, fill = false)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    apps.sortedBy { it.appName.lowercase() }.forEach { app ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable { onSelectApp(app.packageName) }
-                                .padding(horizontal = 10.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(app.appName, color = textColor, fontSize = 13.sp, maxLines = 1, softWrap = false)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (selected) accent.copy(alpha = 0.15f) else Color.Transparent)
+                        .clickable {
+                            TapSound.play()
+                            if (type == FloatingActionType.APP) showAppPicker = true else onSelectType(type)
                         }
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(floatingActionIcon(type), null, tint = accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(floatingActionLabel(type), color = textColor, fontSize = 13.sp)
+                    if (type == FloatingActionType.APP) {
+                        Spacer(Modifier.weight(1f))
+                        Icon(Icons.Default.ChevronRight, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -2937,127 +3202,3 @@ private fun FloatingSlotDialog(
     }
 }
 
-@Composable
-private fun RadioAppPickerDialog(
-    current: String,
-    apps: List<com.openlauncher.app.model.AppInfo>,
-    accent: Color,
-    isDayMode: Boolean,
-    onSelect: (String) -> Unit,
-    onClear: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val dialogBg  = if (isDayMode) Color(0xFFF7F7F7) else Color(0xFF161616)
-    val borderC   = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF282828)
-    val textColor = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
-
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
-                .background(dialogBg)
-                .border(1.dp, borderC, RoundedCornerShape(10.dp))
-                .padding(16.dp)
-                .widthIn(min = 280.dp, max = 460.dp)
-                .heightIn(max = 480.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("RADIO APP", color = accent, fontSize = 12.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onClear) {
-                    Text("AUTO-DETECT", color = textColor.copy(alpha = 0.7f), fontSize = 10.sp, letterSpacing = 1.sp)
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Column(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                apps.sortedBy { it.appName.lowercase() }.forEach { app ->
-                    val selected = app.packageName == current
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (selected) accent.copy(alpha = 0.15f) else Color.Transparent)
-                            .clickable { onSelect(app.packageName) }
-                            .padding(horizontal = 10.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = app.appName,
-                            color = if (selected) accent else textColor,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SimpleAppPickerDialog(
-    title: String,
-    current: String,
-    apps: List<com.openlauncher.app.model.AppInfo>,
-    accent: Color,
-    isDayMode: Boolean,
-    onSelect: (String) -> Unit,
-    onClear: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val dialogBg  = if (isDayMode) Color(0xFFF7F7F7) else Color(0xFF161616)
-    val borderC   = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF282828)
-    val textColor = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
-
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
-                .background(dialogBg)
-                .border(1.dp, borderC, RoundedCornerShape(10.dp))
-                .padding(16.dp)
-                .widthIn(min = 280.dp, max = 460.dp)
-                .heightIn(max = 480.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = accent, fontSize = 12.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onClear) {
-                    Text("NONE", color = textColor.copy(alpha = 0.7f), fontSize = 10.sp, letterSpacing = 1.sp)
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Column(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                apps.sortedBy { it.appName.lowercase() }.forEach { app ->
-                    val selected = app.packageName == current
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (selected) accent.copy(alpha = 0.15f) else Color.Transparent)
-                            .clickable { onSelect(app.packageName) }
-                            .padding(horizontal = 10.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = app.appName,
-                            color = if (selected) accent else textColor,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-            }
-        }
-    }
-}

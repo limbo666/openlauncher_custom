@@ -47,6 +47,7 @@ import com.openlauncher.app.viewmodel.LauncherViewModel
 import com.openlauncher.app.util.FileLog
 import com.openlauncher.app.util.LocationData
 import com.openlauncher.app.util.SafeExport
+import com.openlauncher.app.util.TapSound
 import kotlinx.coroutines.launch
 
 private enum class DiagStatus { OK, WARN, ERROR }
@@ -222,7 +223,7 @@ fun DiagnosticsScreen(
                 Icon(
                     Icons.Default.ArrowBack, "Back",
                     tint = textColor,
-                    modifier = Modifier.size(20.dp).clickable { onBack() }
+                    modifier = Modifier.size(20.dp).clickable { TapSound.play(); onBack() }
                 )
                 Spacer(Modifier.width(12.dp))
                 Text(
@@ -237,6 +238,7 @@ fun DiagnosticsScreen(
                     Icons.Default.Refresh, "Refresh",
                     tint = accent,
                     modifier = Modifier.size(20.dp).clickable {
+                        TapSound.play()
                         refreshTick++
                         onRefresh()
                     }
@@ -376,6 +378,7 @@ fun DiagnosticsScreen(
                 // ── Export report ──────────────────────────────────────────────
                 Button(
                     onClick = {
+                        TapSound.play()
                         val ts = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
                         exportLauncher.launch("openlauncher_diag_$ts.txt")
                     },
@@ -389,7 +392,7 @@ fun DiagnosticsScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 Button(
-                    onClick = onOpenVolumeCalibration,
+                    onClick = { TapSound.play(); onOpenVolumeCalibration() },
                     shape = RoundedCornerShape(6.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = accent.copy(alpha = 0.2f)),
                     modifier = Modifier.fillMaxWidth().height(44.dp)
@@ -401,7 +404,7 @@ fun DiagnosticsScreen(
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = onRadioSeekUp,
+                        onClick = { TapSound.play(); onRadioSeekUp() },
                         shape = RoundedCornerShape(6.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = accent.copy(alpha = 0.2f)),
                         modifier = Modifier.weight(1f).height(44.dp)
@@ -409,7 +412,7 @@ fun DiagnosticsScreen(
                         Text("RADIO SEEK ▲", color = accent, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
                     }
                     Button(
-                        onClick = onRadioSeekDown,
+                        onClick = { TapSound.play(); onRadioSeekDown() },
                         shape = RoundedCornerShape(6.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = accent.copy(alpha = 0.2f)),
                         modifier = Modifier.weight(1f).height(44.dp)
@@ -468,7 +471,7 @@ private fun DiagRow(
     isDayMode: Boolean,
     onClick: (() -> Unit)? = null
 ) {
-    val rowModifier = if (onClick != null) Modifier.clickable { onClick() } else Modifier
+    val rowModifier = if (onClick != null) Modifier.clickable { TapSound.play(); onClick() } else Modifier
     Row(
         modifier = rowModifier
             .fillMaxWidth()

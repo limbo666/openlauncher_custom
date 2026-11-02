@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlauncher.app.util.FileLog
 import com.openlauncher.app.util.HeadUnitInspector
+import com.openlauncher.app.util.TapSound
 import com.openlauncher.app.util.VolumeController
 import com.openlauncher.app.util.VolumeProtocols
 import kotlinx.coroutines.delay
@@ -102,6 +103,7 @@ fun VolumeCalibrationScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
+                    TapSound.play()
                     val id = confirmId!!
                     onSelectProtocol(id)
                     FileLog.log("Volume", "wizard confirmed $id")
@@ -109,7 +111,7 @@ fun VolumeCalibrationScreen(
                 }) { Text("YES, USE IT", color = accent, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmId = null }) {
+                TextButton(onClick = { TapSound.play(); confirmId = null }) {
                     Text("NO", color = subColor, fontSize = 12.sp)
                 }
             }
@@ -125,7 +127,7 @@ fun VolumeCalibrationScreen(
                 Icon(
                     Icons.Default.ArrowBack, "Back",
                     tint = textColor,
-                    modifier = Modifier.size(20.dp).clickable { onBack() }
+                    modifier = Modifier.size(20.dp).clickable { TapSound.play(); onBack() }
                 )
                 Spacer(Modifier.width(12.dp))
                 Text(
@@ -211,7 +213,7 @@ fun VolumeCalibrationScreen(
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = { startTest(proto.id) },
+                                onClick = { TapSound.play(); startTest(proto.id) },
                                 enabled = testingId == null,
                                 shape = RoundedCornerShape(6.dp),
                                 colors = ButtonDefaults.buttonColors(
@@ -229,6 +231,7 @@ fun VolumeCalibrationScreen(
                             }
                             Button(
                                 onClick = {
+                                    TapSound.play()
                                     onSelectProtocol(proto.id)
                                     FileLog.log("Volume", "wizard selected ${proto.id}")
                                 },
@@ -265,7 +268,7 @@ fun VolumeCalibrationScreen(
                         }
                         Spacer(Modifier.width(10.dp))
                         Button(
-                            onClick = { snifferArmed = !snifferArmed },
+                            onClick = { TapSound.play(); snifferArmed = !snifferArmed },
                             shape = RoundedCornerShape(6.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = if (snifferArmed) Color(0xFFE03131) else accent),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)

@@ -33,7 +33,9 @@ import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.FloatingActionType
 import com.openlauncher.app.data.FloatingPanelAction
 import com.openlauncher.app.data.SettingsRepository
+import com.openlauncher.app.ui.theme.effectiveAccentArgb
 import com.openlauncher.app.util.FileLog
+import com.openlauncher.app.util.TapSound
 import com.openlauncher.app.util.VolumeController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -238,7 +240,7 @@ class FloatingPanelService : Service() {
         val handleWidth = (34 * scale * density).toInt()
         val gripSize = (22 * scale * density).toInt()
         val corner = (26 * scale * density).toInt()
-        val accent = s.accentColor
+        val accent = s.effectiveAccentArgb()
         val vertical = s.floatingPanelVertical
 
         panel.setPadding(padding, padding, padding, padding)
@@ -295,7 +297,7 @@ class FloatingPanelService : Service() {
                     (buttonSize - iconSize) / 2
                 )
                 setBackgroundColor(Color.TRANSPARENT)
-                setOnClickListener { executeAction(action) }
+                setOnClickListener { TapSound.play(); executeAction(action) }
             }
             attachPressBounce(btn)
             val lp = LinearLayout.LayoutParams(buttonSize, buttonSize).apply {
