@@ -45,6 +45,17 @@
       <br /><sub><b>Widget Settings</b></sub>
     </td>
   </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard4.png" alt="Dashboard 4" width="100%" />
+      <br /><sub><b>Dashboard 4</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard5.png" alt="Dashboard 5" width="100%" />
+      <br /><sub><b>Dashboard 5</b></sub>
+    </td>
+  </tr>
+  
 </table>
 
 
