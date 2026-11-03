@@ -1,7 +1,7 @@
 <div align="center">
   <img width="256" height="256" alt="logoo" src="https://github.com/user-attachments/assets/4c5c4ddb-836d-4c59-8325-76b8c8d78bb3" />
-  <h1>Open Launcher (Custom Fork)</h1>
-  <p><strong>An open-source, offline-first Android launcher customized and optimized for aftermarket car head units.</strong></p>
+  <h1>Open Launcher Custom </h1><h3> (Fork) </h3>
+  <p><strong>A customized version of the open-source, offline-first Android launcher built specifically for aftermarket car head units.</strong></p>
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
