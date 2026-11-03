@@ -25,7 +25,7 @@ Having a stable open-source project like OpenLauncher provides a great foundatio
 ---
 
 > [!WARNING]
-> **Work in Progress:** This customized fork is actively under development and evolving. While tested on specific hardware, it needs to be thoroughly verified across different Android head units, screen resolutions, and MCU architectures. Feedback, bug reports, and test results from various head units are warmly welcomed!
+> **Work in Progress:** This customized fork is actively under development. While tested on specific hardware, it needs to be thoroughly verified across different Android head units, screen resolutions, and MCU architectures. There is no guaranteefor the app suitability for any head unit.
 
 ---
 
@@ -40,6 +40,17 @@ Having a stable open-source project like OpenLauncher provides a great foundatio
       <br /><sub><b>Dashboard 2</b></sub>
     </td>
   </tr>
+    <tr>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard4.png" alt="Dashboard 4" width="100%" />
+      <br /><sub><b>Dashboard 4</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard5.png" alt="Dashboard 5" width="100%" />
+      <br /><sub><b>Dashboard 5</b></sub>
+    </td>
+  </tr>
+  
   <tr>
     <td align="center" width="50%">
       <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard3.png" alt="Dashboard 3" width="100%" />
@@ -50,6 +61,7 @@ Having a stable open-source project like OpenLauncher provides a great foundatio
       <br /><sub><b>App Drawer</b></sub>
     </td>
   </tr>
+
   <tr>
     <td align="center" width="50%">
       <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/system_status.png" alt="System Status" width="100%" />
@@ -60,16 +72,7 @@ Having a stable open-source project like OpenLauncher provides a great foundatio
       <br /><sub><b>Widget Settings</b></sub>
     </td>
   </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard4.png" alt="Dashboard 4" width="100%" />
-      <br /><sub><b>Dashboard 4</b></sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="https://raw.githubusercontent.com/limbo666/openlauncher_custom/main/Screenshots/dashboard5.png" alt="Dashboard 5" width="100%" />
-      <br /><sub><b>Dashboard 5</b></sub>
-    </td>
-  </tr>
+
   
 </table>
 
@@ -85,11 +88,36 @@ This project is built upon the wonderful work of the open-source community:
 - **ojciechCzeronko ([@ojciechCzeronko](https://github.com/WojciechCzeronko/retrolauncher))**
 - **pphan93 ([@pphan93](https://github.com/pphan93/openlauncher))**
 - **thenewzealander ([@thenewzealander](https://github.com/thenewzealander/headunit-launcher/))**
-Kudos to all the above mentioned evelopers for their work
+  
+Kudos to all the above mentioned developers for their work
 
 ---
 
 ## Key Features & Enhancements in This Fork
+
+### Multiple driver profiles
+  - Each drive can set layout, widgets, functios, shortcuts, colors etc and switch to his/her own preferences with just two taps from home screen.
+  - Auto profile switching is availble by hotspot name detection. The app can swicth to specific profile when the WiFi connected matches specific name. 
+---
+### Dual-Page Dashboard & Driving State Auto-Switching
+- **Two Independent Home Pages**: Swipe left/right between Page 0 and Page 1, each supporting its own distinct widget grid layout and widget content configurations.
+- **Smart Driving Mode Auto-Switch**:
+  - Automatically switches to a dedicated "Driving" dashboard page when vehicle GPS speed exceeds a configured threshold (e.g. 8 km/h).
+  - Automatically reverts to the "Parked" page when the vehicle has been stopped for a set idle duration (e.g. 10 seconds).
+---
+### Multi finger gestures
+  - Two key tap and three key tap can assigned to specific app launching.
+---
+### Sound feedback
+  - Selectable sound feedback is availble for better feedback during driving.
+---
+### Settings grouping and search
+  - Settings are splitted to categories for easy navigation and search function for settings is also available.
+  - Native Android settings call button available to access system settings.
+
+---
+### App auto launch
+  - Launcher can auto start an app on its start-up with selectable delay time.
 
 ### Vehicle Integration & Telemetry
 - **OBD-II Bluetooth Telemetry Widget (`ObdWidget`)**:
@@ -157,13 +185,6 @@ Many Android car head units do not use standard Android audio streams for the ph
   - Compact real-time speedometer tile tracking instantaneous download and upload transfer rates (`NetworkSpeedManager`).
   - Formats traffic dynamically (KB/s, MB/s) with visual arrows and network connectivity indicators (Wi-Fi, Cellular, Ethernet).
 
----
-
-### Dual-Page Dashboard & Driving State Auto-Switching
-- **Two Independent Home Pages**: Swipe left/right between Page 0 and Page 1, each supporting its own distinct widget grid layout and widget content configurations.
-- **Smart Driving Mode Auto-Switch**:
-  - Automatically switches to a dedicated "Driving" dashboard page when vehicle GPS speed exceeds a configured threshold (e.g. 8 km/h).
-  - Automatically reverts to the "Parked" page when the vehicle has been stopped for a set idle duration (e.g. 10 seconds).
 
 ---
 
