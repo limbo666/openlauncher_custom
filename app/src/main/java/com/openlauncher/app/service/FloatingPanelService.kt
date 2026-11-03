@@ -121,10 +121,16 @@ class FloatingPanelService : Service() {
         }
 
         scope.launch {
+            var lastShouldShow: Boolean? = null
             combine(repo.settingsFlow, launcherVisible, sensitiveForeground) { s, vis, sens -> Triple(s, vis, sens) }
                 .collect { (s, visible, sensitive) ->
                     val shouldShow = s.floatingPanelEnabled && !visible && !sensitive
-                    FileLog.log("FloatingPanel", "sync enabled=${s.floatingPanelEnabled} launcherVisible=$visible sensitive=$sensitive show=$shouldShow")
+                    // Log only on show/hide transitions — this collector runs
+                    // every ~1.5 s and the old per-tick log was constant disk I/O.
+                    if (shouldShow != lastShouldShow) {
+                        FileLog.log("FloatingPanel", "sync enabled=${s.floatingPanelEnabled} launcherVisible=$visible sensitive=$sensitive show=$shouldShow")
+                        lastShouldShow = shouldShow
+                    }
                     if (shouldShow) ensurePanel(s) else removePanel()
                 }
         }

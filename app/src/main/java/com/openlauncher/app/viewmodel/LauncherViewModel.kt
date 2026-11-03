@@ -149,8 +149,20 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settingsRepo.updateSettings { it.copy(volumeProtocol = id) } }
     }
 
+    // Monotonic timestamp of the last real profile switch (0 = never switched
+    // this session). The home header shows the driver name for 5 s after this.
+    private val _profileSwitchedAt = MutableStateFlow(0L)
+    val profileSwitchedAt: StateFlow<Long> = _profileSwitchedAt
+
     fun switchProfile(id: Int) {
-        viewModelScope.launch { settingsRepo.switchProfile(id) }
+        val target = id.coerceIn(0, 3)
+        val before = settings.value.activeProfile
+        viewModelScope.launch {
+            settingsRepo.switchProfile(target)
+            if (target != before) {
+                _profileSwitchedAt.value = android.os.SystemClock.elapsedRealtime()
+            }
+        }
     }
 
     fun resetSettings() {
@@ -196,8 +208,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun reorderShortcut(from: Int, to: Int) {
         updateSettings {
             copy(shortcuts = shortcuts.toMutableList().also { list ->
-                val item = list.removeAt(from)
-                list.add(to.coerceIn(0, list.size), item)
+                if (from in list.indices && list.size > 1) {
+                    val item = list.removeAt(from)
+                    list.add(to.coerceIn(0, list.size), item)
+                }
             })
         }
     }
@@ -555,6 +569,40 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             withLayout(page, layoutFor(page).map { w ->
                 if (w.id == id) w.copy(bgMode = mode) else w
             })
+        }
+    }
+
+    // Bulk tint: applies a color to every ACTIVE widget on both pages (used by
+    // the edit-mode header palette button).
+    fun setAllWidgetsBgColor(color: Long?) {
+        updateSettings {
+            copy(
+                widgetLayout = widgetLayout.map { w ->
+                    if (w.enabled) w.copy(
+                        customBgColor = color,
+                        bgMode = if (color != null) WidgetBgMode.CUSTOM else WidgetBgMode.DEFAULT
+                    ) else w
+                },
+                homePageAltLayout = homePageAltLayout.map { w ->
+                    if (w.enabled) w.copy(
+                        customBgColor = color,
+                        bgMode = if (color != null) WidgetBgMode.CUSTOM else WidgetBgMode.DEFAULT
+                    ) else w
+                }
+            )
+        }
+    }
+
+    fun setAllWidgetsBgMode(mode: WidgetBgMode) {
+        updateSettings {
+            copy(
+                widgetLayout = widgetLayout.map { w ->
+                    if (w.enabled) w.copy(bgMode = mode) else w
+                },
+                homePageAltLayout = homePageAltLayout.map { w ->
+                    if (w.enabled) w.copy(bgMode = mode) else w
+                }
+            )
         }
     }
 

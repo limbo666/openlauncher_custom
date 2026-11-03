@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -238,6 +239,9 @@ fun HomeScreen(
     soundVisualizerAvailable: Boolean = false,
     soundVisualizerHasSignal: Boolean = false,
     onSwitchProfile: (Int) -> Unit = {},
+    profileSwitchedAt: Long = 0L,
+    onSetAllWidgetsBgColor: (Long?) -> Unit = { _ -> },
+    onSetAllWidgetsBgMode: (WidgetBgMode) -> Unit = { _ -> },
     modifier: Modifier = Modifier
 ) {
     val accent       = settings.effectiveAccent()
@@ -259,6 +263,32 @@ fun HomeScreen(
     val statusIconColor   = if (isDayMode) Color(0xFF444444) else Color(0xFF666666)
     val controlIconColor  = if (isDayMode) Color(0xFF666666) else Color(0xFF444444)
 
+    // Header title: the driver name is the title unless the car has been
+    // renamed from the default. Right after a profile switch the driver name
+    // flashes for 5 seconds even when a custom car name exists.
+    val profileName = settings.profileNames.getOrElse(settings.activeProfile) { "DRIVER ${settings.activeProfile + 1}" }
+    val hasCustomCarName = settings.vehicleName.isNotBlank() &&
+            !settings.vehicleName.equals("MY CAR", ignoreCase = true)
+    var profileFlash by remember { mutableStateOf(false) }
+    LaunchedEffect(profileSwitchedAt) {
+        // Flash only within the 5 s window after the switch itself — re-entering
+        // the home screen later (page switch, nav) must not re-trigger it.
+        if (profileSwitchedAt > 0L) {
+            val age = android.os.SystemClock.elapsedRealtime() - profileSwitchedAt
+            val remaining = 5_000L - age
+            if (remaining > 0L) {
+                profileFlash = true
+                delay(remaining)
+                profileFlash = false
+            }
+        }
+    }
+    val headerTitle = when {
+        profileFlash     -> profileName
+        hasCustomCarName -> settings.vehicleName
+        else             -> profileName
+    }
+
     var resizingId           by remember { mutableStateOf<String?>(null) }
     var contextMenuId        by remember { mutableStateOf<String?>(null) }
     var colorPickerWidgetId  by remember { mutableStateOf<String?>(null) }
@@ -271,6 +301,7 @@ fun HomeScreen(
     var editMode         by remember { mutableStateOf(false) }
     var widgetLibraryOpen by remember { mutableStateOf(false) }
     var profilePickerOpen by remember { mutableStateOf(false) }
+    var allWidgetsColorOpen by remember { mutableStateOf(false) }
 
     // Car "resting" indication beside the vehicle name — soft fade in/out.
     val restingAlpha by animateFloatAsState(
@@ -334,6 +365,42 @@ fun HomeScreen(
                                 indication = null
                             ) { TapSound.play(); widgetLibraryOpen = true }
                     )
+
+                    // 3. Tint-all-widgets palette — appears (animated) only in edit
+                    // mode and only while at least one widget is active.
+                    val hasActiveWidgets = pageLayout.any { it.enabled }
+                    AnimatedVisibility(
+                        visible = hasActiveWidgets,
+                        enter = fadeIn(tween(180)) + expandHorizontally(expandFrom = Alignment.Start, animationSpec = tween(180)),
+                        exit  = fadeOut(tween(120)) + shrinkHorizontally(shrinkTowards = Alignment.Start, animationSpec = tween(120))
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Spacer(Modifier.width(10.dp))
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(headerActionTint.copy(alpha = if (isDayMode) 0.10f else 0.14f))
+                                    .border(
+                                        1.dp,
+                                        headerActionTint.copy(alpha = 0.55f),
+                                        RoundedCornerShape(7.dp)
+                                    )
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { TapSound.play(); allWidgetsColorOpen = true }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Palette,
+                                    contentDescription = "Tint all widgets",
+                                    tint = headerActionTint,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                    }
                 } else {
                     Icon(
                         imageVector = Icons.Default.Edit,
@@ -369,7 +436,7 @@ fun HomeScreen(
                         ) { TapSound.play(); profilePickerOpen = true }
                 ) {
                     Text(
-                        text          = settings.vehicleName.uppercase(),
+                        text          = headerTitle.uppercase(),
                         style         = MaterialTheme.typography.titleLarge,
                         color         = speedColor((location?.speedMps ?: 0f) * 3.6f, headerTextColor),
                         letterSpacing = 3.sp,
@@ -1103,6 +1170,27 @@ fun HomeScreen(
             onSelectColor     = { color -> onSetWidgetBgColor(id, color) },
             onSelectMode      = { mode -> onSetWidgetBgMode(id, mode) },
             onDismiss         = { colorPickerWidgetId = null }
+        )
+    }
+
+    // ── Bulk tint: color dialog for ALL active widgets (edit-mode palette) ────
+    if (allWidgetsColorOpen) {
+        val representative = pageLayout.firstOrNull { it.enabled }
+        WidgetColorDialog(
+            widgetId          = "ALL WIDGETS",
+            currentMode       = representative?.bgMode ?: WidgetBgMode.DEFAULT,
+            currentColor      = representative?.customBgColor,
+            accent            = accent,
+            isDayMode         = isDayMode,
+            onSelectColor     = { color ->
+                onSetAllWidgetsBgColor(color)
+                allWidgetsColorOpen = false
+            },
+            onSelectMode      = { mode ->
+                onSetAllWidgetsBgMode(mode)
+                allWidgetsColorOpen = false
+            },
+            onDismiss         = { allWidgetsColorOpen = false }
         )
     }
 

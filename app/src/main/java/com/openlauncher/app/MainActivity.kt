@@ -37,13 +37,16 @@ import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.SidebarPosition
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.AppFont
+import com.openlauncher.app.data.ParticleEffect
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.service.FloatingPanelService
 import com.openlauncher.app.service.MediaListenerService
 import com.openlauncher.app.ui.components.CarDriveOverlay
+import com.openlauncher.app.ui.components.ParticleOverlay
 import com.openlauncher.app.ui.components.RadioChangePopup
 import com.openlauncher.app.ui.components.RetroDisplayOverlay
 import com.openlauncher.app.ui.components.Sidebar
+import com.openlauncher.app.ui.components.VideoWallpaperLayer
 import com.openlauncher.app.ui.screen.*
 import com.openlauncher.app.ui.theme.OpenLauncherTheme
 import com.openlauncher.app.ui.theme.RetroBackground
@@ -56,6 +59,10 @@ class MainActivity : ComponentActivity() {
 
     private val vm: LauncherViewModel by viewModels()
     private var autoLaunchDone = false
+
+    // Compose state held by the activity: whether the launcher is currently in
+    // the foreground. The video wallpaper pauses itself while false (onStop).
+    private val launcherInForeground = mutableStateOf(true)
 
     private val locationPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -139,6 +146,7 @@ class MainActivity : ComponentActivity() {
             val isDayMode = if (retroOn) false
                 else if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
             val appPickerTarget by vm.appPickerTarget.collectAsStateWithLifecycle()
+            val profileSwitchedAt by vm.profileSwitchedAt.collectAsStateWithLifecycle()
 
             LaunchedEffect(settings.volumeProtocol) {
                 VolumeController.setProtocol(settings.volumeProtocol)
@@ -252,7 +260,8 @@ class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.fillMaxSize().let { m ->
                         if (bgBrush != null) m.background(bgBrush) else m.background(bg)
                     }) {
-                        // Optional wallpaper layer
+                        // Optional wallpaper layer (static image — also the fallback
+                        // behind the video wallpaper if the video can't decode)
                         if (settings.wallpaperUri.isNotEmpty()) {
                             AsyncImage(
                                 model              = android.net.Uri.parse(settings.wallpaperUri),
@@ -262,6 +271,17 @@ class MainActivity : ComponentActivity() {
                             )
                             Box(modifier = Modifier.fillMaxSize()
                                 .background(Color.Black.copy(alpha = settings.wallpaperDim)))
+                        }
+
+                        // Video wallpaper (muted, looping) — drawn above the static
+                        // image; hidden in retro mode where the CRT look takes over.
+                        if (settings.wallpaperVideoUri.isNotEmpty() && !retroOn) {
+                            VideoWallpaperLayer(
+                                videoUri = settings.wallpaperVideoUri,
+                                dim      = settings.wallpaperDim,
+                                visible  = launcherInForeground.value,
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
 
                         val isBottomBar    = settings.sidebarPosition == SidebarPosition.BOTTOM
@@ -398,6 +418,8 @@ class MainActivity : ComponentActivity() {
                                         onLaunchApp           = { pkg -> vm.launchApp(pkg) },
                                         onSetWidgetBgColor    = { id, color -> vm.setWidgetBgColor(page, id, color) },
                                         onSetWidgetBgMode     = { id, mode -> vm.setWidgetBgMode(page, id, mode) },
+                                        onSetAllWidgetsBgColor = { color -> vm.setAllWidgetsBgColor(color) },
+                                        onSetAllWidgetsBgMode  = { mode -> vm.setAllWidgetsBgMode(mode) },
                                         onSetAppShortcutPackage = { slot, pkg -> vm.setAppShortcutPackage(page, slot, pkg) },
                                         onToggleDayNight      = { vm.toggleDayNightMode() },
                                         onToggleQuickActionButton = { id -> vm.toggleQuickActionButton(page, id) },
@@ -417,7 +439,8 @@ class MainActivity : ComponentActivity() {
                                         soundSpectrum         = soundSpectrum,
                                         soundVisualizerAvailable = soundVisualizerAvailable,
                                         soundVisualizerHasSignal = soundVisualizerHasSignal,
-                                        onSwitchProfile      = { id -> vm.switchProfile(id) }
+                                        onSwitchProfile      = { id -> vm.switchProfile(id) },
+                                        profileSwitchedAt    = profileSwitchedAt
                                     )
                                             }
                                             // Page indicator dots (tap to switch — safer while driving than swiping)
@@ -555,6 +578,18 @@ class MainActivity : ComponentActivity() {
                                     .zIndex(1000f)
                             )
                         }
+
+                        // Ambient particles (snow / rain / stars / constellation) above the content
+                        if (settings.particleEffect != ParticleEffect.NONE) {
+                            ParticleOverlay(
+                                style    = settings.particleEffect,
+                                amount   = settings.particleEffectAmount,
+                                accent   = accent,
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .zIndex(900f)
+                            )
+                        }
                     }
                 }
             }
@@ -585,12 +620,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        launcherInForeground.value = false
         FloatingPanelService.setLauncherVisible(false)
         vm.stopLocationUpdates()
     }
 
     override fun onStart() {
         super.onStart()
+        launcherInForeground.value = true
         checkAndRequestLocationPermission()
     }
 }

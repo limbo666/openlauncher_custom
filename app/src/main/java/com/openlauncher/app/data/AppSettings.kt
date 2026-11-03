@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.toArgb
 
 enum class ClockStyle { DIGITAL, ANALOG }
 enum class UnitSystem { METRIC, IMPERIAL }
+enum class ParticleEffect { NONE, SNOW, RAIN, STARS, CONSTELLATION }
 enum class AppFont {
     SYSTEM,
     JETBRAINS_MONO,
@@ -15,7 +16,17 @@ enum class AppFont {
     NOTO_SANS_DISPLAY,
     ROBOTO,
     DSEG14_CLASSIC,
-    IBM_VGA_9X16
+    IBM_VGA_9X16,
+    COMMISSIONER,
+    DIDACT,
+    FIRA,
+    HANDJET,
+    NEOHELLENIC,
+    PLAY,
+    PLAYPEN,
+    SANSATION,
+    TEKTUR,
+    UBUNTU
 }
 enum class DayNightMode { DARK, LIGHT, CUSTOM, AUTO, SYSTEM }
 enum class AppDrawerFilter { SELECTED, TOOLS, USER, SYSTEM, ALL }
@@ -112,6 +123,11 @@ data class AppSettings(
     val tileColorLight: Int = Color.White.toArgb(),
     val tileAlpha: Float = 0.65f,
     val wallpaperUri: String = "",
+    // Video wallpaper: looping muted video behind the UI (SAF URI, empty = off)
+    val wallpaperVideoUri: String = "",
+    // Ambient particle overlay behind the widgets (snow / rain / stars)
+    val particleEffect: ParticleEffect = ParticleEffect.NONE,
+    val particleEffectAmount: Float = 0.6f,  // 0.2..1.5 particle count multiplier
     val fontBold: Boolean = false,
     val textScale: Float = 1.2f,
     val uiScale: Float = 1.0f,

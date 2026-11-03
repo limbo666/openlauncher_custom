@@ -22,7 +22,7 @@ Every permission can be granted or re-checked later in **Settings → Permission
 
 ## 2. The home screen
 
-- **Header** — edit (✏️) button enters *edit mode*; the vehicle name is tappable and opens the **driver profile picker** (see §7).
+- **Header** — edit (✏️) button enters *edit mode*; the vehicle name is tappable and opens the **driver profile picker** (see §7). The title itself is smart: it shows the **active driver's name**, unless the car has been renamed from the default "MY CAR" (Settings → Vehicle & OBD → Vehicle Name), in which case it shows the car name. Right after a profile switch, the driver name flashes for 5 seconds before this rule kicks in.
 - **Two pages** — swipe left/right or tap the page dots under the grid to switch between two independent widget pages.
 - **Sidebar (menu bar)** — can be on the left, right or bottom (Settings → Display → Sidebar). Contains:
   - **Shortcut slots** — tap to launch the assigned app; **long-press** for the action sheet (Open app / Change app / Customize icon / Remove); **drag** to reorder; an empty slot opens the unified app picker on tap.
@@ -30,6 +30,7 @@ Every permission can be granted or re-checked later in **Settings → Permission
 - **Edit mode** (✏️ icon):
   - **Drag** widgets to move them, drag the bottom-right corner to resize.
   - **+** opens the widget library (add/remove widgets).
+  - **Palette** (appears next to Done/+ while editing) opens the glass-tint dialog for **all active widgets at once** — pick a preset tint or "Follow theme" / "Default (smoke)".
   - **Long-press** a widget for its context menu: background color/mode, per-widget configuration, remove, etc.
 - **Two-finger tap** and **three-finger tap** on the home screen can launch any app (Settings → Launcher → Gestures).
 - **Tap sound** — every real control (buttons, switches, chips, widget controls) plays a short tick/beep if enabled (Settings → Launcher → Sound on Tap).
@@ -90,8 +91,8 @@ Settings are organised in 6 categories (top of the screen): **All · Display · 
 
 | Section | Options |
 |---|---|
-| **Appearance** | Display Mode (Light / Dark / Custom / Auto / follow system), Accent Color (6 presets + picker), custom Background color, Font Color, Help Text Color, **Gradient** background + direction, **Wallpaper** (image + dim), Status Bar Indicators (BT/Wi-Fi/data), Network Speed Indicator |
-| **Typography** | Font (System, JetBrains Mono, Source Code Pro, Cal Sans, Fugaz One, Geom, Noto Sans Display, Roboto, **DSEG14 LCD**, **IBM VGA 9x16**), Bold Font, Text Scale, UI Scale |
+| **Appearance** | Display Mode (Light / Dark / Custom / Auto / follow system), Accent Color (6 presets + picker), custom Background color, Font Color, Help Text Color, **Gradient** background + direction, **Wallpaper** (image + dim; picking a new image also turns the video wallpaper off, and REMOVE WALLPAPER clears both), **Video Wallpaper** (looping muted video — H.264 MP4 recommended, pauses when the launcher is hidden, picker opens in Downloads with all file categories), **Particle Effect** (snow / rain / stars + amount), Status Bar Indicators (BT/Wi-Fi/data), Network Speed Indicator |
+| **Typography** | Font (opens a grid of live preview cards — each renders its name and "Free by Limbo666" in its own face; System, JetBrains Mono, Source Code Pro, Cal Sans, Fugaz One, Geom, Noto Sans Display, Roboto, DSEG14 LCD, IBM VGA 9x16, Commissioner, Didact Gothic, Fira Sans, Handjet, GFS Neohellenic, Play, Playpen Sans, Sansation, Tektur, Ubuntu), Bold Font, Text Scale, UI Scale |
 | **Tiles** | Tile color for dark/light mode, tile transparency |
 | **Sidebar** | Sidebar Position (Left/Right/Bottom), Menubar Width, Menubar Icon Size, Shortcuts Side (which edge the shortcut slots sit on), shortcut slots (assign an app per slot), **Add Slot** |
 

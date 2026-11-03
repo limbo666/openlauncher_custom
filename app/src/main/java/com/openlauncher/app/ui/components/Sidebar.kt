@@ -92,7 +92,7 @@ fun Sidebar(
 
     fun dragTargetIndex(): Int = if (draggingIndex < 0) -1 else
         (draggingIndex + (dragOffsetPx / slotSizePx).roundToInt())
-            .coerceIn(0, settings.shortcuts.size - 1)
+            .coerceIn(0, (settings.shortcuts.size - 1).coerceAtLeast(0))
 
     fun slotTranslation(index: Int): Float {
         if (draggingIndex < 0 || index == draggingIndex) return 0f

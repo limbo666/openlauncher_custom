@@ -27,6 +27,31 @@ class MediaListenerService : NotificationListenerService() {
     private val sessionManager by lazy { getSystemService(MEDIA_SESSION_SERVICE) as MediaSessionManager }
     private val sessionsChanged = MediaSessionManager.OnActiveSessionsChangedListener { refreshNowPlaying() }
 
+    // Resolving custom-action icon names touches the source app's resources
+    // (a binder + resource-table lookup). Cache by package+icon id so the
+    // per-refresh resolution is a map hit instead of a binder round-trip.
+    private val actionIconNames = object : LinkedHashMap<String, String>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>): Boolean = size > 128
+    }
+    private var pendingArtwork: MediaSession.Token? = null
+    private val REFRESH_MSG = 1
+
+    /**
+     * Coalesces bursts of refresh triggers into one refresh ~350 ms later.
+     * Notification posts/removes fire for EVERY system notification and
+     * playback position ticks arrive about once per second — without this the
+     * full metadata walk would run for each of them.
+     */
+    private fun scheduleRefresh(artworkToken: MediaSession.Token? = null) {
+        if (artworkToken != null) pendingArtwork = artworkToken
+        handler.removeCallbacksAndMessages(REFRESH_MSG)
+        handler.postDelayed({
+            val token = pendingArtwork
+            pendingArtwork = null
+            refreshNowPlaying(token)
+        }, 350L)
+    }
+
     private fun disconnectSessions() {
         runCatching { sessionManager.removeOnActiveSessionsChangedListener(sessionsChanged) }
         controllers.forEach { (token, controller) -> callbacks[token]?.let { runCatching { controller.unregisterCallback(it) } } }
@@ -58,8 +83,8 @@ class MediaListenerService : NotificationListenerService() {
         disconnectSessions()
     }
 
-    override fun onNotificationPosted(sbn: StatusBarNotification?)  { refreshNowPlaying() }
-    override fun onNotificationRemoved(sbn: StatusBarNotification?) { refreshNowPlaying() }
+    override fun onNotificationPosted(sbn: StatusBarNotification?)  { scheduleRefresh() }
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) { scheduleRefresh() }
 
     override fun onDestroy() {
         instance = null
@@ -84,9 +109,17 @@ class MediaListenerService : NotificationListenerService() {
                 controllers[controller.sessionToken] = controller
                 val token = controller.sessionToken
                 val callback = object : MediaController.Callback() {
-                    override fun onPlaybackStateChanged(state: PlaybackState?) = refreshNowPlaying()
-                    override fun onMetadataChanged(metadata: MediaMetadata?)   = refreshNowPlaying(token)
-                    override fun onSessionDestroyed()                          = refreshNowPlaying()
+                    private var lastStateSig: Pair<Int, Long>? = null
+                    override fun onPlaybackStateChanged(state: PlaybackState?) {
+                        // Position ticks arrive ~1/s; only state/actions affect
+                        // what we show (the widget reads position itself).
+                        val sig = (state?.state ?: -1) to (state?.actions ?: 0L)
+                        if (sig == lastStateSig) return
+                        lastStateSig = sig
+                        scheduleRefresh()
+                    }
+                    override fun onMetadataChanged(metadata: MediaMetadata?) = scheduleRefresh(artworkToken = token)
+                    override fun onSessionDestroyed() = scheduleRefresh()
                 }
                 callbacks[token] = callback
                 controller.registerCallback(callback, handler)
@@ -142,9 +175,11 @@ class MediaListenerService : NotificationListenerService() {
         } ?: -1
         val rating = meta?.getRating(MediaMetadata.METADATA_KEY_USER_RATING)
         val customActions = playback?.customActions.orEmpty().map {
-            val iconName = runCatching {
-                packageManager.getResourcesForApplication(controller.packageName).getResourceEntryName(it.icon)
-            }.getOrDefault("")
+            val iconName = actionIconNames.getOrPut("${controller.packageName}:${it.icon}") {
+                runCatching {
+                    packageManager.getResourcesForApplication(controller.packageName).getResourceEntryName(it.icon)
+                }.getOrDefault("")
+            }
             MediaAction(
                 id = it.action,
                 label = it.name.toString(),

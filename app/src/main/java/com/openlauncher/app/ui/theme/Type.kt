@@ -76,6 +76,25 @@ val IbmVga9x16 = FontFamily(
     Font(R.font.ibm_vga_9x16, FontWeight.Bold)
 )
 
+// User-supplied single-weight families (each face serves every weight)
+private fun singleWeight(resId: Int): FontFamily = FontFamily(
+    Font(resId, FontWeight.Normal),
+    Font(resId, FontWeight.Medium),
+    Font(resId, FontWeight.SemiBold),
+    Font(resId, FontWeight.Bold)
+)
+
+val Commissioner = singleWeight(R.font.commissioner)
+val Didact       = singleWeight(R.font.didact)
+val Fira         = singleWeight(R.font.fira)
+val Handjet      = singleWeight(R.font.handjet)
+val Neohellenic  = singleWeight(R.font.neohellenic)
+val Play         = singleWeight(R.font.play)
+val Playpen      = singleWeight(R.font.playpen)
+val Sansation    = singleWeight(R.font.sansation)
+val Tektur       = singleWeight(R.font.tektur)
+val Ubuntu       = singleWeight(R.font.ubuntu)
+
 val FontAwesomeRegular = FontFamily(
     Font(R.font.fa_regular_400, FontWeight.Normal)
 )
@@ -96,6 +115,16 @@ fun AppFont.toFontFamily(): FontFamily = when (this) {
     AppFont.ROBOTO            -> Roboto
     AppFont.DSEG14_CLASSIC    -> Dseg14Classic
     AppFont.IBM_VGA_9X16      -> IbmVga9x16
+    AppFont.COMMISSIONER      -> Commissioner
+    AppFont.DIDACT            -> Didact
+    AppFont.FIRA              -> Fira
+    AppFont.HANDJET           -> Handjet
+    AppFont.NEOHELLENIC       -> Neohellenic
+    AppFont.PLAY              -> Play
+    AppFont.PLAYPEN           -> Playpen
+    AppFont.SANSATION         -> Sansation
+    AppFont.TEKTUR            -> Tektur
+    AppFont.UBUNTU            -> Ubuntu
 }
 
 fun launcherTypography(bold: Boolean, scale: Float, fontFamily: FontFamily = FontFamily.Default): Typography {

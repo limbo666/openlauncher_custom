@@ -11,6 +11,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -35,6 +38,7 @@ import androidx.compose.ui.window.Dialog
 import com.openlauncher.app.data.AppFont
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
+import com.openlauncher.app.data.ParticleEffect
 import com.openlauncher.app.data.SidebarPosition
 import com.openlauncher.app.data.SpectrumStyle
 import com.openlauncher.app.data.TapSoundType
@@ -49,6 +53,7 @@ import com.openlauncher.app.data.withWidgetContent
 import com.openlauncher.app.data.widgetContentFor
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.openlauncher.app.ui.theme.LocalDayMode
@@ -57,6 +62,7 @@ import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import com.openlauncher.app.ui.theme.accentOnSurface
 import com.openlauncher.app.ui.theme.contentColorOn
 import com.openlauncher.app.ui.theme.effectiveAccent
+import com.openlauncher.app.ui.theme.toFontFamily
 import com.openlauncher.app.util.FileLog
 import com.openlauncher.app.util.SafeExport
 import com.openlauncher.app.util.SunriseSunset
@@ -121,6 +127,11 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    // Sliders emit dozens of values per second while dragging — debounce them so
+    // DataStore writes are batched (one write per ~250 ms of inactivity) instead
+    // of hammering the disk on slow head-unit flash. The final value is always
+    // flushed when the screen leaves composition.
+    val debouncedUpdate = rememberDebouncedUpdate(onUpdate)
     var showResetDialog       by remember { mutableStateOf(false) }
     var showAccentPicker      by remember { mutableStateOf(false) }
     var showBgPicker          by remember { mutableStateOf(false) }
@@ -133,6 +144,7 @@ fun SettingsScreen(
     var floatingSlotEditor    by remember { mutableStateOf<Int?>(null) }
     var showRadioAppPicker    by remember { mutableStateOf(false) }
     var showSpectrumColorPicker by remember { mutableStateOf(false) }
+    var showFontPicker        by remember { mutableStateOf(false) }
     // 0 = auto-launch app, 1 = two-finger gesture, 2 = three-finger gesture
     var pendingAppPick        by remember { mutableStateOf<Int?>(null) }
 
@@ -147,7 +159,26 @@ fun SettingsScreen(
                     it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             }
-            onUpdate { copy(wallpaperUri = it.toString()) }
+            // Picking a static image takes over the background — turn the video
+            // wallpaper off so it doesn't keep covering the new picture.
+            onUpdate { copy(wallpaperUri = it.toString(), wallpaperVideoUri = "") }
+        }
+    }
+
+    // Video wallpaper — persistable SAF grant. Uses a hand-built intent so we
+    // can pass EXTRA_INITIAL_URI: without it some ROMs' file pickers reopen the
+    // last-used pictures view (hiding videos) instead of the all-files view.
+    val videoWallpaperPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == android.app.Activity.RESULT_OK && uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            onUpdate { copy(wallpaperVideoUri = uri.toString()) }
         }
     }
 
@@ -273,9 +304,11 @@ fun SettingsScreen(
         }
 
         // ── Open System Settings + Search (one row) ────────────────────────────
+        // Same height as the category tiles above (48 dp) so the top block reads
+        // as one consistent strip.
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.height(IntrinsicSize.Min)
+            modifier = Modifier.height(48.dp)
         ) {
             Surface(
                 onClick = {
@@ -294,14 +327,14 @@ fun SettingsScreen(
                 modifier = Modifier.weight(1f).fillMaxHeight()
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         Icons.Default.Settings,
                         contentDescription = null,
                         tint = specialIconTint,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(14.dp))
                     Column(modifier = Modifier.weight(1f)) {
@@ -576,12 +609,15 @@ fun SettingsScreen(
             // Wallpaper
             SettingsButton(
                 label    = "Set Wallpaper",
-                sublabel = if (settings.wallpaperUri.isNotEmpty()) "Custom wallpaper active" else "Choose image from gallery",
+                sublabel = if (settings.wallpaperUri.isNotEmpty())
+                               if (settings.wallpaperVideoUri.isNotEmpty()) "Custom image active — hidden behind the video wallpaper"
+                               else "Custom wallpaper active"
+                           else "Choose image from gallery",
                 icon     = Icons.Default.Wallpaper,
                 accent   = accent,
                 onClick  = { wallpaperPicker.launch(arrayOf("image/*")) }
             )
-            if (settings.wallpaperUri.isNotEmpty()) {
+            if (settings.wallpaperUri.isNotEmpty() || settings.wallpaperVideoUri.isNotEmpty()) {
                 Column {
                     SettingsRow(
                         label    = "Wallpaper Dim",
@@ -590,7 +626,7 @@ fun SettingsScreen(
                     ) {}
                     Slider(
                         value         = settings.wallpaperDim,
-                        onValueChange = { onUpdate { copy(wallpaperDim = it) } },
+                        onValueChange = { debouncedUpdate { copy(wallpaperDim = it) } },
                         valueRange    = 0f..0.95f,
                         steps         = 18,
                         colors        = sliderColors(accent),
@@ -598,12 +634,100 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     TextButton(
-                        onClick  = { onUpdate { copy(wallpaperUri = "") } },
+                        // One action removes the whole background: image AND video.
+                        onClick  = { onUpdate { copy(wallpaperUri = "", wallpaperVideoUri = "") } },
                         modifier = Modifier.align(Alignment.End)
                     ) {
                         Text("REMOVE WALLPAPER", color = Color(0xFF993333), fontSize = 9.sp, letterSpacing = 1.sp)
                     }
                 }
+            }
+
+            SettingsDivider()
+
+            // Video wallpaper — muted looping video behind the UI
+            SettingsButton(
+                label    = "Video Wallpaper",
+                sublabel = if (settings.wallpaperVideoUri.isNotEmpty())
+                               "Animated wallpaper active — H.264 MP4 recommended. Picking a new image turns the video off"
+                           else "Choose a looping video (plays muted, over the image wallpaper)",
+                icon     = Icons.Default.Videocam,
+                accent   = accent,
+                onClick  = {
+                    // Show ALL files, and pin the picker to the Downloads folder:
+                    // the ROM's video MIME filter can hide perfectly fine videos,
+                    // and some builds reopen a stale pictures-only view otherwise.
+                    val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        putExtra(android.content.Intent.EXTRA_MIME_TYPES, arrayOf("*/*"))
+                        runCatching {
+                            putExtra(
+                                android.provider.DocumentsContract.EXTRA_INITIAL_URI,
+                                android.provider.DocumentsContract.buildDocumentUri(
+                                    "com.android.externalstorage.documents",
+                                    "primary:Download"
+                                )
+                            )
+                        }
+                    }
+                    videoWallpaperPicker.launch(intent)
+                }
+            )
+            if (settings.wallpaperVideoUri.isNotEmpty()) {
+                TextButton(
+                    onClick  = { onUpdate { copy(wallpaperVideoUri = "") } },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("REMOVE VIDEO WALLPAPER", color = Color(0xFF993333), fontSize = 9.sp, letterSpacing = 1.sp)
+                }
+            }
+
+            SettingsDivider()
+
+            // Ambient particles
+            SettingsRow(
+                label    = "Particle Effect",
+                sublabel = "Ambient snow, rain, stars or constellation drifting over the home screen",
+                icon     = Icons.Default.AutoAwesome
+            ) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf(
+                        ParticleEffect.NONE to "Off",
+                        ParticleEffect.SNOW to "Snow",
+                        ParticleEffect.RAIN to "Rain",
+                        ParticleEffect.STARS to "Stars",
+                        ParticleEffect.CONSTELLATION to "Constellation"
+                    ).forEach { (effect, label) ->
+                        TapFilterChip(
+                            selected = settings.particleEffect == effect,
+                            onClick  = { onUpdate { copy(particleEffect = effect) } },
+                            label    = { Text(label, fontSize = 10.sp) },
+                            colors   = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = selectedChipContainer,
+                                selectedLabelColor     = selectedChipLabel
+                            )
+                        )
+                    }
+                }
+            }
+            if (settings.particleEffect != ParticleEffect.NONE) {
+                SettingsRow(
+                    label    = "Particle Amount",
+                    sublabel = "${"%.0f".format(settings.particleEffectAmount * 100)}% — how many particles",
+                    icon     = Icons.Default.ScatterPlot
+                ) {}
+                Slider(
+                    value         = settings.particleEffectAmount,
+                    onValueChange = { debouncedUpdate { copy(particleEffectAmount = it) } },
+                    valueRange    = 0.2f..1.5f,
+                    steps         = 12,
+                    colors        = sliderColors(accent),
+                    modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
             }
 
             SettingsDivider()
@@ -644,31 +768,13 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
             ) {
-                SettingsRow(
+                SettingsButton(
                     label    = "Font",
                     sublabel = fontDisplayName(settings.appFont),
-                    icon     = Icons.Default.FontDownload
-                ) {}
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(start = 32.dp, end = 8.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    com.openlauncher.app.data.AppFont.entries.forEach { font ->
-                        TapFilterChip(
-                            selected = settings.appFont == font,
-                            onClick  = { onUpdate { copy(appFont = font) } },
-                            label    = { Text(fontDisplayName(font), fontSize = 11.sp, letterSpacing = 0.5.sp) },
-                            colors   = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = selectedChipContainer,
-                                selectedLabelColor     = selectedChipLabel
-                            )
-                        )
-                    }
-                }
+                    icon     = Icons.Default.FontDownload,
+                    accent   = accent,
+                    onClick  = { TapSound.play(); showFontPicker = true }
+                )
             }
 
             SettingsDivider()
@@ -691,7 +797,7 @@ fun SettingsScreen(
                 ) {}
                 Slider(
                     value         = settings.textScale,
-                    onValueChange = { onUpdate { copy(textScale = it) } },
+                    onValueChange = { debouncedUpdate { copy(textScale = it) } },
                     valueRange    = 0.8f..1.8f,
                     steps         = 10,
                     colors        = sliderColors(accent),
@@ -709,7 +815,7 @@ fun SettingsScreen(
                 ) {}
                 Slider(
                     value         = settings.uiScale,
-                    onValueChange = { onUpdate { copy(uiScale = it) } },
+                    onValueChange = { debouncedUpdate { copy(uiScale = it) } },
                     valueRange    = 0.7f..1.8f,
                     steps         = 11,
                     colors        = sliderColors(accent),
@@ -764,7 +870,7 @@ fun SettingsScreen(
                 ) {}
                 Slider(
                     value         = settings.tileAlpha,
-                    onValueChange = { onUpdate { copy(tileAlpha = it) } },
+                    onValueChange = { debouncedUpdate { copy(tileAlpha = it) } },
                     valueRange    = 0.1f..1f,
                     steps         = 8,
                     colors        = sliderColors(accent),
@@ -948,7 +1054,7 @@ fun SettingsScreen(
                 ) {}
                 Slider(
                     value         = settings.sidebarWidth.toFloat(),
-                    onValueChange = { onUpdate { copy(sidebarWidth = it.roundToInt()) } },
+                    onValueChange = { debouncedUpdate { copy(sidebarWidth = it.roundToInt()) } },
                     valueRange    = 40f..120f,
                     steps         = 15,
                     colors        = sliderColors(accent),
@@ -966,7 +1072,7 @@ fun SettingsScreen(
                 ) {}
                 Slider(
                     value         = settings.sidebarIconScale,
-                    onValueChange = { onUpdate { copy(sidebarIconScale = it) } },
+                    onValueChange = { debouncedUpdate { copy(sidebarIconScale = it) } },
                     valueRange    = 0.6f..1.8f,
                     steps         = 11,
                     colors        = sliderColors(accent),
@@ -1148,7 +1254,7 @@ fun SettingsScreen(
             ) {}
             Slider(
                 value         = settings.spectrumAttackMs,
-                onValueChange = { v -> onUpdate { copy(spectrumAttackMs = v) } },
+                onValueChange = { v -> debouncedUpdate { copy(spectrumAttackMs = v) } },
                 valueRange    = 5f..200f,
                 steps         = 19,
                 colors        = sliderColors(accent),
@@ -1164,7 +1270,7 @@ fun SettingsScreen(
             ) {}
             Slider(
                 value         = settings.spectrumDecayMs,
-                onValueChange = { v -> onUpdate { copy(spectrumDecayMs = v) } },
+                onValueChange = { v -> debouncedUpdate { copy(spectrumDecayMs = v) } },
                 valueRange    = 50f..1500f,
                 steps         = 28,
                 colors        = sliderColors(accent),
@@ -1180,7 +1286,7 @@ fun SettingsScreen(
             ) {}
             Slider(
                 value         = settings.spectrumResponse,
-                onValueChange = { v -> onUpdate { copy(spectrumResponse = v) } },
+                onValueChange = { v -> debouncedUpdate { copy(spectrumResponse = v) } },
                 valueRange    = 0.4f..2.5f,
                 steps         = 20,
                 colors        = sliderColors(accent),
@@ -1232,7 +1338,7 @@ fun SettingsScreen(
             ) {}
             Slider(
                 value         = settings.widgetContentFor(widgetContentPage).spectrumBarCount.toFloat(),
-                onValueChange = { v -> onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumBarCount = v.toInt().coerceIn(8, 64)) } } },
+                onValueChange = { v -> debouncedUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumBarCount = v.toInt().coerceIn(8, 64)) } } },
                 valueRange    = 8f..64f,
                 steps         = 13,
                 colors        = sliderColors(accent),
@@ -1329,7 +1435,7 @@ fun SettingsScreen(
             ) {}
             Slider(
                 value         = settings.widgetContentFor(widgetContentPage).spectrumGain,
-                onValueChange = { v -> onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumGain = v) } } },
+                onValueChange = { v -> debouncedUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumGain = v) } } },
                 valueRange    = 0.3f..3f,
                 steps         = 13,
                 colors        = sliderColors(accent),
@@ -1420,7 +1526,7 @@ fun SettingsScreen(
             ) {}
             Slider(
                 value         = settings.nowPlayingLogoScale,
-                onValueChange = { onUpdate { copy(nowPlayingLogoScale = it) } },
+                onValueChange = { debouncedUpdate { copy(nowPlayingLogoScale = it) } },
                 valueRange    = 0.5f..1f,
                 steps         = 4,
                 colors        = sliderColors(accent),
@@ -1436,7 +1542,7 @@ fun SettingsScreen(
             ) {}
             Slider(
                 value         = settings.nowPlayingLogoDim,
-                onValueChange = { onUpdate { copy(nowPlayingLogoDim = it) } },
+                onValueChange = { debouncedUpdate { copy(nowPlayingLogoDim = it) } },
                 valueRange    = 0f..0.8f,
                 steps         = 7,
                 colors        = sliderColors(accent),
@@ -1500,7 +1606,7 @@ fun SettingsScreen(
             ) {
                 Slider(
                     value         = settings.autoSwitchSpeedKmh,
-                    onValueChange = { onUpdate { copy(autoSwitchSpeedKmh = it) } },
+                    onValueChange = { debouncedUpdate { copy(autoSwitchSpeedKmh = it) } },
                     valueRange    = 5f..20f,
                     steps         = 14,
                     colors        = sliderColors(accent),
@@ -1515,7 +1621,7 @@ fun SettingsScreen(
             ) {
                 Slider(
                     value         = settings.autoSwitchIdleSeconds,
-                    onValueChange = { onUpdate { copy(autoSwitchIdleSeconds = it) } },
+                    onValueChange = { debouncedUpdate { copy(autoSwitchIdleSeconds = it) } },
                     valueRange    = 5f..30f,
                     steps         = 24,
                     colors        = sliderColors(accent),
@@ -1785,7 +1891,7 @@ fun SettingsScreen(
                 ) {}
                 Slider(
                     value         = settings.compassOffset,
-                    onValueChange = { onUpdate { copy(compassOffset = it) } },
+                    onValueChange = { debouncedUpdate { copy(compassOffset = it) } },
                     valueRange    = -180f..180f,
                     steps         = 71, // 5 degree steps: 360 / 5 - 1 = 71 steps
                     colors        = sliderColors(accent),
@@ -2034,7 +2140,7 @@ fun SettingsScreen(
                 ) {}
                 Slider(
                     value         = settings.autoLaunchDelaySec.toFloat(),
-                    onValueChange = { v -> onUpdate { copy(autoLaunchDelaySec = v.toInt().coerceIn(1, 30)) } },
+                    onValueChange = { v -> debouncedUpdate { copy(autoLaunchDelaySec = v.toInt().coerceIn(1, 30)) } },
                     valueRange    = 1f..30f,
                     steps         = 28,
                     colors        = sliderColors(accent),
@@ -2264,7 +2370,7 @@ fun SettingsScreen(
                 ) {}
                 Slider(
                     value         = settings.floatingPanelScale,
-                    onValueChange = { onUpdate { copy(floatingPanelScale = it) } },
+                    onValueChange = { debouncedUpdate { copy(floatingPanelScale = it) } },
                     valueRange    = 0.7f..1.6f,
                     steps         = 8,
                     colors        = sliderColors(accent),
@@ -2280,7 +2386,7 @@ fun SettingsScreen(
                 ) {}
                 Slider(
                     value         = settings.floatingPanelOpacity,
-                    onValueChange = { onUpdate { copy(floatingPanelOpacity = it) } },
+                    onValueChange = { debouncedUpdate { copy(floatingPanelOpacity = it) } },
                     valueRange    = 0.2f..0.9f,
                     steps         = 6,
                     colors        = sliderColors(accent),
@@ -2790,6 +2896,20 @@ fun SettingsScreen(
         )
     }
 
+    // ── Font picker (live preview grid) ───────────────────────────────────────
+    if (showFontPicker) {
+        FontPickerDialog(
+            current   = settings.appFont,
+            accent    = accent,
+            isDayMode = isDayMode,
+            onSelect  = { font ->
+                onUpdate { copy(appFont = font) }
+                showFontPicker = false
+            },
+            onDismiss = { showFontPicker = false }
+        )
+    }
+
     floatingSlotEditor?.let { slot ->
         FloatingSlotDialog(
             slotIndex = slot,
@@ -2983,6 +3103,37 @@ private fun ColumnScope.SettingsDivider() {
     HorizontalDivider(color = if (isDayMode) Color(0xFFDDDDDD) else Color(0xFF141414))
 }
 
+/**
+ * Trailing-debounced settings writer for sliders. Rapid drag events coalesce
+ * into one DataStore write after [delayMs] of inactivity, and the last pending
+ * value is always flushed when the screen leaves composition so nothing is
+ * lost. One-shot controls (switches/buttons) keep using [onUpdate] directly.
+ */
+@Composable
+private fun rememberDebouncedUpdate(
+    onUpdate: (AppSettings.() -> AppSettings) -> Unit,
+    delayMs: Long = 250L
+): (AppSettings.() -> AppSettings) -> Unit {
+    val pending = remember { mutableStateOf<(AppSettings.() -> AppSettings)?>(null) }
+    val currentOnUpdate by rememberUpdatedState(onUpdate)
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(delayMs)
+            val task = pending.value
+            if (task != null) {
+                pending.value = null
+                currentOnUpdate(task)
+            }
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            pending.value?.let { currentOnUpdate(it) }
+        }
+    }
+    return { block -> pending.value = block }
+}
+
 @Composable
 private fun outlinedFieldColors(accent: Color): androidx.compose.material3.TextFieldColors {
     val isDayMode = LocalDayMode.current
@@ -3033,6 +3184,16 @@ private fun fontDisplayName(font: AppFont): String = when (font) {
     AppFont.ROBOTO            -> "Roboto"
     AppFont.DSEG14_CLASSIC    -> "DSEG14 LCD"
     AppFont.IBM_VGA_9X16      -> "IBM VGA 9x16"
+    AppFont.COMMISSIONER      -> "Commissioner"
+    AppFont.DIDACT            -> "Didact Gothic"
+    AppFont.FIRA              -> "Fira Sans"
+    AppFont.HANDJET           -> "Handjet"
+    AppFont.NEOHELLENIC       -> "GFS Neohellenic"
+    AppFont.PLAY              -> "Play"
+    AppFont.PLAYPEN           -> "Playpen Sans"
+    AppFont.SANSATION         -> "Sansation"
+    AppFont.TEKTUR            -> "Tektur"
+    AppFont.UBUNTU            -> "Ubuntu"
 }
 
 private data class CategoryItem(
@@ -3058,7 +3219,7 @@ private fun CategoryTile(
         shape = RoundedCornerShape(10.dp),
         color = bg,
         border = androidx.compose.foundation.BorderStroke(1.dp, border),
-        modifier = modifier.height(68.dp)
+        modifier = modifier.height(48.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp),
@@ -3097,27 +3258,131 @@ private fun SearchField(
         modifier = modifier
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 14.dp).fillMaxHeight(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Search, null, tint = accent, modifier = Modifier.size(20.dp))
+            Icon(Icons.Default.Search, null, tint = accent, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(10.dp))
-            BasicTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                singleLine = true,
-                textStyle = TextStyle(color = textColor, fontSize = 12.sp),
-                cursorBrush = SolidColor(accent),
-                modifier = Modifier.weight(1f),
-                decorationBox = { innerTextField ->
-                    Box {
-                        if (query.isEmpty()) {
-                            Text("Search…", color = textColor.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1, softWrap = false)
+            // The row's fixed height coerces BasicTextField's internal 48 dp
+            // minimum — fixing the height on the field itself has no effect.
+            Box(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = TextStyle(color = textColor, fontSize = 12.sp),
+                    cursorBrush = SolidColor(accent),
+                    modifier = Modifier.fillMaxSize(),
+                    decorationBox = { innerTextField ->
+                        // Center both the placeholder and the typed text
+                        // vertically inside the (now shorter) search row.
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (query.isEmpty()) {
+                                Text("Search…", color = textColor.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1, softWrap = false)
+                            }
+                            innerTextField()
                         }
-                        innerTextField()
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FontPickerDialog(
+    current: AppFont,
+    accent: Color,
+    isDayMode: Boolean,
+    onSelect: (AppFont) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val accentLum = 0.299f * accent.red + 0.587f * accent.green + 0.114f * accent.blue
+    val effectiveAccent = if (isDayMode && accentLum > 0.65f) Color(0xFF111111)
+                          else if (!isDayMode && accentLum < 0.25f) Color(0xFFEEEEEE)
+                          else accent
+
+    val dialogBg     = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF111111)
+    val dialogBorder = if (isDayMode) Color(0xFFDDE1E5) else Color(0xFF222222)
+    val textColor    = if (isDayMode) Color(0xFF111111) else Color(0xFFEEEEEE)
+    val subColor     = if (isDayMode) Color(0xFF666666) else Color(0xFF888888)
+    val cardBg       = if (isDayMode) Color(0xFFF8F9FA) else Color(0xFF161616)
+    val cardBorder   = if (isDayMode) Color(0xFFCED4DA) else Color(0xFF242424)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .widthIn(min = 420.dp, max = 680.dp)
+                .fillMaxWidth(0.94f)
+                .heightIn(max = 480.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(dialogBg)
+                .border(1.dp, dialogBorder, RoundedCornerShape(10.dp))
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text          = "FONT",
+                    color         = effectiveAccent,
+                    fontSize      = 11.sp,
+                    letterSpacing = 2.sp,
+                    fontWeight    = FontWeight.Bold
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { TapSound.play(); onDismiss() }, modifier = Modifier.size(26.dp)) {
+                    Icon(Icons.Default.Close, null, tint = subColor, modifier = Modifier.size(16.dp))
+                }
+            }
+
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 180.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(AppFont.entries) { font ->
+                    val selected = font == current
+                    val family = font.toFontFamily()
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (selected) effectiveAccent.copy(alpha = if (isDayMode) 0.12f else 0.2f) else cardBg)
+                            .border(1.dp, if (selected) effectiveAccent else cardBorder, RoundedCornerShape(8.dp))
+                            .clickable { TapSound.play(); onSelect(font) }
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Two elements only: the font name on top, the sample below.
+                        Text(
+                            text = fontDisplayName(font),
+                            fontFamily = family,
+                            color = if (selected) effectiveAccent else textColor,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Free by Limbo666",
+                            fontFamily = family,
+                            color = textColor.copy(alpha = 0.75f),
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
-            )
+            }
         }
     }
 }

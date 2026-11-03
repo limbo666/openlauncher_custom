@@ -139,6 +139,9 @@ class SettingsRepository(private val context: Context) {
         val PROFILE_AUTO_SWITCH    = booleanPreferencesKey("profile_auto_switch_enabled")
         val PROFILE_HOTSPOT_JSON   = stringPreferencesKey("profile_hotspot_ssids_json")
         val RETRO_THEME_ENABLED    = booleanPreferencesKey("retro_theme_enabled")
+        val WALLPAPER_VIDEO_URI    = stringPreferencesKey("wallpaper_video_uri")
+        val PARTICLE_EFFECT        = stringPreferencesKey("particle_effect")
+        val PARTICLE_EFFECT_AMOUNT = floatPreferencesKey("particle_effect_amount")
         fun PROFILE_SNAPSHOT(id: Int) = stringPreferencesKey("profile_snapshot_$id")
     }
 
@@ -185,6 +188,9 @@ class SettingsRepository(private val context: Context) {
                 tileColorLight = prefs[Keys.TILE_COLOR_LIGHT] ?: defaults.tileColorLight,
                 tileAlpha      = prefs[Keys.TILE_ALPHA]?.coerceIn(0f, 1f) ?: defaults.tileAlpha,
                 wallpaperUri   = prefs[Keys.WALLPAPER_URI]    ?: defaults.wallpaperUri,
+                wallpaperVideoUri = prefs[Keys.WALLPAPER_VIDEO_URI] ?: defaults.wallpaperVideoUri,
+                particleEffect = prefs[Keys.PARTICLE_EFFECT]?.let { runCatching { com.openlauncher.app.data.ParticleEffect.valueOf(it) }.getOrNull() } ?: defaults.particleEffect,
+                particleEffectAmount = prefs[Keys.PARTICLE_EFFECT_AMOUNT]?.coerceIn(0.2f, 1.5f) ?: defaults.particleEffectAmount,
                 fontBold       = prefs[Keys.FONT_BOLD]        ?: defaults.fontBold,
                 textScale      = prefs[Keys.TEXT_SCALE]       ?: defaults.textScale,
                 uiScale        = prefs[Keys.UI_SCALE]         ?: defaults.uiScale,
@@ -370,9 +376,15 @@ class SettingsRepository(private val context: Context) {
     /**
      * Atomic read-modify-write. DataStore serializes edit blocks, so concurrent
      * updates can't overwrite each other (unlike transforming a stale snapshot).
+     * No-op transforms are detected and skipped entirely — no disk write, no
+     * flow emission — which keeps duplicate/unchanged updates free.
      */
     suspend fun updateSettings(transform: (AppSettings) -> AppSettings) {
-        context.dataStore.edit { prefs -> writeSettings(prefs, transform(readSettings(prefs))) }
+        context.dataStore.edit { prefs ->
+            val current = readSettings(prefs)
+            val next = transform(current)
+            if (next != current) writeSettings(prefs, next)
+        }
     }
 
     private fun writeSettings(prefs: MutablePreferences, s: AppSettings) {
@@ -384,6 +396,9 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.TILE_COLOR_LIGHT]   = s.tileColorLight
             prefs[Keys.TILE_ALPHA]         = s.tileAlpha
             prefs[Keys.WALLPAPER_URI]      = s.wallpaperUri
+            prefs[Keys.WALLPAPER_VIDEO_URI] = s.wallpaperVideoUri
+            prefs[Keys.PARTICLE_EFFECT]     = s.particleEffect.name
+            prefs[Keys.PARTICLE_EFFECT_AMOUNT] = s.particleEffectAmount
             prefs[Keys.FONT_BOLD]          = s.fontBold
             prefs[Keys.TEXT_SCALE]         = s.textScale
             prefs[Keys.UI_SCALE]           = s.uiScale
