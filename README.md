@@ -25,7 +25,7 @@ Having a stable open-source project like OpenLauncher provides a great foundatio
 ---
 
 > [!WARNING]
-> **Work in Progress:** This customized fork is actively under development. While tested on specific hardware, it needs to be thoroughly verified across different Android head units, screen resolutions, and MCU architectures. There is no guaranteefor the app suitability for any head unit.
+> **Work in Progress:** This customized fork is actively under development. While tested on specific hardware, it needs to be thoroughly verified across different Android head units, screen resolutions, and MCU architectures. There is no guarantee for app suitability and compatibility for any head unit.
 
 ---
 
