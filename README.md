@@ -80,7 +80,12 @@ This project is built upon the wonderful work of the open-source community:
 
 - **David ([@dw2lam](https://github.com/dw2lam))**: Huge thanks to David for creating the original [Open Launcher](https://github.com/dw2lam/openlauncher). The core launcher architecture, lightweight design, and car-centric foundation originate from his work.  
   **Please consider supporting David for his original work:** [Donate via PayPal](https://paypal.me/dw2lam)
-- **itsTwistys ([@itsTwistys](https://github.com/itsTwistys))**: Special thanks to [itsTwistys/openlauncher](https://github.com/itsTwistys/openlauncher) for the great ideas, inspiration, and concepts that guided many of the additional features and enhancements implemented in this fork.
+  This specific compilation borrowed and copied ideas from other forks that worth a look as well:
+- **itsTwistys ([@itsTwistys](https://github.com/itsTwistys))**
+- **ojciechCzeronko ([@ojciechCzeronko](https://github.com/WojciechCzeronko/retrolauncher))**
+- **pphan93 ([@pphan93](https://github.com/pphan93/openlauncher))**
+- **thenewzealander ([@thenewzealander](https://github.com/thenewzealander/headunit-launcher/))**
+Kudos to all the above mentioned evelopers for their work
 
 ---
 
