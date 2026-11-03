@@ -20,7 +20,7 @@ Having a stable open-source project like OpenLauncher provides a great foundatio
 
 
 > [!TIP]
-> 📖 **Comprehensive Documentation:** Looking for full setup instructions, widget breakdowns, gesture shortcuts, or driver profile configuration? Check out the **[Complete User Guide & Reference (USER_GUIDE.md)](USER_GUIDE.md)**.
+> **Documentation:** Looking for full setup instructions, widget breakdowns, gesture shortcuts, or driver profile configuration? Check out the **[Complete User Guide & Reference (USER_GUIDE.md)](USER_GUIDE.md)**.
 
 ---
 
