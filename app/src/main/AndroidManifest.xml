@@ -79,6 +79,12 @@
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
         android:exported="true">
 
+        <!-- Google Maps SDK key — injected at build time from local.properties
+             (git-ignored), so the repository never contains the real key. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${mapsApiKey}" />
+
         <!-- Single launcher activity -->
         <activity
             android:name=".MainActivity"

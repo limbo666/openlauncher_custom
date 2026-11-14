@@ -57,6 +57,9 @@ fun OnboardingScreen(
     var mediaGranted by remember { mutableStateOf(false) }
     var micGranted by remember { mutableStateOf(false) }
     var usageGranted by remember { mutableStateOf(false) }
+    var overlayGranted by remember { mutableStateOf(false) }
+    var accessibilityGranted by remember { mutableStateOf(false) }
+    var bluetoothGranted by remember { mutableStateOf(true) }
 
     val checkPermissions = {
         locationGranted = ContextCompat.checkSelfPermission(
@@ -74,16 +77,33 @@ fun OnboardingScreen(
             context, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
 
+        // getSystemService(AppOpsManager::class.java) only exists on API 23+ —
+        // use the name-based lookup so Android 5.x head units detect correctly.
         usageGranted = runCatching {
-            val appOps = context.getSystemService(AppOpsManager::class.java)
-            val mode = if (Build.VERSION.SDK_INT >= 29) {
-                appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
+            val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager
+            if (appOps == null) {
+                false
             } else {
-                @Suppress("DEPRECATION")
-                appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
+                val mode = if (Build.VERSION.SDK_INT >= 29) {
+                    appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
+                } else {
+                    @Suppress("DEPRECATION")
+                    appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
+                }
+                mode == AppOpsManager.MODE_ALLOWED
             }
-            mode == AppOpsManager.MODE_ALLOWED
         }.getOrDefault(false)
+
+        overlayGranted = Settings.canDrawOverlays(context)
+
+        accessibilityGranted = Settings.Secure.getString(
+            context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        )?.contains(context.packageName) == true
+
+        bluetoothGranted = if (Build.VERSION.SDK_INT < 31) true
+            else ContextCompat.checkSelfPermission(
+                context, Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -118,6 +138,12 @@ fun OnboardingScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         micGranted = granted
+    }
+
+    val bluetoothLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        bluetoothGranted = granted
     }
 
     BoxWithConstraints(
@@ -206,10 +232,14 @@ fun OnboardingScreen(
             )
 
             // ── Right content wizard ────────────────────────────────────────
-            Column(
+            Box(
                 modifier = Modifier
                     .weight(contentWeight)
                     .fillMaxHeight()
+            ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
                     .padding(contentPad),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
@@ -240,17 +270,54 @@ fun OnboardingScreen(
                             })
                             2 -> MediaStep(accent, mediaGranted, onGrant = {
                                 runCatching {
-                                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                                    val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                    if (intent.resolveActivity(context.packageManager) == null) {
+                                        // Some ROMs/emulators lack the listener page —
+                                        // fall back to the general settings screen.
+                                        context.startActivity(
+                                            Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                    } else {
+                                        context.startActivity(intent)
+                                    }
                                 }
                             })
                             3 -> AudioStep(
                                 accent,
                                 micGranted,
                                 usageGranted,
+                                overlayGranted,
+                                accessibilityGranted,
+                                bluetoothGranted,
                                 onGrantMic = { recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO) },
                                 onGrantUsage = {
                                     runCatching {
                                         context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                                    }
+                                },
+                                onGrantOverlay = {
+                                    runCatching {
+                                        val intent = Intent(
+                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            android.net.Uri.parse("package:${context.packageName}")
+                                        )
+                                        if (intent.resolveActivity(context.packageManager) == null) {
+                                            context.startActivity(
+                                                Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            )
+                                        } else {
+                                            context.startActivity(intent)
+                                        }
+                                    }
+                                },
+                                onGrantAccessibility = {
+                                    runCatching {
+                                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                    }
+                                },
+                                onGrantBluetooth = {
+                                    if (Build.VERSION.SDK_INT >= 31) {
+                                        bluetoothLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
                                     }
                                 }
                             )
@@ -342,6 +409,23 @@ fun OnboardingScreen(
                         }
                     }
                 }
+            }
+
+            // Exit the wizard at any stage — marks setup complete (re-run it
+            // anytime from Settings → Maintenance → Run Setup Wizard).
+            IconButton(
+                onClick = { TapSound.play(); onComplete() },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 10.dp, end = 10.dp)
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Exit setup",
+                    tint = Color(0xFF888888),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
             }
         }
     }
@@ -556,8 +640,14 @@ private fun AudioStep(
     accent: Color,
     micGranted: Boolean,
     usageGranted: Boolean,
+    overlayGranted: Boolean,
+    accessibilityGranted: Boolean,
+    bluetoothGranted: Boolean,
     onGrantMic: () -> Unit,
-    onGrantUsage: () -> Unit
+    onGrantUsage: () -> Unit,
+    onGrantOverlay: () -> Unit,
+    onGrantAccessibility: () -> Unit,
+    onGrantBluetooth: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text(
@@ -569,7 +659,7 @@ private fun AudioStep(
             fontSize = 20.sp
         )
         Text(
-            text = "Two optional permissions: the microphone lets the sound-visualizer widget analyze what's playing, and Usage Access lets the floating quick-controls auto-hide over the Play Store and permission dialogs.",
+            text = "Optional permissions: the microphone lets the sound-visualizer widget analyze what's playing; Usage Access lets the floating quick-controls auto-hide over sensitive screens; Draw-over-apps shows the floating panel above other apps; the Accessibility service powers the floating BACK key; Bluetooth connects the OBD2 adapter.",
             color = Color(0xFFAAAAAA),
             fontSize = 13.sp,
             lineHeight = 20.sp
@@ -654,6 +744,126 @@ private fun AudioStep(
                 Icon(Icons.Default.Visibility, null, tint = Color.Black, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("ENABLE USAGE ACCESS", color = Color.Black, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 12.sp)
+            }
+        }
+
+        // Draw over other apps
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (overlayGranted) Color(0xFF0F1E10) else Color(0xFF1E1010))
+                .padding(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(
+                    imageVector = if (overlayGranted) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                    contentDescription = null,
+                    tint = if (overlayGranted) Color(0xFF44AA44) else Color(0xFFDD5555),
+                    modifier = Modifier.size(24.dp)
+                )
+                Column {
+                    Text(
+                        text = if (overlayGranted) "Draw Over Apps Granted" else "Draw Over Apps Required",
+                        color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (overlayGranted) "Floating panel can show above other apps." else "Floating panel cannot appear over other apps.",
+                        color = Color(0xFF888888), fontSize = 11.sp
+                    )
+                }
+            }
+        }
+        if (!overlayGranted) {
+            Button(
+                onClick = { TapSound.play(); onGrantOverlay() },
+                shape = RoundedCornerShape(4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = accent),
+                modifier = Modifier.height(40.dp)
+            ) {
+                Icon(Icons.Default.Layers, null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("ALLOW OVERLAY", color = Color.Black, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 12.sp)
+            }
+        }
+
+        // Accessibility (floating BACK)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (accessibilityGranted) Color(0xFF0F1E10) else Color(0xFF1E1010))
+                .padding(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(
+                    imageVector = if (accessibilityGranted) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                    contentDescription = null,
+                    tint = if (accessibilityGranted) Color(0xFF44AA44) else Color(0xFFDD5555),
+                    modifier = Modifier.size(24.dp)
+                )
+                Column {
+                    Text(
+                        text = if (accessibilityGranted) "Accessibility Granted" else "Accessibility Required",
+                        color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (accessibilityGranted) "The floating BACK key can press Back." else "The floating BACK key won't work.",
+                        color = Color(0xFF888888), fontSize = 11.sp
+                    )
+                }
+            }
+        }
+        if (!accessibilityGranted) {
+            Button(
+                onClick = { TapSound.play(); onGrantAccessibility() },
+                shape = RoundedCornerShape(4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = accent),
+                modifier = Modifier.height(40.dp)
+            ) {
+                Icon(Icons.Default.Accessibility, null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("ENABLE ACCESSIBILITY", color = Color.Black, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 12.sp)
+            }
+        }
+
+        // Bluetooth (OBD2)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (bluetoothGranted) Color(0xFF0F1E10) else Color(0xFF1E1010))
+                .padding(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(
+                    imageVector = if (bluetoothGranted) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                    contentDescription = null,
+                    tint = if (bluetoothGranted) Color(0xFF44AA44) else Color(0xFFDD5555),
+                    modifier = Modifier.size(24.dp)
+                )
+                Column {
+                    Text(
+                        text = if (bluetoothGranted) "Bluetooth Granted" else "Bluetooth Required",
+                        color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (bluetoothGranted) "The OBD2 widget can connect to the adapter." else "OBD2 connection unavailable.",
+                        color = Color(0xFF888888), fontSize = 11.sp
+                    )
+                }
+            }
+        }
+        if (!bluetoothGranted) {
+            Button(
+                onClick = { TapSound.play(); onGrantBluetooth() },
+                shape = RoundedCornerShape(4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = accent),
+                modifier = Modifier.height(40.dp)
+            ) {
+                Icon(Icons.Default.Bluetooth, null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("ALLOW BLUETOOTH", color = Color.Black, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 12.sp)
             }
         }
     }

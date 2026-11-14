@@ -15,7 +15,7 @@ object SettingsBackup {
     private val VALID_WIDGET_IDS = setOf(
         "CLOCK", "WEATHER", "NOW_PLAYING", "TELEMETRY", "VOLUME",
         "QUICK_ACTIONS", "ALTIMETER", "SPEEDOMETER", "VITALS",
-        "TRIP_TRACKER", "SOUNDBOARD", "APP_SHORTCUTS", "OBD", "NETWORK_SPEED", "SPECTRUM"
+        "TRIP_TRACKER", "SOUNDBOARD", "APP_SHORTCUTS", "OBD", "NETWORK_SPEED", "SPECTRUM", "MAP"
     )
 
     fun encode(settings: AppSettings): String {

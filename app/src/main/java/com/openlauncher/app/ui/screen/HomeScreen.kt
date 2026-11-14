@@ -44,6 +44,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import kotlin.math.roundToInt
 import com.openlauncher.app.data.AppSettings
+import com.openlauncher.app.data.telegram.TelegramBot
 import com.openlauncher.app.data.ClockStyle
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.computeWidgetMove
@@ -131,7 +132,8 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("APP_SHORTCUTS", "APP SHORTCUTS", Icons.Default.Apps,          "Quick app launch pad"),
     WidgetTypeInfo("OBD",           "OBD2",          Icons.Default.Bluetooth,     "Live engine & sensor telemetry"),
     WidgetTypeInfo("NETWORK_SPEED", "NETWORK SPEED", Icons.Default.SwapVert,      "Upload & download speed"),
-    WidgetTypeInfo("SPECTRUM",      "SPECTRUM",      Icons.Default.GraphicEq,     "Live sound spectrum")
+    WidgetTypeInfo("SPECTRUM",      "SPECTRUM",      Icons.Default.GraphicEq,     "Live sound spectrum"),
+    WidgetTypeInfo("MAP",           "MAP",           Icons.Default.Map,           "Google map with live position")
 )
 
 private fun canAddWidget(settings: AppSettings, layout: List<WidgetConfig>): Boolean {
@@ -151,6 +153,7 @@ private fun canAddWidget(settings: AppSettings, layout: List<WidgetConfig>): Boo
         if (settings.showObd) add("OBD")
         if (settings.showNetworkSpeed) add("NETWORK_SPEED")
         if (settings.showSpectrum) add("SPECTRUM")
+        if (settings.showMap) add("MAP")
     }
     val activeWidgets = layout.filter { it.enabled && it.id in visibleIds }
     val occupied = buildSet<Pair<Int, Int>> {
@@ -201,6 +204,7 @@ fun HomeScreen(
     onSetClockStyle: (ClockStyle) -> Unit,
     onSetVitalsAsBars: (Boolean) -> Unit = {},
     onSetSpeedometerDigitalOnly: (Boolean) -> Unit = {},
+    onSetSpeedometerAnimals: (Boolean) -> Unit = {},
     onSetAppShortcutCount: (Int) -> Unit = {},
     onSetSoundboardButtonCount: (Int) -> Unit = {},
     onUpdateSoundPad: (index: Int, pad: com.openlauncher.app.data.SoundPadConfig) -> Unit = { _, _ -> },
@@ -242,6 +246,8 @@ fun HomeScreen(
     profileSwitchedAt: Long = 0L,
     onSetAllWidgetsBgColor: (Long?) -> Unit = { _ -> },
     onSetAllWidgetsBgMode: (WidgetBgMode) -> Unit = { _ -> },
+    onSetMapType: (com.openlauncher.app.data.MapType) -> Unit = { _ -> },
+    onToggleMapTraffic: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val accent       = settings.effectiveAccent()
@@ -520,6 +526,17 @@ fun HomeScreen(
             }
             }
 
+            // Telegram remote-messages indicator (independent of the status-icons toggle)
+            if (settings.telegramShowIndicator && settings.telegramEnabled) {
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    imageVector = Icons.Default.Forum,
+                    contentDescription = if (TelegramBot.connected) "Telegram connected" else "Telegram not connected",
+                    tint = if (TelegramBot.connected) accent else statusIconColor.copy(alpha = 0.35f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
             // Optional total up/down speed readout (independent of the status icons toggle)
             if (settings.showNetworkSpeedIndicator) {
                 Spacer(Modifier.width(8.dp))
@@ -571,6 +588,8 @@ fun HomeScreen(
                 if (settings.showObd) add("OBD")
                 if (settings.showNetworkSpeed) add("NETWORK_SPEED")
                 if (settings.showSpectrum) add("SPECTRUM")
+        if (settings.showMap) add("MAP")
+                if (settings.showMap) add("MAP")
             }
 
             // Keep only visible widgets exactly as configured in settings, allowing explicit resizing to dictate layout
@@ -677,6 +696,7 @@ fun HomeScreen(
                     "APP_SHORTCUTS" -> "APP SHORTCUTS"
                     "OBD"           -> "OBD2"
                     "SPECTRUM"      -> "SPECTRUM"
+                    "MAP"           -> "MAP"
                     else            -> w.id
                 }
 
@@ -835,6 +855,7 @@ fun HomeScreen(
                             accent             = widgetAccent,
                             isDayMode          = widgetDayMode,
                             digitalOnly        = content.speedometerDigitalOnly,
+                            animalsMode        = content.speedometerAnimals,
                             customContentColor = customContentColor,
                             modifier           = Modifier.fillMaxSize()
                         )
@@ -922,6 +943,21 @@ fun HomeScreen(
                             color             = content.spectrumColor?.let { Color(it) } ?: widgetAccent,
                             fallbackImageUri  = content.spectrumFallbackImageUri,
                             isDayMode         = widgetDayMode,
+                            modifier          = Modifier.fillMaxSize()
+                        )
+                        "MAP" -> MapWidget(
+                            location          = location,
+                            bearing           = bearing,
+                            mapProvider       = settings.mapProvider,
+                            mapType           = settings.mapWidgetType,
+                            showTraffic       = settings.mapShowTraffic,
+                            isOnline          = isOnline,
+                            accent            = widgetAccent,
+                            isDayMode         = widgetDayMode,
+                            editMode          = editMode,
+                            controlScale      = settings.mapControlScale.multiplier,
+                            onSetMapType      = onSetMapType,
+                            onToggleTraffic   = onToggleMapTraffic,
                             modifier          = Modifier.fillMaxSize()
                         )
                     }
@@ -1127,6 +1163,7 @@ fun HomeScreen(
             clockStyle          = content.clockStyle,
             vitalsAsBars        = content.vitalsAsBars,
             speedometerDigitalOnly = content.speedometerDigitalOnly,
+            speedometerAnimals  = content.speedometerAnimals,
             carPlayPackage      = settings.carPlayPackage,
             androidAutoPackage  = settings.androidAutoPackage,
             pipAppPackage       = settings.pipAppPackage,
@@ -1148,6 +1185,7 @@ fun HomeScreen(
             onSetClockStyle     = { onSetClockStyle(it) },
             onSetVitalsAsBars   = { onSetVitalsAsBars(it) },
             onSetSpeedometerDigitalOnly = { onSetSpeedometerDigitalOnly(it) },
+            onSetSpeedometerAnimals = { onSetSpeedometerAnimals(it) },
             appShortcutCount    = content.appShortcutCount,
             onSetAppShortcutCount = onSetAppShortcutCount,
             soundboardButtonCount = content.soundboardButtonCount,
@@ -1311,6 +1349,7 @@ private fun WidgetContextMenu(
     clockStyle: ClockStyle,
     vitalsAsBars: Boolean,
     speedometerDigitalOnly: Boolean,
+    speedometerAnimals: Boolean = false,
     carPlayPackage: String = "",
     androidAutoPackage: String = "",
     pipAppPackage: String = "",
@@ -1332,6 +1371,7 @@ private fun WidgetContextMenu(
     onSetClockStyle: (ClockStyle) -> Unit,
     onSetVitalsAsBars: (Boolean) -> Unit,
     onSetSpeedometerDigitalOnly: (Boolean) -> Unit,
+    onSetSpeedometerAnimals: (Boolean) -> Unit = {},
     appShortcutCount: Int = 4,
     onSetAppShortcutCount: (Int) -> Unit = {},
     soundboardButtonCount: Int = 6,
@@ -1467,16 +1507,24 @@ private fun WidgetContextMenu(
                 ContextRow(
                     label   = "DIAL TRACK",
                     icon    = Icons.Default.Speed,
-                    tint    = if (!speedometerDigitalOnly) accent else inactiveMenuTint,
-                    onClick = { onSetSpeedometerDigitalOnly(false); onDismiss() },
+                    tint    = if (!speedometerDigitalOnly && !speedometerAnimals) accent else inactiveMenuTint,
+                    onClick = { onSetSpeedometerAnimals(false); onSetSpeedometerDigitalOnly(false); onDismiss() },
                     isDayMode = isDayMode
                 )
                 HorizontalDivider(color = menuDivider)
                 ContextRow(
                     label   = "DIGITAL ONLY",
                     icon    = Icons.Default.Dialpad,
-                    tint    = if (speedometerDigitalOnly) accent else inactiveMenuTint,
-                    onClick = { onSetSpeedometerDigitalOnly(true); onDismiss() },
+                    tint    = if (speedometerDigitalOnly && !speedometerAnimals) accent else inactiveMenuTint,
+                    onClick = { onSetSpeedometerAnimals(false); onSetSpeedometerDigitalOnly(true); onDismiss() },
+                    isDayMode = isDayMode
+                )
+                HorizontalDivider(color = menuDivider)
+                ContextRow(
+                    label   = "ANIMALS",
+                    icon    = Icons.Default.Pets,
+                    tint    = if (speedometerAnimals) accent else inactiveMenuTint,
+                    onClick = { onSetSpeedometerAnimals(true); onDismiss() },
                     isDayMode = isDayMode
                 )
             }
@@ -1749,6 +1797,7 @@ private fun WidgetLibraryDialog(
         if (settings.showObd) add("OBD")
         if (settings.showNetworkSpeed) add("NETWORK_SPEED")
         if (settings.showSpectrum) add("SPECTRUM")
+        if (settings.showMap) add("MAP")
     }
 
     val canAdd = canAddWidget(settings, layout)

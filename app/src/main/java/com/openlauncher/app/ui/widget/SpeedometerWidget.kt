@@ -1,10 +1,19 @@
 package com.openlauncher.app.ui.widget
 
+import android.graphics.Paint as AndroidPaint
+import android.graphics.Rect as AndroidRect
+import android.graphics.RectF as AndroidRectF
+import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -12,6 +21,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -22,6 +36,9 @@ import androidx.compose.ui.unit.sp
 import com.openlauncher.app.util.LocationData
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SpeedometerWidget(
@@ -30,11 +47,35 @@ fun SpeedometerWidget(
     accent: Color,
     isDayMode: Boolean = false,
     digitalOnly: Boolean = false,
+    animalsMode: Boolean = false,
     customContentColor: Color? = null,
     modifier: Modifier = Modifier
 ) {
-    val maxSpeed     = if (isMetric) 200f else 100f
-    val speedDisplay = ((location?.speedMps ?: 0f) * if (isMetric) 3.6f else 2.237f).coerceAtLeast(0f)
+    val maxSpeed = if (isMetric) 200f else 100f
+
+    // ── Hidden test mode ────────────────────────────────────────────────────
+    // Three quick taps add +10 km/h to the indicated speed; the new value then
+    // HOLDS for 500 ms before bleeding off at 20 km/h per second. Works in
+    // every mode (dial, digital, animals) since it feeds the shared speed.
+    var boostKmh by remember { mutableStateOf(0f) }
+    var tapCount by remember { mutableStateOf(0) }
+    var lastTapAt by remember { mutableStateOf(0L) }
+    var holdUntil by remember { mutableStateOf(0L) }
+    LaunchedEffect(boostKmh > 0f) {
+        while (boostKmh > 0f) {
+            val holdLeft = holdUntil - SystemClock.uptimeMillis()
+            if (holdLeft > 0L) {
+                delay(holdLeft)   // hold the boosted speed before dropping
+                continue
+            }
+            delay(50)
+            boostKmh = (boostKmh - 1f).coerceAtLeast(0f)   // 20 km/h per second
+        }
+    }
+
+    val baseKmh = ((location?.speedMps ?: 0f) * 3.6f).let { v -> if (v.isFinite()) v.coerceAtLeast(0f) else 0f }
+    val speedKmh = baseKmh + boostKmh
+    val speedDisplay = if (isMetric) speedKmh else speedKmh * 0.621371f
     val unitLabel    = if (isMetric) "KM/H" else "MPH"
     val trackAlpha   = if (isDayMode) 0.18f else 0.07f
     val tickAlphaMaj = if (isDayMode) 0.50f else 0.28f
@@ -46,11 +87,116 @@ fun SpeedometerWidget(
     val measurer = rememberTextMeasurer()
 
     BoxWithConstraints(
-        modifier         = modifier.padding(top = 8.dp, bottom = 4.dp),
+        modifier         = modifier
+            .padding(top = 8.dp, bottom = 4.dp)
+            // Non-consuming tap observer — registers the hidden test taps without
+            // stealing the long-press menu or any other widget gesture.
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        // Wait for a press (Initial pass, nothing consumed)
+                        var down: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                        while (down == null) {
+                            down = awaitPointerEvent(PointerEventPass.Initial)
+                                .changes.firstOrNull { it.pressed }
+                        }
+                        val downAt = SystemClock.uptimeMillis()
+                        var moved = false
+                        var upAt = downAt
+                        var pressed = true
+                        while (pressed) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down!!.id }
+                            if (change == null) break
+                            if (!change.pressed) {
+                                upAt = SystemClock.uptimeMillis()
+                                pressed = false
+                                break
+                            }
+                            if ((change.position - down!!.position).getDistance() > viewConfiguration.touchSlop) {
+                                moved = true
+                            }
+                        }
+                        if (!moved && upAt - downAt < 300L) {
+                            val now = SystemClock.uptimeMillis()
+                            if (now - lastTapAt > 1200L) tapCount = 0
+                            lastTapAt = now
+                            tapCount += 1
+                            if (tapCount >= 3) {
+                                tapCount = 0
+                                boostKmh = (boostKmh + 10f).coerceAtMost(600f)
+                                holdUntil = SystemClock.uptimeMillis() + 500L  // pause before dropping
+                            }
+                        }
+                    }
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         val w = maxWidth
-        if (digitalOnly) {
+        if (animalsMode) {
+            // ── Animals mode: sprite animal for the speed range + small readout ──
+            val context = LocalContext.current
+            var sprite by remember { mutableStateOf(AnimalSprite.bitmap(context)) }
+            LaunchedEffect(Unit) {
+                if (sprite == null) {
+                    sprite = withContext(Dispatchers.IO) { AnimalSprite.bitmap(context) }
+                }
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val bmp = sprite ?: return@Canvas
+                        val cellW = bmp.width / AnimalSprite.COLUMNS
+                        val cellH = bmp.height / AnimalSprite.ROWS
+                        if (cellW <= 0 || cellH <= 0) return@Canvas
+                        val index = AnimalSprite.cellIndexForSpeed(speedKmh)
+                        val row = index / AnimalSprite.COLUMNS
+                        val col = index % AnimalSprite.COLUMNS
+                        // Fit the cell into the available area, preserving aspect
+                        val scale = minOf(size.width / cellW, size.height / cellH)
+                        val dw = cellW * scale
+                        val dh = cellH * scale
+                        val left = (size.width - dw) / 2f
+                        val top = (size.height - dh) / 2f
+                        drawIntoCanvas { canvas ->
+                            canvas.nativeCanvas.drawBitmap(
+                                bmp,
+                                AndroidRect(col * cellW, row * cellH, (col + 1) * cellW, (row + 1) * cellH),
+                                AndroidRectF(left, top, left + dw, top + dh),
+                                AndroidPaint(AndroidPaint.FILTER_BITMAP_FLAG)
+                            )
+                        }
+                    }
+                }
+                // Small speed indicator along the bottom
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "%.0f".format(speedDisplay),
+                        color = contentColor,
+                        fontSize = minOf(w.value * 0.20f, 22f).coerceIn(13f, 22f).sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = (-0.5).sp,
+                        maxLines = 1
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = unitLabel,
+                        color = contentColor.copy(alpha = subAlpha),
+                        fontSize = if (w < 120.dp) 7.sp else 8.sp,
+                        letterSpacing = 1.5.sp,
+                        maxLines = 1
+                    )
+                }
+            }
+        } else if (digitalOnly) {
             val numFontSize = minOf(maxWidth.value * 0.40f, maxHeight.value * 0.45f).coerceIn(24f, 54f).sp
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,

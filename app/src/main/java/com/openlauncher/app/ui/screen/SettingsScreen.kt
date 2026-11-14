@@ -3,18 +3,23 @@ package com.openlauncher.app.ui.screen
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -25,6 +30,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -34,9 +43,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Dialog
 import com.openlauncher.app.data.AppFont
 import com.openlauncher.app.data.AppSettings
+import com.openlauncher.app.data.telegram.TelegramBot
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.ParticleEffect
 import com.openlauncher.app.data.SidebarPosition
@@ -85,6 +98,49 @@ import kotlin.math.roundToInt
 
 private val LocalSettingsSearchQuery = compositionLocalOf { "" }
 
+/** Tracks each section header's scroll offset so the sticky banner can show where you are. */
+private class SectionTracker {
+    val positions = mutableStateMapOf<String, Float>()
+    var containerTop = 0f
+}
+private val LocalSectionTracker = compositionLocalOf<SectionTracker?> { null }
+
+/**
+ * One fixed colour per section — drawn as a left-edge gutter and as the dot in the
+ * sticky "current section" banner. Adjacent sections always differ, so a colour
+ * change while scrolling = a section change, readable at a glance on the head unit.
+ */
+private val SECTION_COLORS = mapOf(
+    "Appearance"        to Color(0xFFEC407A),
+    "Typography"        to Color(0xFF7E57C2),
+    "Tiles"             to Color(0xFF5C6BC0),
+    "Vehicle & OBD"     to Color(0xFF66BB6A),
+    "Sidebar"           to Color(0xFF8D6E63),
+    "Widget Content"    to Color(0xFF26A69A),
+    "Spectrum"          to Color(0xFFAB47BC),
+    "Now Playing"       to Color(0xFFEF5350),
+    "Home Pages"        to Color(0xFF9CCC65),
+    "Display Animation" to Color(0xFFFF7043),
+    "Weather"           to Color(0xFF42A5F5),
+    "GPS & Calibration" to Color(0xFFFFA726),
+    "Profiles"          to Color(0xFF26C6DA),
+    "Gestures"          to Color(0xFF78909C),
+    "Startup"           to Color(0xFFFFB300),
+    "Sound on Tap"      to Color(0xFF9E9D24),
+    "Recovery"          to Color(0xFFD81B60),
+    "Backup & Restore"  to Color(0xFF5E35B1),
+    "Maps"              to Color(0xFFFB8C00),
+    "Floating Panel"    to Color(0xFF00ACC1),
+    "Permissions"       to Color(0xFFCDDC39),
+    "Updates"           to Color(0xFF4DB6AC),
+    "Maintenance"       to Color(0xFF64B5F6),
+    "Telegram Messages" to Color(0xFF2AABEE)
+)
+
+private fun sectionColorFor(title: String): Color =
+    SECTION_COLORS[title]
+        ?: Color.hsv((kotlin.math.abs(title.hashCode()) % 360).toFloat(), 0.5f, 0.85f)
+
 // Searchable terms per section so a query like "color" can highlight the sections
 // that actually contain color settings (Appearance, Tiles) without filtering others out.
 private val SECTION_KEYWORDS = mapOf(
@@ -109,7 +165,8 @@ private val SECTION_KEYWORDS = mapOf(
     "Startup" to listOf("startup", "auto-launch", "auto launch", "boot", "delay", "launch", "open app"),
     "Recovery" to listOf("restart", "recovery", "reload", "reboot", "crash", "fix", "defence"),
     "Updates" to listOf("update", "github", "version"),
-    "Maintenance" to listOf("diagnostics", "status", "volume", "calibration", "debug", "log", "setup", "wizard", "reset", "defaults")
+    "Maintenance" to listOf("diagnostics", "status", "volume", "calibration", "debug", "log", "setup", "wizard", "reset", "defaults"),
+    "Telegram Messages" to listOf("telegram", "bot", "message", "driver inbox", "inbox", "remote", "notify", "notification")
 )
 
 // Resolved at call site via LocalDayMode — see SettingsDivider / SettingsSection
@@ -122,6 +179,7 @@ fun SettingsScreen(
     onReset: () -> Unit,
     onOpenDiagnostics: () -> Unit = {},
     onOpenVolumeCalibration: () -> Unit = {},
+    onOpenTelegram: () -> Unit = {},
     onSwitchProfile: (Int) -> Unit = {},
     apps: List<com.openlauncher.app.model.AppInfo> = emptyList(),
     modifier: Modifier = Modifier
@@ -246,6 +304,7 @@ fun SettingsScreen(
     ) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     val scrollState = rememberScrollState()
+    val sectionTracker = remember { SectionTracker() }
     LaunchedEffect(selectedCategory, searchQuery) { scrollState.scrollTo(0) }
     LaunchedEffect(selectedCategory) {
         if (selectedCategory != settings.settingsCategory) {
@@ -258,11 +317,18 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(screenBg)
     ) {
-    CompositionLocalProvider(LocalSettingsSearchQuery provides searchQuery) {
+    CompositionLocalProvider(
+        LocalSettingsSearchQuery provides searchQuery,
+        LocalSectionTracker provides sectionTracker
+    ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
+            .onGloballyPositioned {
+                val top = it.boundsInRoot().top
+                if (sectionTracker.containerTop != top) sectionTracker.containerTop = top
+            }
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -2325,6 +2391,102 @@ fun SettingsScreen(
         }
         }
 
+        // ── Maps ───────────────────────────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
+        SettingsSection("Maps") {
+            SettingsRow(
+                label    = "Map Widget",
+                sublabel = "Live map with position — enable the MAP widget from the widget library (edit mode → +)",
+                icon     = Icons.Default.Map
+            ) {}
+            SettingsDivider()
+            SettingsRow(
+                label    = "Map Provider",
+                sublabel = if (settings.mapProvider == com.openlauncher.app.data.MapProvider.GOOGLE)
+                    "Google Maps — polished tiles, traffic layer (needs Play Services)"
+                else "OpenStreetMap — free, no key, caches tiles for offline use",
+                icon     = Icons.Default.Public
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(
+                        com.openlauncher.app.data.MapProvider.GOOGLE to "Google",
+                        com.openlauncher.app.data.MapProvider.OSM to "OSM"
+                    ).forEach { (provider, label) ->
+                        TapFilterChip(
+                            selected = settings.mapProvider == provider,
+                            onClick  = { onUpdate { copy(mapProvider = provider) } },
+                            label    = { Text(label, fontSize = 10.sp) },
+                            colors   = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = selectedChipContainer,
+                                selectedLabelColor     = selectedChipLabel
+                            )
+                        )
+                    }
+                }
+            }
+            SettingsDivider()
+            SettingsRow(
+                label    = "Control Size",
+                sublabel = "Scale of the map's on-screen buttons, chips and search panel — Large enlarges them 30% for easier tapping in the car",
+                icon     = Icons.Default.TouchApp
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(
+                        com.openlauncher.app.data.MapControlScale.NORMAL to "Normal",
+                        com.openlauncher.app.data.MapControlScale.LARGE to "Large"
+                    ).forEach { (scale, label) ->
+                        TapFilterChip(
+                            selected = settings.mapControlScale == scale,
+                            onClick  = { onUpdate { copy(mapControlScale = scale) } },
+                            label    = { Text(label, fontSize = 10.sp) },
+                            colors   = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = selectedChipContainer,
+                                selectedLabelColor     = selectedChipLabel
+                            )
+                        )
+                    }
+                }
+            }
+            SettingsDivider()
+            SettingsRow(
+                label    = "Map Type",
+                sublabel = "Base view of the map widget",
+                icon     = Icons.Default.Layers
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(
+                        com.openlauncher.app.data.MapType.ROADMAP to "Roadmap",
+                        com.openlauncher.app.data.MapType.SATELLITE to "Satellite",
+                        com.openlauncher.app.data.MapType.HYBRID to "Hybrid",
+                        com.openlauncher.app.data.MapType.TERRAIN to "Terrain"
+                    ).forEach { (type, label) ->
+                        TapFilterChip(
+                            selected = settings.mapWidgetType == type,
+                            onClick  = { onUpdate { copy(mapWidgetType = type) } },
+                            label    = { Text(label, fontSize = 10.sp) },
+                            colors   = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = selectedChipContainer,
+                                selectedLabelColor     = selectedChipLabel
+                            )
+                        )
+                    }
+                }
+            }
+            SettingsDivider()
+            SettingsRow(
+                label    = "Live Traffic",
+                sublabel = "Overlay traffic conditions on the map widget",
+                icon     = Icons.Default.Traffic
+            ) {
+                TapSwitch(
+                    checked         = settings.mapShowTraffic,
+                    onCheckedChange = { onUpdate { copy(mapShowTraffic = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+        }
+        }
+
         // ── Floating Panel ────────────────────────────────────────────────────
         if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
         SettingsSection("Floating Panel") {
@@ -2703,6 +2865,17 @@ fun SettingsScreen(
             )
         }
 
+        // ── Telegram ─────────────────────────────────────────────────────────
+        SettingsSection("Telegram Messages") {
+            SettingsButton(
+                label    = "Driver Inbox",
+                sublabel = "Remote messages from a Telegram bot — setup, commands, quick replies & status",
+                icon     = Icons.Default.Forum,
+                accent   = accent,
+                onClick  = onOpenTelegram
+            )
+        }
+
         // ── Maintenance ──────────────────────────────────────────────────────
         SettingsSection("Maintenance") {
             SettingsButton(
@@ -2745,7 +2918,7 @@ fun SettingsScreen(
             )
             SettingsDivider()
             SettingsButton(
-                label    = "Re-run Setup Wizard",
+                label    = "Run Setup Wizard",
                 sublabel = "Show the first-run onboarding & permission walkthrough again",
                 icon     = Icons.Default.AutoAwesome,
                 accent   = accent,
@@ -2795,6 +2968,95 @@ fun SettingsScreen(
                     )
                 }
         )
+    }
+
+    // ── Sticky "current section" banner ────────────────────────────────────────
+    // Shows which subcategory you're in while scrolling, with the section's
+    // colour dot — pairs with the coloured left-edge gutter on each section.
+    val bannerName by remember(sectionTracker) {
+        derivedStateOf {
+            val cut = scrollState.value + 96f
+            sectionTracker.positions.entries
+                .filter { it.value <= cut }
+                .maxByOrNull { it.value }
+                ?.key
+        }
+    }
+    val currentBanner = bannerName
+    if (currentBanner != null && scrollState.value > 40) {
+        val bannerColor = sectionColorFor(currentBanner)
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(horizontal = 24.dp, vertical = 10.dp)
+                .zIndex(600f)
+                .clip(RoundedCornerShape(20.dp))
+                .background(screenBg.copy(alpha = 0.94f))
+                .border(1.dp, bannerColor.copy(alpha = 0.7f), RoundedCornerShape(20.dp))
+                .padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(bannerColor)
+            )
+            Text(
+                text          = currentBanner.uppercase(),
+                color         = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground,
+                fontSize      = 11.sp,
+                fontWeight    = FontWeight.Bold,
+                letterSpacing = 1.5.sp,
+                maxLines      = 1
+            )
+        }
+    }
+
+    // ── Floating "back to top" chip ───────────────────────────────────────────
+    // Appears once the category tiles / search have scrolled out of view, shows
+    // where you are (category, or the live filter while searching), and taps
+    // scroll back to the top.
+    val showBackToTop by remember { derivedStateOf { scrollState.value > 420 } }
+    AnimatedVisibility(
+        visible = showBackToTop,
+        enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.85f, animationSpec = tween(160)),
+        exit  = fadeOut(tween(120)) + scaleOut(targetScale = 0.85f, animationSpec = tween(120)),
+        modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(end = 18.dp, bottom = 16.dp)
+            .zIndex(500f)
+    ) {
+        val chipScope = rememberCoroutineScope()
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(18.dp))
+                .background(accent.copy(alpha = if (isDayMode) 0.16f else 0.24f))
+                .border(1.dp, accent.copy(alpha = 0.65f), RoundedCornerShape(18.dp))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    TapSound.play()
+                    chipScope.launch { scrollState.animateScrollTo(0) }
+                }
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(Icons.Default.ArrowUpward, null, tint = accent, modifier = Modifier.size(14.dp))
+            Text(
+                text = if (searchQuery.isNotBlank()) "Filter: $searchQuery" else selectedCategory.uppercase(),
+                color = accent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 220.dp)
+            )
+        }
     }
     } // end CompositionLocalProvider
     } // end Box
@@ -2997,6 +3259,296 @@ fun SettingsScreen(
     }
 }
 
+// ── Telegram remote-messages settings page ──────────────────────────────────
+
+@Composable
+fun TelegramSettingsScreen(
+    settings: AppSettings,
+    accent: Color,
+    onUpdate: (AppSettings.() -> AppSettings) -> Unit,
+    onBack: () -> Unit,
+    isOnline: Boolean
+) {
+    val isDayMode  = LocalDayMode.current
+    val screenBg   = MaterialTheme.colorScheme.background
+    val titleColor = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
+    val subColor   = LocalHelpTextColor.current ?: if (isDayMode) Color(0xFF888888) else Color(0xFF666666)
+    val chipContainer = accentOnSurface(accent, screenBg)
+    val chipLabel     = contentColorOn(chipContainer)
+    val scope      = rememberCoroutineScope()
+    var testResult by remember { mutableStateOf<String?>(null) }
+    // Local cursor-stable buffers — the settings value round-trips through DataStore
+    // asynchronously, so binding the field straight to it makes the cursor jump.
+    var tokenText    by remember { mutableStateOf(settings.telegramBotToken) }
+    var sendersText  by remember { mutableStateOf(settings.telegramAllowedSenders) }
+    val connected  = TelegramBot.connected
+    val logRev     = TelegramBot.logRevision   // read so the log window recomposes on new entries
+    val chips      = listOf(1, 2, 3, 6, 12)
+
+    BackHandler { onBack() }
+
+    Box(modifier = Modifier.fillMaxSize().background(screenBg)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, "Back", tint = titleColor)
+                }
+                Text(
+                    text          = "TELEGRAM MESSAGES",
+                    style         = MaterialTheme.typography.titleLarge,
+                    color         = titleColor,
+                    letterSpacing = 3.sp,
+                    fontSize      = 14.sp
+                )
+            }
+
+            SettingsSection("Setup") {
+                Text(
+                    "Create a bot with @BotFather in Telegram (one message). Paste its token below, add your Telegram user ID as an allowed sender, then message the bot — the driver sees it here.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = subColor,
+                    fontSize = 11.sp
+                )
+                SettingsDivider()
+                SettingsRow(
+                    label    = "Master Switch",
+                    sublabel = if (connected) "Connected — listening for messages" else "Enable polling for the bot",
+                    icon     = Icons.Default.PowerSettingsNew
+                ) {
+                    TapSwitch(
+                        checked         = settings.telegramEnabled,
+                        onCheckedChange = { onUpdate { copy(telegramEnabled = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+                SettingsDivider()
+                SettingsRow(
+                    label    = "Bot Token",
+                    sublabel = "From @BotFather — e.g. 123456789:AAH1q2w3e4r5t6y7u8i9o0p (never share it)",
+                    icon     = Icons.Default.Key
+                ) {
+                    OutlinedTextField(
+                        value        = tokenText,
+                        onValueChange = { v -> tokenText = v; onUpdate { copy(telegramBotToken = v.trim()) } },
+                        singleLine   = true,
+                        textStyle    = MaterialTheme.typography.bodySmall.copy(color = titleColor),
+                        colors       = outlinedFieldColors(accent),
+                        modifier     = Modifier.weight(1f)
+                    )
+                }
+                SettingsDivider()
+                SettingsRow(
+                    label    = "Allowed Senders",
+                    sublabel = "Comma-separated IDs or @usernames, e.g. 123456789, @wife, @son — or '@all' for anyone (insecure)",
+                    icon     = Icons.Default.Security
+                ) {
+                    OutlinedTextField(
+                        value        = sendersText,
+                        onValueChange = { v -> sendersText = v; onUpdate { copy(telegramAllowedSenders = v.trim()) } },
+                        singleLine   = true,
+                        textStyle    = MaterialTheme.typography.bodySmall.copy(color = titleColor),
+                        colors       = outlinedFieldColors(accent),
+                        modifier     = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            SettingsSection("Behaviour") {
+                SettingsRow(
+                    label    = "Look-back Window",
+                    sublabel = "Messages older than this are ignored after being offline",
+                    icon     = Icons.Default.History
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        chips.forEach { h ->
+                            TapFilterChip(
+                                selected = settings.telegramLookbackHours == h,
+                                onClick  = { onUpdate { copy(telegramLookbackHours = h) } },
+                                label    = { Text("${h}h", fontSize = 10.sp) },
+                                colors   = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = chipContainer,
+                                    selectedLabelColor     = chipLabel
+                                )
+                            )
+                        }
+                    }
+                }
+                SettingsDivider()
+                SettingsRow(
+                    label    = "Auto Dismiss",
+                    sublabel = "Hide normal messages automatically",
+                    icon     = Icons.Default.Timer
+                ) {
+                    TapSwitch(
+                        checked         = settings.telegramAutoDismiss,
+                        onCheckedChange = { onUpdate { copy(telegramAutoDismiss = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+                SettingsDivider()
+                SettingsRow(
+                    label    = "Dismiss After",
+                    sublabel = "${settings.telegramDismissSeconds} s",
+                    icon     = Icons.Default.Schedule
+                ) {
+                    Slider(
+                        value       = settings.telegramDismissSeconds.toFloat(),
+                        onValueChange = { onUpdate { copy(telegramDismissSeconds = it.toInt().coerceIn(5, 60)) } },
+                        valueRange  = 5f..60f,
+                        steps       = 54,
+                        colors      = sliderColors(accent),
+                        modifier    = Modifier.width(200.dp)
+                    )
+                }
+                SettingsDivider()
+                SettingsRow(
+                    label    = "Read Receipts",
+                    sublabel = "Bot replies “✅ Read” when a message is dismissed",
+                    icon     = Icons.Default.Done
+                ) {
+                    TapSwitch(
+                        checked         = settings.telegramReadReceipts,
+                        onCheckedChange = { onUpdate { copy(telegramReadReceipts = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+                SettingsDivider()
+                SettingsRow(
+                    label    = "Status Indicator",
+                    sublabel = "Header dot while connected to the bot",
+                    icon     = Icons.Default.Circle
+                ) {
+                    TapSwitch(
+                        checked         = settings.telegramShowIndicator,
+                        onCheckedChange = { onUpdate { copy(telegramShowIndicator = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+            }
+
+            SettingsSection("Commands") {
+                SettingsRow("GPS", "Replies with location + a tappable Maps link", Icons.Default.Place) {
+                    TapSwitch(settings.telegramCommandGps, { onUpdate { copy(telegramCommandGps = it) } }, colors = switchColors(accent))
+                }
+                SettingsDivider()
+                SettingsRow("TRACK XX", "Location + speed + heading every minute for XX minutes", Icons.Default.Route) {
+                    TapSwitch(settings.telegramCommandTrack, { onUpdate { copy(telegramCommandTrack = it) } }, colors = switchColors(accent))
+                }
+                SettingsDivider()
+                SettingsRow("CLEAR", "Clears pinned/pending messages and stops tracking", Icons.Default.DeleteSweep) {
+                    TapSwitch(settings.telegramCommandClear, { onUpdate { copy(telegramCommandClear = it) } }, colors = switchColors(accent))
+                }
+                SettingsDivider()
+                SettingsRow("STATUS", "Replies with speed, location, profile & battery", Icons.Default.MonitorHeart) {
+                    TapSwitch(settings.telegramCommandStatus, { onUpdate { copy(telegramCommandStatus = it) } }, colors = switchColors(accent))
+                }
+                SettingsDivider()
+                SettingsRow("WARN xxx", "Pinned alert — dismiss locked for 30 s", Icons.Default.WarningAmber) {
+                    TapSwitch(settings.telegramCommandWarn, { onUpdate { copy(telegramCommandWarn = it) } }, colors = switchColors(accent))
+                }
+            }
+
+            SettingsSection("Quick Replies") {
+                settings.telegramQuickReplies.forEachIndexed { i, r ->
+                    val replyLocal = remember(i) { mutableStateOf(r) }
+                    SettingsRow(label = "Reply ${i + 1}", sublabel = "", icon = Icons.Default.Reply) {
+                        OutlinedTextField(
+                            value        = replyLocal.value,
+                            onValueChange = { v ->
+                                replyLocal.value = v
+                                onUpdate {
+                                    copy(telegramQuickReplies = telegramQuickReplies.toMutableList().also { if (i in it.indices) it[i] = v })
+                                }
+                            },
+                            singleLine   = true,
+                            textStyle    = MaterialTheme.typography.bodySmall.copy(color = titleColor),
+                            colors       = outlinedFieldColors(accent),
+                            modifier     = Modifier.weight(1f)
+                        )
+                    }
+                    if (i < settings.telegramQuickReplies.lastIndex) SettingsDivider()
+                }
+                if (settings.telegramQuickReplies.size < 6) {
+                    SettingsDivider()
+                    SettingsButton(
+                        label    = "Add Reply",
+                        sublabel = "Buttons shown on the message banner",
+                        icon     = Icons.Default.Add,
+                        accent   = accent,
+                        onClick  = { onUpdate { copy(telegramQuickReplies = telegramQuickReplies + "") } }
+                    )
+                }
+            }
+
+            SettingsSection("Diagnostics") {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (connected) "● Bot connected" else "○ Not connected",
+                        color = if (connected) Color(0xFF43A047) else subColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        if (isOnline) "● Internet on" else "○ Internet off",
+                        color = if (isOnline) Color(0xFF43A047) else Color(0xFFE53935),
+                        fontSize = 11.sp
+                    )
+                }
+                SettingsDivider()
+                SettingsButton(
+                    label    = "Send Test Message",
+                    sublabel = "Validates the token & connectivity (needs an allowed sender)",
+                    icon     = Icons.Default.Send,
+                    accent   = accent,
+                    onClick  = {
+                        scope.launch {
+                            testResult = null
+                            val t = settings.telegramBotToken
+                            if (t.isBlank()) {
+                                TelegramBot.log("Test skipped — no token")
+                                testResult = "Set a bot token first"
+                            } else {
+                                TelegramBot.log("Testing token…")
+                                val res = TelegramBot.test(t)
+                                TelegramBot.log(res ?: "Test FAILED — check token / internet")
+                                testResult = res ?: "Failed — check token / internet"
+                            }
+                        }
+                    }
+                )
+                testResult?.let {
+                    SettingsDivider()
+                    Text(it, color = if (it.startsWith("Bot ok")) Color(0xFF43A047) else Color(0xFFE53935), fontSize = 11.sp)
+                }
+                SettingsDivider()
+                Text("LOG", color = subColor, fontSize = 10.sp, letterSpacing = 2.sp)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isDayMode) Color(0xFFF0F0F0) else Color(0xFF111111))
+                        .verticalScroll(rememberScrollState())
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        TelegramBot.log.joinToString("\n").ifEmpty { "No activity yet." },
+                        color = subColor,
+                        fontSize = 9.sp,
+                        lineHeight = 12.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 @Composable
@@ -3013,18 +3565,65 @@ private fun SettingsSection(
     val sectionColor  = if (searching && matched) MaterialTheme.colorScheme.primary
                         else LocalHelpTextColor.current ?: if (isDayMode) Color(0xFF888888) else Color(0xFF3A3A3A)
     val dividerColor  = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF1E1E1E)
-    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-        Text(
-            text          = title.uppercase(),
-            style         = MaterialTheme.typography.labelSmall,
-            color         = sectionColor,
-            letterSpacing = 2.sp,
-            fontWeight    = if (searching && matched) FontWeight.Bold else FontWeight.Normal,
-            modifier      = Modifier.padding(top = 16.dp, bottom = 6.dp)
-        )
-        HorizontalDivider(color = dividerColor)
-        Column(modifier = Modifier.fillMaxWidth(), content = content)
-        HorizontalDivider(color = dividerColor)
+    val tracker       = LocalSectionTracker.current
+    val accentGutter  = sectionColorFor(title)
+
+    // Report this section's scroll offset for the sticky banner, and unregister
+    // when the section leaves the composition (category switch / search filter).
+    DisposableEffect(tracker) {
+        onDispose { tracker?.positions?.remove(title) }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                // Coloured left edge — a 7dp strip spanning the ENTIRE subcategory
+                // block (drawn on the section background, so it always covers the
+                // full height regardless of child measurement)
+                drawRoundRect(
+                    color        = accentGutter,
+                    topLeft      = Offset(0f, 0f),
+                    size         = Size(7.dp.toPx(), size.height),
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                )
+            }
+            .onGloballyPositioned { coords ->
+                val t = tracker ?: return@onGloballyPositioned
+                val v = coords.boundsInRoot().top - t.containerTop
+                // Write only on real movement — avoids needless state-map invalidations
+                if (t.positions[title] != v) t.positions[title] = v
+            }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(accentGutter)
+                )
+                Text(
+                    text          = title.uppercase(),
+                    style         = MaterialTheme.typography.labelSmall,
+                    color         = sectionColor,
+                    letterSpacing = 2.sp,
+                    fontWeight    = if (searching && matched) FontWeight.Bold else FontWeight.Normal,
+                    modifier      = Modifier.padding(top = 16.dp, bottom = 6.dp)
+                )
+            }
+            HorizontalDivider(color = dividerColor)
+            Column(modifier = Modifier.fillMaxWidth(), content = content)
+            HorizontalDivider(color = dividerColor)
+        }
     }
 }
 
@@ -3290,6 +3889,23 @@ private fun SearchField(
                         }
                     }
                 )
+            }
+            // Clear button — the soft keyboard makes clearing the term painful
+            if (query.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .clickable { TapSound.play(); onQueryChange("") },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        "Clear search",
+                        tint = textColor.copy(alpha = 0.7f),
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
             }
         }
     }

@@ -294,6 +294,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         "OBD"           -> copy(showObd = false)
         "NETWORK_SPEED" -> copy(showNetworkSpeed = false)
         "SPECTRUM"      -> copy(showSpectrum = false)
+        "MAP"           -> copy(showMap = false)
         else            -> this
     }
 
@@ -469,6 +470,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "APP_SHORTCUTS" -> 2 to 1
                 "NETWORK_SPEED" -> 2 to 1
                 "SPECTRUM"      -> 3 to 1
+                "MAP"           -> 4 to 3
                 "OBD"           -> 2 to 2
                 "NOW_PLAYING"   -> 4 to 2
                 "TELEMETRY"     -> 2 to 4
@@ -514,6 +516,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "OBD"           -> copy(showObd = true)
                 "NETWORK_SPEED" -> copy(showNetworkSpeed = true)
                 "SPECTRUM"      -> copy(showSpectrum = true)
+                "MAP"           -> copy(showMap = true)
                 else            -> this
             }
             val idx       = layout.indexOfFirst { it.id == id }
@@ -636,6 +639,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun setSpeedometerDigitalOnly(page: Int, digital: Boolean) {
         updateSettings { withWidgetContent(page) { it.copy(speedometerDigitalOnly = digital) } }
+    }
+
+    fun setSpeedometerAnimals(page: Int, animals: Boolean) {
+        updateSettings { withWidgetContent(page) { it.copy(speedometerAnimals = animals) } }
     }
 
     fun setAppShortcutCount(page: Int, count: Int) {

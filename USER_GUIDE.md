@@ -1,6 +1,6 @@
 # OpenLauncher Custom — User Guide & Reference
 
-**Version covered: 0.9.87 (versionCode 87)**
+**Version covered: 0.9.119 (versionCode 119)**
 
 A launcher built for Android car head units (PX30 "NaviRadio" rigs, FYT/Microntek and similar). It replaces the stock launcher with a fully customisable dashboard: widgets on a grid, live GPS/telemetry, media control, hardware-radio mirroring, OBD2 telemetry, an audio spectrum, per-driver profiles, and a floating quick-controls panel — designed to be operated with one finger while driving.
 
@@ -10,13 +10,13 @@ A launcher built for Android car head units (PX30 "NaviRadio" rigs, FYT/Micronte
 
 When the launcher starts for the first time a 5-step wizard walks you through:
 
-1. **Introduction**
+1. **Introduction** — tap the ✕ (top-right) at any time to exit the wizard; you can bring it back from Settings → Maintenance → Run Setup Wizard.
 2. **Location Services** — needed for the GPS speedometer, compass, altimeter, weather and trip meter.
 3. **Media Integration** — notification access so the Now Playing widget can read and control music.
-4. **Audio & System** — microphone (for the spectrum visualizer) and usage access (so the floating panel auto-hides over sensitive apps).
+4. **Audio & System** — microphone (spectrum visualizer), usage access (floating panel auto-hide), **draw-over-apps** (floating panel above other apps), **accessibility** (floating BACK key), **Bluetooth** (OBD2) — each with a live granted/missing status.
 5. **Ready to Go** — optionally set OpenLauncher as the default Home app.
 
-Every permission can be granted or re-checked later in **Settings → Permissions**. You can re-run the wizard anytime from **Settings → Maintenance → Re-run Setup Wizard**.
+Every permission can be granted or re-checked later in **Settings → Permissions**. You can re-run the wizard anytime from **Settings → Maintenance → Run Setup Wizard**.
 
 ---
 
@@ -46,7 +46,7 @@ Every permission can be granted or re-checked later in **Settings → Permission
 | Volume | Volume up / down / mute |
 | Quick Actions | Toggles: Bluetooth, Wi-Fi, blackout, mute, system settings, day/night |
 | Altimeter | Roll, pitch & altitude (with zero calibration) |
-| Speedometer | GPS speed |
+| Speedometer | GPS speed — three modes via long-press: **Dial track** (analog gauge), **Digital only** (big number), **Animals** (animal for your speed range from the sprite sheet — tree at 0, tortoise → peregrine falcon up to 141+ km/h — with a small speed readout at the bottom) |
 | Vitals | Head-unit health (CPU/RAM/temp etc.), configurable elements |
 | Trip Tracker | Trip distance, drive/idle time, average speed + 0–100 accel test (see §8) |
 | Soundboard | Custom sound pads |
@@ -54,6 +54,7 @@ Every permission can be granted or re-checked later in **Settings → Permission
 | OBD2 | Live engine & sensor telemetry from a Bluetooth ELM327 adapter |
 | Network Speed | Upload/download speed |
 | Spectrum | Live audio spectrum visualizer |
+| Map | Live map with position — Google or OSM tiles (see Maps settings). Chips: map type + traffic (Google) or OSM badge; **SEARCH** chip (online only) finds places and can navigate; zoom buttons + recenter; drag to browse (recenter resumes follow). An **OFFLINE** badge appears when there is no internet — the widget then serves cached OSM tiles only |
 
 Widgets can be added on **each page independently** (the same widget can exist on both pages with different content — see Widget Content below).
 
@@ -87,6 +88,8 @@ Every "choose an app" action in the launcher — sidebar shortcuts, app-shortcut
 
 Settings are organised in 6 categories (top of the screen): **All · Display · Dashboard · Widgets · Vehicle & OBD · Launcher**. There is also a **search field** — type a keyword to filter sections.
 
+Each subcategory (section) has its **own colour** shown as a left-edge bar, and while you scroll a small **sticky banner** at the top-left shows the current section's name with the same colour dot — so you always know where you are without reading the small headers.
+
 ### Display
 
 | Section | Options |
@@ -110,6 +113,7 @@ Settings are organised in 6 categories (top of the screen): **All · Display · 
 | **Widget Content** | Per-page editing selector; App Shortcuts Count; Soundboard Buttons |
 | **Spectrum** | Rise Speed (attack), Fall-off Speed (decay), Response Curve, per-page bars count / style (bars, rounded, dots) / mirror / color / gain, fallback image |
 | **Now Playing** | Radio App (assign or AUTO-DETECT), Show FM/AM Band Chips, Station Change Popup, Artwork Size, Artwork Dim |
+| **Maps** | Map widget (enable from the widget library), **Map Provider (Google / OSM)** — OSM is free & Google-free with an offline tile cache, **Control Size (Normal / Large)** — Large enlarges the map's buttons/chips/search panel 30% for easier tapping in the car, Map Type (Roadmap / Satellite / Hybrid / Terrain — Google only), Live Traffic (Google only) |
 | **Weather** | Dynamic GPS location, Custom Location / Fallback City, Provider (wttr.in / Open-Meteo), Animated Icons (Meteocons), Forecast Days (3/5/7) |
 | **Floating Panel** | See §6 |
 
@@ -128,6 +132,7 @@ Settings are organised in 6 categories (top of the screen): **All · Display · 
 | **Gestures** | Two-Finger Tap → app, Three-Finger Tap → app |
 | **Startup** | Auto-Launch App + delay (1–30 s) |
 | **Sound on Tap** | Enable + sound type (tick / beep) |
+| **Telegram Messages** | **Driver Inbox** — remote messages from a Telegram bot (see §9a): token, allowed senders, look-back window, auto-dismiss, read receipts, quick replies, command toggles, header indicator, test + log |
 | **Recovery** | Restart Launcher |
 | **Backup & Restore** | Export settings to JSON file, Restore from JSON |
 | **Permissions** | Status + shortcuts for: Default Launcher, Notification Access, Location, Draw Over Other Apps, Microphone, Usage Access, Accessibility (Back key) |
@@ -190,10 +195,25 @@ The trip widget is a manual session meter (does **not** survive launcher restart
 
 ---
 
+## 9a. Driver Inbox (Telegram remote messages)
+
+Receive messages on the head unit from a **Telegram bot** — no phone number, no Telegram app, no server of your own.
+
+**One-time setup:** create a bot with **@BotFather** (one message), then on the unit go to *Settings → Launcher → Telegram Messages → Driver Inbox*, paste the **bot token**, add your **Telegram user ID** under *Allowed Senders*, and flip *Master Switch* on. Anyone on the allow-list just opens a normal chat with the bot and types.
+
+- **Normal messages** pop up as a top banner for the *Dismiss After* time (default 15 s), with **quick replies** and a ✕. Dismissal sends a **"✅ Read"** receipt back to the sender.
+- **Commands** (case-insensitive): `GPS` → location + Maps link · `TRACK 5` → position/speed/heading every minute for 5 minutes, each with a Maps link · `CLEAR` → clears pinned messages + stops tracking · `STATUS` → speed, GPS, profile, battery, uptime · `WARN <text>` → a pinned alert that cannot be dismissed for 30 s.
+- **Look-back window** ignores messages older than the selected age (1–12 h) so stale backlog doesn't flood the screen after being offline.
+- A small **header dot** shows while the bot is connected (independent toggle).
+- Security: the bot **only answers allowed senders** (numeric IDs, `@usernames`, or `@all` for anyone — `@all` is insecure); the token never leaves the device.
+
+---
+
 ## 10. Hidden easter eggs
 
 - **Speed-tinted vehicle name** — the name in the header changes color with speed (green ≥ 50, orange ≥ 100, red ≥ 120 km/h).
-- **Retro 80s LCD theme** — long-press the version line at the bottom of Settings (*"v0.9.87 • Original by David Lam…"*) to toggle a phosphor-green CRT theme: scanlines, flicker, IBM VGA font, DSEG14 digits. Long-press again to return to normal.
+- **Speedometer test boost** — **triple-tap** the speedometer widget: it adds **+10 km/h** to the indicated speed, **holds for 500 ms** so you can read it, then falls back at **20 km/h per second**. Works in all three speedometer modes (dial, digital, animals) to test the display while stationary.
+- **Retro 80s LCD theme** — long-press the version line at the bottom of Settings (*"v0.9.119 • Original by David Lam…"*) to toggle a phosphor-green CRT theme: scanlines, flicker, IBM VGA font, DSEG14 digits. Long-press again to return to normal.
 - **Trip accel simulation** — tap the speed readout in the 0–100 mode (see §8).
 
 ---
@@ -214,8 +234,32 @@ The trip widget is a manual session meter (does **not** survive launcher restart
 
 ---
 
-## 12. Version history (recent)
+## 12. Map search & navigation (free, online only)
 
+The map widget has a **SEARCH** chip — it appears **only while the device is online** (offline it stays hidden, and the widget falls back to cached tiles + the OFFLINE badge).
+
+- Tap **SEARCH** → type a place (e.g. "Kalamata" or a street/POI) → results appear live (up to 5). Tap a result: the map centers on it and drops a pin.
+- A small bar appears bottom-left with the place name, **NAVIGATE** and ✕. Tap **NAVIGATE** to draw the driving route from your GPS position and show distance + ETA.
+- Tap ✕ (or pick another result) to clear the pin/route. Tap the recenter button to return to follow mode.
+- Everything uses **free OpenStreetMap services** (Nominatim for search, Valhalla for routing) — no Google billing involved, on either map provider. Search/routing need internet at the moment of use; tiles keep working from the OSM cache when offline.
+
+## 13. Version history (recent)
+
+- **0.9.119** — Security: moved the signing-keystore secret out of source into a git-ignored `keystore.properties`; added a private Google-detach runbook.
+- **0.9.118** — TRACK updates now include a tappable Maps link with each position (same as the GPS reply).
+- **0.9.117** — Driver Inbox polish: all quick replies show (wrap), allowed senders accept numeric IDs / @usernames / "@all", token & sender format examples, and a ✕ clear button on the Settings search field.
+- **0.9.115** — Telegram "Driver Inbox": bot-based remote messages (setup page, allowed senders, look-back, auto-dismiss, receipts, quick replies, commands GPS/TRACK/CLEAR/STATUS/WARN, header indicator, test + log).
+- **0.9.114** — Speedometer test boost tuned for real screens: triple-tap instead of 4 taps, and the boosted speed holds for 500 ms before dropping at 20 km/h/s.
+- **0.9.113** — Hidden speedometer test mode: taps add +10 km/h that bleeds off at 20 km/h/s, in every speedometer mode.
+- **0.9.112** — Speedometer "Animals" mode: 16-animal sprite (tree → peregrine falcon by speed range) with a small speed readout; selectable via the widget's long-press menu.
+- **0.9.111** — Performance & safety hardening: sanitized search input, bounded route geometry, finite-coordinate guards, double-tap protection and defensive wrappers around all map/search/scroll-tracker code (no features removed).
+- **0.9.110** — Section colour edges enlarged to full-height 7px strips on the left of each subcategory block (fixed to span the whole section).
+- **0.9.108** — Settings navigation aids: colour-coded left-edge bar per section + sticky "current section" banner while scrolling.
+- **0.9.107** — Map Control Size tuned to a gentle 30% enlargement (Large), down from 2×.
+- **0.9.106** — Map Control Size setting (Normal / Large) for the map widget's chips, zoom buttons and search panel.
+- **0.9.105** — Map widget search + navigation on free OSM services (Nominatim + Valhalla), online-only, offline auto-hide.
+- **0.9.103** — Housekeeping build (widget registry cleanup).
+- **0.9.102** — OSM map provider (osmdroid, offline tile cache) + OFFLINE badge, provider switch in Maps settings.
 - **0.9.87** — Retro 80s LCD hidden theme (long-press version line), DSEG14 & IBM VGA fonts.
 - **0.9.86** — Wi-Fi (hotspot SSID) automatic profile switching.
 - **0.9.85** — Album-art rendering polish (exact-size decode, crossfade, popup filter quality).

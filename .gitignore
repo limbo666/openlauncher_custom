@@ -14,6 +14,12 @@ release/*.aab
 *.jks
 *.keystore
 keystore/
+keystore.properties
+*.password.txt
+
+# Private docs — never commit (secrets / removal runbooks)
+DETACH_GOOGLE.md
+SECURITY.md
 
 # Android Studio / IntelliJ IDEA
 .idea/

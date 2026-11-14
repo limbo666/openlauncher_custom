@@ -8,6 +8,7 @@ import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import java.io.File
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -54,19 +55,41 @@ android {
     }
 
     defaultConfig {
-        applicationId  = "com.openlauncher.app"
+        // Fork identity: unique package so this build never collides with the
+        // original OpenLauncher or other forks on the same device, and so the
+        // Google Maps API key restriction is ours alone.
+        applicationId  = "com.limbo.openlauncher"
         minSdk         = 21
         targetSdk      = 34
-        versionCode    = 97
-        versionName    = "0.9.97"
+        versionCode    = 119
+        versionName    = "0.9.119"
+
+        // Google Maps key is NOT stored in the repo. Put it in local.properties
+        // (git-ignored) as:  MAPS_API_KEY=AIza...
+        val localProps = Properties().apply {
+            val f = rootProject.file("local.properties")
+            if (f.exists()) f.inputStream().use { load(it) }
+        }
+        val mapsKey = localProps.getProperty("MAPS_API_KEY")
+            ?: (project.findProperty("MAPS_API_KEY") as String?)
+            ?: "REPLACE_WITH_YOUR_MAPS_API_KEY"
+        manifestPlaceholders["mapsApiKey"] = mapsKey
     }
 
     signingConfigs {
         create("release") {
-            storeFile = file("openlauncher-release.jks")
-            storePassword = "openlauncher123"
-            keyAlias = "openlauncher"
-            keyPassword = "openlauncher123"
+            // PRIVATE fork key — stored OUTSIDE the repo (C:\Users\admin\.android-keys\).
+            // Back this file up; losing it means the app can never be updated
+            // in place again. Other forks cannot sign over this app.
+            // Secrets (alias + passwords) live in keystore.properties (git-ignored).
+            val ks = Properties().apply {
+                val f = rootProject.file("keystore.properties")
+                if (f.exists()) f.inputStream().use { load(it) }
+            }
+            storeFile = file(ks.getProperty("storeFile") ?: "C:/Users/admin/.android-keys/limbo-openlauncher.jks")
+            storePassword = ks.getProperty("storePassword") ?: ""
+            keyAlias = ks.getProperty("keyAlias") ?: "limbo"
+            keyPassword = ks.getProperty("keyPassword") ?: ""
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
@@ -149,6 +172,12 @@ dependencies {
     // Image loading
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-svg:2.7.0")
+
+    // Google Maps widget (official SDK — API key lives in AndroidManifest.xml)
+    implementation("com.google.android.gms:play-services-maps:18.2.0")
+
+    // OSM map provider (osmdroid) — free tiles, no key, offline cache
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
 
     // Lottie animation (Meteocons)
     implementation("com.airbnb.android:lottie-compose:6.6.2")

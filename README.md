@@ -201,7 +201,27 @@ Many Android car head units do not use standard Android audio streams for the ph
 - **Custom Soundboard Widget (`SoundboardWidget`)**:
   - Up to 9 configurable audio pads.
   - Preloaded fun audio clips (What's Up Doc, Arnold "I'll be back", A Few Moments Later, Greek Stamata, Cat meow, Horn, Rooster, Boing, Chime) with support for custom audio URIs.
-- **Telemetry, Speedometer & Altimeter**: Digital-only options, compass offset calibration, and pitch/roll level calibration.
+- **Telemetry, Speedometer & Altimeter**: Digital-only options, compass offset calibration, and pitch/roll level calibration. The speedometer offers three display modes — analog dial, digital, and a fun **"Animals" mode** that shows an animal for the current speed range (tree → tortoise → … → peregrine falcon) with a small numeric readout.
+
+---
+
+### Navigation-Ready Map Widget
+- A live position map with two selectable tile providers (Google tiles or free OpenStreetMap tiles with an offline cache and an OFFLINE badge).
+- **Place search and driving directions** built on free, open services (OpenStreetMap) — no per-request billing.
+- Map-type / traffic overlays, zoom + recenter controls, and a configurable **control-size** scale (Normal or 30% larger) for easy tapping on head units.
+
+---
+
+### Remote "Driver Inbox" (Telegram)
+- Receive and acknowledge messages on the head unit via a Telegram bot — no phone number or server of your own required.
+- Pinned alerts (WARN) and auto-dismissing banners with quick replies and read receipts.
+- Command replies: `GPS`, `TRACK`, `CLEAR`, `STATUS`, `WARN` — with location/speed/battery/status answers and tappable map links.
+
+---
+
+### Settings Navigation Aids
+- Color-coded section edges and a sticky "current section" banner while scrolling, so you always know where you are in Settings at a glance.
+- A ✕ clear button on the Settings search field for quick term clearing on car keyboards.
 
 ---
 

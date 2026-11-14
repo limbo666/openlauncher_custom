@@ -5,6 +5,11 @@ import androidx.compose.ui.graphics.toArgb
 
 enum class ClockStyle { DIGITAL, ANALOG }
 enum class UnitSystem { METRIC, IMPERIAL }
+enum class MapType { ROADMAP, SATELLITE, HYBRID, TERRAIN }
+enum class MapProvider { GOOGLE, OSM }
+
+/** Size of the map widget's on-screen controls (chips, zoom, search, navigate). */
+enum class MapControlScale(val multiplier: Float) { NORMAL(1f), LARGE(1.3f) }
 enum class ParticleEffect { NONE, SNOW, RAIN, STARS, CONSTELLATION }
 enum class AppFont {
     SYSTEM,
@@ -168,7 +173,10 @@ data class AppSettings(
     val pipAppPackage: String = "",
     // Head unit's radio app — mirrored & controlled via its MediaSession
     val radioPackage: String = "",
-    val onboardingCompleted: Boolean = true,
+    // First-run wizard: shows on every fresh install (default false), and once
+    // more when onboardingVersion < the current wizard version (wizard revamps).
+    val onboardingCompleted: Boolean = false,
+    val onboardingVersion: Int = 0,
     val showVitals: Boolean = true,
     val showTripTracker: Boolean = false,
     val compassOffset: Float = 0f,
@@ -179,6 +187,7 @@ data class AppSettings(
     val vitalsAsBars: Boolean = false,
     val vitalsElements: List<String> = defaultVitalsElements(),
     val speedometerDigitalOnly: Boolean = false,
+    val speedometerAnimals: Boolean = false,
     val gradientDirection: GradientDirection = GradientDirection.DIAGONAL,
     val useCustomBackgroundColor: Boolean = false,
     val showVolume: Boolean = true,
@@ -263,7 +272,28 @@ data class AppSettings(
     val profileAutoSwitchEnabled: Boolean = false,
     val profileHotspotSsids: List<String> = listOf("", "", "", ""),
     // Hidden retro LCD theme (easter egg — long-press the version line in Settings)
-    val retroThemeEnabled: Boolean = false
+    val retroThemeEnabled: Boolean = false,
+    // Google Maps widget (requires Play Services + the Maps API key in the manifest)
+    val showMap: Boolean = false,
+    val mapProvider: MapProvider = MapProvider.GOOGLE,
+    val mapWidgetType: MapType = MapType.ROADMAP,
+    val mapShowTraffic: Boolean = false,
+    val mapControlScale: MapControlScale = MapControlScale.NORMAL,
+    // Telegram remote messages (bot API — no phone number / no app needed on the unit)
+    val telegramEnabled: Boolean = false,
+    val telegramBotToken: String = "",
+    val telegramAllowedSenders: String = "",   // comma-separated Telegram user IDs ("" = answer nobody)
+    val telegramLookbackHours: Int = 3,        // 1..12 — how old a message may be and still show
+    val telegramAutoDismiss: Boolean = true,
+    val telegramDismissSeconds: Int = 15,      // 5..60
+    val telegramReadReceipts: Boolean = true,  // bot replies "✅ Read" on dismiss
+    val telegramQuickReplies: List<String> = listOf("OK", "On my way", "Call you later", "No — driving"),
+    val telegramShowIndicator: Boolean = true,
+    val telegramCommandGps: Boolean = true,
+    val telegramCommandTrack: Boolean = true,
+    val telegramCommandClear: Boolean = true,
+    val telegramCommandStatus: Boolean = true,
+    val telegramCommandWarn: Boolean = true
 )
 
 /**
@@ -282,6 +312,7 @@ fun AppSettings.withSharedFieldsFrom(source: AppSettings): AppSettings = copy(
     androidAutoPackage  = source.androidAutoPackage,
     pipAppPackage       = source.pipAppPackage,
     onboardingCompleted = source.onboardingCompleted,
+    onboardingVersion   = source.onboardingVersion,
     profileNames        = source.profileNames,
     profileAutoSwitchEnabled = source.profileAutoSwitchEnabled,
     profileHotspotSsids = source.profileHotspotSsids,
@@ -297,6 +328,7 @@ fun AppSettings.withSharedFieldsFrom(source: AppSettings): AppSettings = copy(
 data class WidgetContent(
     val clockStyle: ClockStyle = ClockStyle.DIGITAL,
     val speedometerDigitalOnly: Boolean = false,
+    val speedometerAnimals: Boolean = false,
     val vitalsAsBars: Boolean = false,
     val vitalsElements: List<String> = defaultVitalsElements(),
     val quickActionButtons: List<String> = defaultQuickActionButtons(),
@@ -315,6 +347,7 @@ data class WidgetContent(
 fun AppSettings.pageZeroWidgetContent(): WidgetContent = WidgetContent(
     clockStyle              = clockStyle,
     speedometerDigitalOnly  = speedometerDigitalOnly,
+    speedometerAnimals      = speedometerAnimals,
     vitalsAsBars            = vitalsAsBars,
     vitalsElements          = vitalsElements,
     quickActionButtons      = quickActionButtons,
@@ -339,6 +372,7 @@ fun AppSettings.withWidgetContent(page: Int, transform: (WidgetContent) -> Widge
         return copy(
             clockStyle             = updated.clockStyle,
             speedometerDigitalOnly = updated.speedometerDigitalOnly,
+            speedometerAnimals     = updated.speedometerAnimals,
             vitalsAsBars           = updated.vitalsAsBars,
             vitalsElements         = updated.vitalsElements,
             quickActionButtons     = updated.quickActionButtons,
@@ -381,7 +415,8 @@ fun reconcileWidgetFlags(s: AppSettings): AppSettings {
         "APP_SHORTCUTS" to s.showAppShortcuts,
         "OBD" to s.showObd,
         "NETWORK_SPEED" to s.showNetworkSpeed,
-        "SPECTRUM" to s.showSpectrum
+        "SPECTRUM" to s.showSpectrum,
+        "MAP" to s.showMap
     )
     fun rec(layout: List<WidgetConfig>): List<WidgetConfig> =
         layout.map { w -> if (flags[w.id] == false) w.copy(enabled = false) else w }
@@ -432,6 +467,7 @@ fun AppSettings.activeWidgetIds(): Set<String> = buildSet {
     if (showObd) add("OBD")
     if (showNetworkSpeed) add("NETWORK_SPEED")
     if (showSpectrum) add("SPECTRUM")
+    if (showMap) add("MAP")
 }
 
 /**

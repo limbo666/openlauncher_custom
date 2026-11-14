@@ -3,7 +3,9 @@ package com.openlauncher.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.BatteryManager
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -16,19 +18,24 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,6 +45,8 @@ import com.openlauncher.app.data.SidebarPosition
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.AppFont
 import com.openlauncher.app.data.ParticleEffect
+import com.openlauncher.app.data.telegram.IncomingTelegramMessage
+import com.openlauncher.app.data.telegram.TelegramBot
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.service.FloatingPanelService
 import com.openlauncher.app.service.MediaListenerService
@@ -54,11 +63,18 @@ import com.openlauncher.app.ui.theme.RetroPrimary
 import com.openlauncher.app.util.TapSound
 import com.openlauncher.app.util.VolumeController
 import com.openlauncher.app.viewmodel.LauncherViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
     private val vm: LauncherViewModel by viewModels()
     private var autoLaunchDone = false
+
+    // Bump when the setup wizard gets a meaningful revamp — forces it to show
+    // once on installs that already completed an older wizard.
+    private val ONBOARDING_WIZARD_VERSION = 2
 
     // Compose state held by the activity: whether the launcher is currently in
     // the foreground. The video wallpaper pauses itself while false (onStop).
@@ -147,6 +163,123 @@ class MainActivity : ComponentActivity() {
                 else if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
             val appPickerTarget by vm.appPickerTarget.collectAsStateWithLifecycle()
             val profileSwitchedAt by vm.profileSwitchedAt.collectAsStateWithLifecycle()
+
+            // ── Telegram remote messages ──────────────────────────────────────
+            var telegramBanner by remember { mutableStateOf<TgBanner?>(null) }
+            var telegramWarn by remember { mutableStateOf<TgWarn?>(null) }
+            var telegramTrackJob by remember { mutableStateOf<Job?>(null) }
+            val tgScope = rememberCoroutineScope()
+            val tgSettings by rememberUpdatedState(settings)
+            val tgLocation by rememberUpdatedState(location)
+            val tgBearing by rememberUpdatedState(bearing)
+
+            fun tgSend(chatId: Long, text: String) {
+                val token = tgSettings.telegramBotToken
+                tgScope.launch {
+                    if (TelegramBot.send(token, chatId, text)) TelegramBot.log("→ ${text.take(48)}")
+                    else TelegramBot.log("Send failed")
+                }
+            }
+
+            fun tgAck(chatId: Long) {
+                if (tgSettings.telegramReadReceipts) tgSend(chatId, "✅ Read")
+            }
+
+            fun startTrack(chatId: Long, minutes: Int) {
+                telegramTrackJob?.cancel()
+                telegramTrackJob = tgScope.launch {
+                    val endAt = SystemClock.elapsedRealtime() + minutes * 60_000L
+                    tgSend(chatId, "🛰 Tracking for $minutes min")
+                    while (SystemClock.elapsedRealtime() < endAt) {
+                        val loc = tgLocation
+                        if (loc != null) {
+                            val spd = loc.speedMps * 3.6f
+                            val dir = bearingToCompass(tgBearing)
+                            tgSend(chatId, "🛰 %.0f km/h · %s · %.5f, %.5f\nhttps://maps.google.com/?q=%.5f,%.5f"
+                                .format(spd, dir, loc.latitude, loc.longitude, loc.latitude, loc.longitude))
+                        }
+                        delay(60_000L)
+                    }
+                    telegramTrackJob = null
+                    tgSend(chatId, "✅ Tracking finished")
+                }
+            }
+
+            fun handleTelegram(m: IncomingTelegramMessage) {
+                val s = tgSettings
+                if (!s.telegramEnabled) return
+                val entries = s.telegramAllowedSenders.split(',')
+                    .map { it.trim() }.filter { it.isNotEmpty() }
+                val allowAll = entries.any { it.equals("@all", true) || it.equals("all", true) || it == "*" }
+                val allowed = allowAll || entries.any { e ->
+                    if (e.startsWith("@")) {
+                        m.fromUsername.isNotEmpty() && e.substring(1).equals(m.fromUsername, ignoreCase = true)
+                    } else {
+                        e.toLongOrNull() == m.fromId
+                    }
+                }
+                if (!allowed) {
+                    TelegramBot.log("Ignored ${m.fromName} @${m.fromUsername} (not allowed)")
+                    return
+                }
+                val ageMin = (System.currentTimeMillis() / 1000 - m.dateSec) / 60.0
+                if (ageMin > s.telegramLookbackHours * 60.0) {
+                    TelegramBot.log("Ignored old message from ${m.fromName}")
+                    return
+                }
+                TelegramBot.log("← ${m.fromName}: ${m.text.take(48)}")
+                val cmd = m.text.trim()
+                when {
+                    s.telegramCommandWarn && cmd.startsWith("WARN", ignoreCase = true) -> {
+                        val t = cmd.substringAfter(" ", "").ifBlank { cmd }
+                        telegramWarn = TgWarn(m.chatId, t, SystemClock.elapsedRealtime())
+                    }
+                    s.telegramCommandClear && cmd.equals("CLEAR", ignoreCase = true) -> {
+                        telegramTrackJob?.cancel(); telegramTrackJob = null
+                        telegramBanner = null; telegramWarn = null
+                        tgSend(m.chatId, "✅ Cleared")
+                    }
+                    s.telegramCommandGps && cmd.equals("GPS", ignoreCase = true) -> {
+                        val loc = tgLocation
+                        if (loc == null) tgSend(m.chatId, "📍 No GPS fix yet")
+                        else tgSend(m.chatId, "📍 %.5f, %.5f\nhttps://maps.google.com/?q=%.5f,%.5f"
+                            .format(loc.latitude, loc.longitude, loc.latitude, loc.longitude))
+                    }
+                    s.telegramCommandTrack && cmd.startsWith("TRACK", ignoreCase = true) -> {
+                        val mins = cmd.substringAfter(" ", "3").trim().toIntOrNull()?.coerceIn(1, 60) ?: 3
+                        startTrack(m.chatId, mins)
+                    }
+                    s.telegramCommandStatus && cmd.equals("STATUS", ignoreCase = true) -> {
+                        val loc = tgLocation
+                        val spd = (loc?.speedMps ?: 0f) * 3.6f
+                        val profile = s.profileNames.getOrElse(s.activeProfile) { "Driver ${s.activeProfile + 1}" }
+                        val batt = batteryLevel(this@MainActivity)
+                        val uptime = SystemClock.elapsedRealtime() / 60_000L
+                        val locStr = loc?.let { "%.5f, %.5f".format(it.latitude, it.longitude) } ?: "no fix"
+                        tgSend(m.chatId, "🚗 Status\nSpeed: %.0f km/h\nGPS: %s\nProfile: %s\nBattery: %d%%\nUptime: %d min"
+                            .format(spd, locStr, profile, batt, uptime))
+                    }
+                    else -> telegramBanner = TgBanner(m.chatId, m.fromName, m.text, SystemClock.elapsedRealtime())
+                }
+            }
+
+            // Register the listener once, then keep polling in sync with settings
+            LaunchedEffect(Unit) { TelegramBot.listener = { handleTelegram(it) } }
+            LaunchedEffect(settings.telegramEnabled, settings.telegramBotToken) {
+                if (settings.telegramEnabled && settings.telegramBotToken.isNotBlank()) {
+                    TelegramBot.start(settings.telegramBotToken)
+                } else {
+                    TelegramBot.stop()
+                }
+            }
+            // Auto-dismiss the transient banner (read receipt on timeout)
+            LaunchedEffect(telegramBanner, settings.telegramAutoDismiss, settings.telegramDismissSeconds) {
+                val b = telegramBanner ?: return@LaunchedEffect
+                if (settings.telegramAutoDismiss) {
+                    delay(settings.telegramDismissSeconds * 1000L)
+                    if (telegramBanner == b) { telegramBanner = null; tgAck(b.chatId) }
+                }
+            }
 
             LaunchedEffect(settings.volumeProtocol) {
                 VolumeController.setProtocol(settings.volumeProtocol)
@@ -247,11 +380,19 @@ class MainActivity : ComponentActivity() {
                     useCustomBg = isCustom && settings.useCustomBackgroundColor && !retroOn,
                     helpTextColor = if (retroOn) null else settings.helpTextColor?.let { Color(it) }
                 ) {
-                if (!settings.onboardingCompleted) {
+                // Wizard gate: shows on a fresh install (default false), and once
+                // more on upgraded installs whenever the wizard itself was revamped
+                // (onboardingVersion below the current wizard version).
+                if (!settings.onboardingCompleted || settings.onboardingVersion < ONBOARDING_WIZARD_VERSION) {
                     OnboardingScreen(
                         accent = accent,
                         onComplete = {
-                            vm.updateSettings { copy(onboardingCompleted = true) }
+                            vm.updateSettings {
+                                copy(
+                                    onboardingCompleted = true,
+                                    onboardingVersion = ONBOARDING_WIZARD_VERSION
+                                )
+                            }
                             // Start location updates immediately upon completion
                             vm.startLocationUpdates()
                         }
@@ -400,6 +541,7 @@ class MainActivity : ComponentActivity() {
                                         onSetClockStyle     = { style -> vm.setClockStyle(page, style) },
                                         onSetVitalsAsBars   = { asBars -> vm.setVitalsAsBars(page, asBars) },
                                         onSetSpeedometerDigitalOnly = { digital -> vm.setSpeedometerDigitalOnly(page, digital) },
+                                        onSetSpeedometerAnimals = { animals -> vm.setSpeedometerAnimals(page, animals) },
                                          onSetAppShortcutCount = { count -> vm.setAppShortcutCount(page, count) },
                                          onSetSoundboardButtonCount = { count -> vm.setSoundboardButtonCount(page, count) },
                                         onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(page, idx, pad) },
@@ -420,6 +562,8 @@ class MainActivity : ComponentActivity() {
                                         onSetWidgetBgMode     = { id, mode -> vm.setWidgetBgMode(page, id, mode) },
                                         onSetAllWidgetsBgColor = { color -> vm.setAllWidgetsBgColor(color) },
                                         onSetAllWidgetsBgMode  = { mode -> vm.setAllWidgetsBgMode(mode) },
+                                        onSetMapType      = { type -> vm.updateSettings { copy(mapWidgetType = type) } },
+                                        onToggleMapTraffic = { vm.updateSettings { copy(mapShowTraffic = !mapShowTraffic) } },
                                         onSetAppShortcutPackage = { slot, pkg -> vm.setAppShortcutPackage(page, slot, pkg) },
                                         onToggleDayNight      = { vm.toggleDayNightMode() },
                                         onToggleQuickActionButton = { id -> vm.toggleQuickActionButton(page, id) },
@@ -508,8 +652,17 @@ class MainActivity : ComponentActivity() {
                                         onReset  = { vm.resetSettings() },
                                         onOpenDiagnostics = { vm.navigate(NavDestination.DIAGNOSTICS) },
                                         onOpenVolumeCalibration = { vm.navigate(NavDestination.VOLUME_CALIBRATION) },
+                                        onOpenTelegram = { vm.navigate(NavDestination.TELEGRAM) },
                                         onSwitchProfile = { id -> vm.switchProfile(id) },
                                         apps = apps
+                                    )
+
+                                    NavDestination.TELEGRAM -> TelegramSettingsScreen(
+                                        settings = settings,
+                                        accent   = accent,
+                                        onUpdate = { block -> vm.updateSettings(block) },
+                                        onBack   = { vm.navigate(NavDestination.SETTINGS) },
+                                        isOnline = isOnline
                                     )
 
                                     NavDestination.DIAGNOSTICS -> DiagnosticsScreen(
@@ -590,6 +743,90 @@ class MainActivity : ComponentActivity() {
                                     .zIndex(900f)
                             )
                         }
+
+                        // ── Telegram message overlay (above everything) ─────────
+                        if (telegramWarn != null) {
+                            val w = telegramWarn!!
+                            val elapsed = SystemClock.elapsedRealtime() - w.atMs
+                            val canDismiss = elapsed >= 30_000L
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 12.dp)
+                                    .widthIn(max = 640.dp)
+                                    .zIndex(1200f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xE6B71C1C))
+                                    .padding(14.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "⚠ WARNING",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 1.5.sp,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        if (canDismiss) "DISMISS" else "${((30_000 - elapsed) / 1000 + 1)}s",
+                                        color = if (canDismiss) Color.White else Color(0xFFFFB4AB),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable(enabled = canDismiss) {
+                                                telegramWarn = null; tgAck(w.chatId)
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    )
+                                }
+                                Text(w.text, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        if (telegramBanner != null && telegramWarn == null) {
+                            val b = telegramBanner!!
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 12.dp)
+                                    .widthIn(max = 640.dp)
+                                    .zIndex(1200f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xE61A1A1A))
+                                    .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                    .padding(12.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        b.from.uppercase(),
+                                        color = accent,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 1.sp,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        "✕",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .clickable { telegramBanner = null; tgAck(b.chatId) }
+                                            .padding(6.dp)
+                                    )
+                                }
+                                Text(b.text, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                if (tgSettings.telegramQuickReplies.isNotEmpty()) {
+                                    Spacer(Modifier.height(8.dp))
+                                    QuickRepliesRow(tgSettings.telegramQuickReplies, accent) { r ->
+                                        telegramBanner = null
+                                        tgSend(b.chatId, r)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -631,3 +868,41 @@ class MainActivity : ComponentActivity() {
         checkAndRequestLocationPermission()
     }
 }
+
+// ── Telegram overlay state + helpers ─────────────────────────────────────────
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun QuickRepliesRow(replies: List<String>, accent: Color, onReply: (String) -> Unit) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement   = Arrangement.spacedBy(6.dp)
+    ) {
+        replies.take(6).forEach { r ->
+            Text(
+                r,
+                color = Color.White,
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(accent.copy(alpha = 0.85f))
+                    .clickable { onReply(r) }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            )
+        }
+    }
+}
+
+private data class TgBanner(val chatId: Long, val from: String, val text: String, val atMs: Long)
+private data class TgWarn(val chatId: Long, val text: String, val atMs: Long)
+
+private fun bearingToCompass(b: Float): String {
+    val dirs = listOf("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")
+    val idx = ((((b % 360f) + 360f) % 360f) / 22.5f).toInt() % 16
+    return dirs[idx]
+}
+
+private fun batteryLevel(ctx: android.content.Context): Int = runCatching {
+    val bm = ctx.getSystemService(android.content.Context.BATTERY_SERVICE) as? BatteryManager
+    bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+}.getOrDefault(-1)
