@@ -1,7 +1,7 @@
 <div align="center">
   <img width="256" height="256" alt="logoo" src="https://github.com/user-attachments/assets/4c5c4ddb-836d-4c59-8325-76b8c8d78bb3" />
   <h1>Open Launcher Custom </h1><h3> (Fork) </h3>
-  <p><strong>A customized version of the open-source, offline-first Android launcher built specifically for aftermarket car head units.</strong></p>
+  <p><strong>A customized version of the open-source, <s>offline-first</s> Android launcher built specifically for aftermarket car head units.</strong></p>
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
@@ -11,8 +11,8 @@
 ### Why this fork exists
 
 Android head units are quite different from each other, and there are many models on the market. On top of that, every driver prefers different information and layouts. Although the original OpenLauncher is an amazing base and implementation, I found that it didn't quite fit my specific needs.
-
 Having a stable open-source project like OpenLauncher provides a great foundation to develop further and add features that are useful for me, and potentially for others as well. Features like volume control, auto-launching apps, auto-switching widgets, and color/style customization can be essential for users.
+Few of the additional features of this forks are relying on networks connection so "offline first" on upstream project is not followed strickly. Additionaly some functions like "automated profile switching" is designed to cover my way of using the headup unit so it may not make sense to others. 
 
 > **Note:** While development is faster with AI tools, testing on an actual physical unit is still required, and nothing can guarantee 100% compatibility across every head unit model. Real-world testing is essential, and tweaking may be needed to fit specific devices. For this reason, built-in calibration tools and system information extraction utilities have been added to help with setup and troubleshooting.
 
