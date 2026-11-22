@@ -12,6 +12,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
@@ -49,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import com.openlauncher.app.data.defaultObdMetrics
 import com.openlauncher.app.obd.ObdReading
 import com.openlauncher.app.obd.ObdSession
 import com.openlauncher.app.obd.PairedAdapter
@@ -56,6 +60,7 @@ import com.openlauncher.app.obd.hasBluetoothPermission
 import com.openlauncher.app.obd.pairedAdapters
 import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.ui.theme.LocalHelpTextColor
+import com.openlauncher.app.ui.theme.LocalUiScales
 import kotlin.math.roundToInt
 
 /**
@@ -73,6 +78,9 @@ fun ObdWidget(
     isEditing: Boolean = false,
     onSelectAdapter: (address: String, name: String) -> Unit,
     fallbackImageUri: String = "",
+    enabledMetrics: List<String> = defaultObdMetrics(),
+    pickRequested: Boolean = false,
+    onPickRequestHandled: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -121,21 +129,42 @@ fun ObdWidget(
         }
     }
 
+    // "Choose adapter" now lives in the long-press context menu, not on the face.
+    LaunchedEffect(pickRequested) {
+        if (pickRequested) {
+            choose()
+            onPickRequestHandled()
+        }
+    }
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
-        val roomyH = maxHeight >= 130.dp
-        val isNarrow = maxWidth < 180.dp
-        // Size-aware typography/glyphs so the grid uses whatever room the tile has
-        val valueSize = when {
-            maxHeight >= 220.dp -> 22.sp
-            maxHeight >= 160.dp -> 18.sp
-            else -> 15.sp
+        // Adaptive cell sizing: the more room the tile has, the larger each metric
+        // cell (and therefore its icon and value) grows, and the grid wraps into
+        // as many columns as fit at that minimum cell size.
+        val cellMinSize = when {
+            maxWidth >= 340.dp || maxHeight >= 200.dp -> 110.dp
+            maxWidth >= 240.dp -> 85.dp
+            else -> 70.dp
         }
-        val labelSize = if (maxHeight >= 160.dp) 8.5.sp else 7.5.sp
-        val iconSize = if (maxHeight >= 160.dp) 13.dp else 11.dp
+        val valueSize = when {
+            cellMinSize >= 100.dp -> 16.sp
+            cellMinSize >= 80.dp -> 13.sp
+            else -> 11.sp
+        }
+        val labelSize = when {
+            cellMinSize >= 100.dp -> 9.sp
+            cellMinSize >= 80.dp -> 8.sp
+            else -> 7.sp
+        }
+        val iconSize = when {
+            cellMinSize >= 100.dp -> 30.dp
+            cellMinSize >= 80.dp -> 24.dp
+            else -> 18.dp
+        }
 
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -169,20 +198,6 @@ fun ObdWidget(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (!isEditing) {
-                    TextButton(
-                        onClick = ::choose,
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        modifier = Modifier.height(26.dp)
-                    ) {
-                        Text(
-                            text = if (adapterAddress.isEmpty()) "CHOOSE" else "CHANGE",
-                            color = accent,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
             }
 
             // Main Telemetry Readout
@@ -215,7 +230,7 @@ fun ObdWidget(
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                text = "Tap 'CHOOSE' above to connect",
+                                text = "Long-press → Choose Adapter",
                                 color = dimColor,
                                 fontSize = 10.sp
                             )
@@ -246,18 +261,47 @@ fun ObdWidget(
                         }
                     }
                     else -> {
-                        ObdMetricsGrid(
-                            reading = session.reading,
-                            metric = metric,
-                            showSecondary = roomyH,
-                            isNarrow = isNarrow,
-                            contentColor = contentColor,
-                            labelColor = labelColor,
-                            accent = accent,
-                            valueSize = valueSize,
-                            labelSize = labelSize,
-                            iconSize = iconSize
-                        )
+                        val metrics = buildObdMetrics(session.reading, metric, enabledMetrics)
+                        if (metrics.isEmpty()) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "No metrics selected",
+                                    color = labelColor,
+                                    fontSize = 11.sp,
+                                    fontFamily = MaterialTheme.typography.bodyLarge.fontFamily
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Long-press → Configure Metrics",
+                                    color = dimColor,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = cellMinSize),
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                items(metrics) { m ->
+                                    ObdCell(
+                                        metric = m,
+                                        contentColor = contentColor,
+                                        labelColor = labelColor,
+                                        accent = accent,
+                                        isDayMode = isDayMode,
+                                        valueSize = valueSize,
+                                        labelSize = labelSize,
+                                        iconSize = iconSize
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -278,19 +322,11 @@ fun ObdWidget(
 
 private data class ObdMetric(val label: String, val value: String, val icon: ImageVector)
 
-@Composable
-private fun ObdMetricsGrid(
+private fun buildObdMetrics(
     reading: ObdReading,
     metric: Boolean,
-    showSecondary: Boolean,
-    isNarrow: Boolean,
-    contentColor: Color,
-    labelColor: Color,
-    accent: Color,
-    valueSize: TextUnit,
-    labelSize: TextUnit,
-    iconSize: Dp
-) {
+    enabled: List<String>
+): List<ObdMetric> {
     fun temp(celsius: Int?): String = celsius?.let {
         if (metric) "$it°C" else "${(it * 9f / 5f + 32f).roundToInt()}°F"
     } ?: "—"
@@ -301,51 +337,18 @@ private fun ObdMetricsGrid(
         if (metric) "$it km/h" else "${(it * 0.621371f).roundToInt()} mph"
     } ?: "—"
 
-    val primaryMetrics = listOf(
+    val enabledSet = enabled.toSet()
+    // Canonical order; only metrics the user has enabled are emitted.
+    return listOf(
         ObdMetric("RPM", reading.rpm?.toString() ?: "—", Icons.Default.Timeline),
+        ObdMetric("SPEED", speed, Icons.Default.Speed),
         ObdMetric("COOLANT", temp(reading.coolantC), Icons.Default.Thermostat),
-        ObdMetric("BATTERY", reading.batteryVolts?.let { "%.1fV".format(it) } ?: "—", Icons.Default.BatteryFull),
-        ObdMetric("SPEED", speed, Icons.Default.Speed)
-    )
-
-    val secondaryMetrics = if (showSecondary) listOf(
         ObdMetric("THROTTLE", pct(reading.throttlePct), Icons.Default.TrendingUp),
         ObdMetric("LOAD", pct(reading.loadPct), Icons.Default.Memory),
         ObdMetric("FUEL", pct(reading.fuelPct), Icons.Default.LocalGasStation),
-        ObdMetric("INTAKE", temp(reading.intakeC), Icons.Default.Air)
-    ) else emptyList()
-
-    val cols = if (isNarrow) 2 else 4
-    val rows = buildList {
-        addAll(primaryMetrics.chunked(cols))
-        if (showSecondary) addAll(secondaryMetrics.chunked(cols))
-    }
-
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        rows.forEach { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                row.forEach { m ->
-                    ObdCell(
-                        metric = m,
-                        contentColor = contentColor,
-                        labelColor = labelColor,
-                        accent = accent,
-                        valueSize = valueSize,
-                        labelSize = labelSize,
-                        iconSize = iconSize,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-    }
+        ObdMetric("INTAKE", temp(reading.intakeC), Icons.Default.Air),
+        ObdMetric("BATTERY", reading.batteryVolts?.let { "%.1fV".format(it) } ?: "—", Icons.Default.BatteryFull)
+    ).filter { it.label in enabledSet }
 }
 
 @Composable
@@ -354,18 +357,25 @@ private fun ObdCell(
     contentColor: Color,
     labelColor: Color,
     accent: Color,
+    isDayMode: Boolean,
     valueSize: TextUnit,
     labelSize: TextUnit,
-    iconSize: Dp,
-    modifier: Modifier = Modifier
+    iconSize: Dp
 ) {
+    val cardBg = if (isDayMode) Color(0x0D000000) else Color(0x14FFFFFF)
+    val cardBorder = if (isDayMode) Color(0x1A000000) else Color(0x14FFFFFF)
     Column(
-        modifier = modifier,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(cardBg)
+            .border(1.dp, cardBorder, RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.Center
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Icon(metric.icon, null, tint = accent, modifier = Modifier.size(iconSize))
             Text(
@@ -375,9 +385,11 @@ private fun ObdCell(
                 color = labelColor,
                 letterSpacing = 0.8.sp,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
         }
+        Spacer(Modifier.height(2.dp))
         Text(
             text = metric.value,
             fontSize = valueSize,
@@ -413,14 +425,19 @@ internal fun AdapterPickerDialog(
     val textPrimary = if (isDayMode) Color(0xFF111111) else Color.White
     val textSecondary = if (isDayMode) Color(0xFF666666) else Color(0xFF888888)
 
+    val scales = LocalUiScales.current
+    val ts = scales.ts()
+    val us = scales.us()
+
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .width(380.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .width((380 * us).dp)
+                .heightIn(max = (560 * us).dp)
+                .clip(RoundedCornerShape((12 * us).dp))
                 .background(dialogBg)
-                .border(1.dp, cardBorder, RoundedCornerShape(12.dp))
-                .padding(18.dp)
+                .border(1.dp, cardBorder, RoundedCornerShape((12 * us).dp))
+                .padding((18 * us).dp)
         ) {
             // Header
             Row(
@@ -430,27 +447,27 @@ internal fun AdapterPickerDialog(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy((8 * us).dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Bluetooth,
                         contentDescription = null,
                         tint = effectiveAccent,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size((18 * us).dp)
                     )
                     Text(
                         text = "OBD2 ADAPTERS",
                         color = textPrimary,
-                        fontSize = 11.sp,
+                        fontSize = (11 * ts).sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp
+                        letterSpacing = (2 * ts).sp
                     )
                 }
 
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(6.dp))
+                        .size((28 * us).dp)
+                        .clip(RoundedCornerShape((6 * us).dp))
                         .clickable(onClick = onDismiss),
                     contentAlignment = Alignment.Center
                 ) {
@@ -458,7 +475,7 @@ internal fun AdapterPickerDialog(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
                         tint = textSecondary,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size((16 * us).dp)
                     )
                 }
             }
@@ -466,46 +483,46 @@ internal fun AdapterPickerDialog(
             Text(
                 text = "SELECT PAIRED ELM327 BLUETOOTH ADAPTER",
                 color = textSecondary,
-                fontSize = 9.sp,
-                letterSpacing = 1.sp,
+                fontSize = (9 * ts).sp,
+                letterSpacing = (1 * ts).sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 2.dp)
+                modifier = Modifier.padding(top = (2 * us).dp)
             )
 
             HorizontalDivider(
                 color = cardBorder,
-                modifier = Modifier.padding(vertical = 12.dp)
+                modifier = Modifier.padding(vertical = (12 * us).dp)
             )
 
             if (adapters.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape((8 * us).dp))
                         .background(itemBg)
-                        .border(1.dp, itemBorder, RoundedCornerShape(8.dp))
-                        .padding(16.dp),
+                        .border(1.dp, itemBorder, RoundedCornerShape((8 * us).dp))
+                        .padding((16 * us).dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy((8 * us).dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.BluetoothSearching,
                         contentDescription = null,
                         tint = textSecondary,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size((32 * us).dp)
                     )
                     Text(
                         text = "NO PAIRED BLUETOOTH DEVICES FOUND",
                         color = textPrimary,
-                        fontSize = 10.sp,
+                        fontSize = (10 * ts).sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
+                        letterSpacing = (1 * ts).sp,
                         textAlign = TextAlign.Center
                     )
                     Text(
                         text = "Pair your ELM327 OBD-II adapter in Android Bluetooth Settings before connecting.",
                         color = textSecondary,
-                        fontSize = 10.sp,
+                        fontSize = (10 * ts).sp,
                         textAlign = TextAlign.Center
                     )
                 }
@@ -513,15 +530,15 @@ internal fun AdapterPickerDialog(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 240.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                        .heightIn(max = (240 * us).dp),
+                    verticalArrangement = Arrangement.spacedBy((6 * us).dp)
                 ) {
                     items(adapters) { adapter ->
                         val isSelected = adapter.address.equals(currentAddress, ignoreCase = true)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape((8 * us).dp))
                                 .background(
                                     if (isSelected) effectiveAccent.copy(alpha = if (isDayMode) 0.12f else 0.18f)
                                     else itemBg
@@ -529,64 +546,64 @@ internal fun AdapterPickerDialog(
                                 .border(
                                     1.dp,
                                     if (isSelected) effectiveAccent else itemBorder,
-                                    RoundedCornerShape(8.dp)
+                                    RoundedCornerShape((8 * us).dp)
                                 )
                                 .clickable { onPick(adapter) }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(horizontal = (12 * us).dp, vertical = (10 * us).dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy((10 * us).dp)
                         ) {
                             Icon(
                                 imageVector = if (isSelected) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
                                 contentDescription = null,
                                 tint = if (isSelected) effectiveAccent else textSecondary,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size((20 * us).dp)
                             )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = adapter.name.ifBlank { "Unknown OBD2 Device" },
                                     color = if (isSelected) effectiveAccent else textPrimary,
-                                    fontSize = 12.sp,
+                                    fontSize = (12 * ts).sp,
                                     fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.5.sp,
+                                    letterSpacing = (0.5f * ts).sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = adapter.address,
                                     color = textSecondary,
-                                    fontSize = 10.sp,
+                                    fontSize = (10 * ts).sp,
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
                             if (isSelected) {
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
+                                        .clip(RoundedCornerShape((4 * us).dp))
                                         .background(effectiveAccent)
-                                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        .padding(horizontal = (6 * us).dp, vertical = (3 * us).dp)
                                 ) {
                                     Text(
                                         text = "ACTIVE",
                                         color = if (effectiveAccent.luminance() > 0.5f) Color.Black else Color.White,
-                                        fontSize = 8.sp,
+                                        fontSize = (8 * ts).sp,
                                         fontWeight = FontWeight.Bold,
-                                        letterSpacing = 1.sp
+                                        letterSpacing = (1 * ts).sp
                                     )
                                 }
                             } else {
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .border(1.dp, itemBorder, RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        .clip(RoundedCornerShape((4 * us).dp))
+                                        .border(1.dp, itemBorder, RoundedCornerShape((4 * us).dp))
+                                        .padding(horizontal = (6 * us).dp, vertical = (3 * us).dp)
                                 ) {
                                     Text(
                                         text = "SELECT",
                                         color = textSecondary,
-                                        fontSize = 8.sp,
+                                        fontSize = (8 * ts).sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        letterSpacing = 1.sp
+                                        letterSpacing = (1 * ts).sp
                                     )
                                 }
                             }
@@ -595,19 +612,19 @@ internal fun AdapterPickerDialog(
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height((14 * us).dp))
 
             // Action row
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy((8 * us).dp)
             ) {
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape((6 * us).dp))
                         .background(itemBg)
-                        .border(1.dp, itemBorder, RoundedCornerShape(6.dp))
+                        .border(1.dp, itemBorder, RoundedCornerShape((6 * us).dp))
                         .clickable {
                             runCatching {
                                 context.startActivity(
@@ -616,7 +633,7 @@ internal fun AdapterPickerDialog(
                                 )
                             }
                         }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = (10 * us).dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
@@ -624,33 +641,33 @@ internal fun AdapterPickerDialog(
                         imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                         contentDescription = null,
                         tint = textPrimary,
-                        modifier = Modifier.size(13.dp)
+                        modifier = Modifier.size((13 * us).dp)
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width((6 * us).dp))
                     Text(
                         text = "PAIR IN SETTINGS",
                         color = textPrimary,
-                        fontSize = 10.sp,
+                        fontSize = (10 * ts).sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
+                        letterSpacing = (1 * ts).sp
                     )
                 }
 
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape((6 * us).dp))
                         .background(effectiveAccent.copy(alpha = if (isDayMode) 0.12f else 0.18f))
-                        .border(1.dp, effectiveAccent, RoundedCornerShape(6.dp))
+                        .border(1.dp, effectiveAccent, RoundedCornerShape((6 * us).dp))
                         .clickable(onClick = onDismiss)
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = (16 * us).dp, vertical = (10 * us).dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "CLOSE",
                         color = effectiveAccent,
-                        fontSize = 10.sp,
+                        fontSize = (10 * ts).sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
+                        letterSpacing = (1 * ts).sp
                     )
                 }
             }

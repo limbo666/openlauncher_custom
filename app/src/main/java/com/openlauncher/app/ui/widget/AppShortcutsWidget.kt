@@ -43,6 +43,7 @@ fun AppShortcutsWidget(
     isDayMode: Boolean = false,
     customContentColor: Color? = null,
     shortcutCount: Int = 4,
+    iconScale: Float = 1.0f,
     onLaunchApp: (String) -> Unit,
     onPickAppForSlot: (Int) -> Unit,
     modifier: Modifier = Modifier
@@ -81,7 +82,7 @@ fun AppShortcutsWidget(
                     slotBg = slotBg,
                     slotBorder = slotBorder,
                     onLaunch = onLaunchApp,
-                    onConfigure = onPickAppForSlot,
+                    onConfigure = onPickAppForSlot, iconScale = iconScale,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -103,7 +104,7 @@ fun AppShortcutsWidget(
                                 slotBg = slotBg,
                                 slotBorder = slotBorder,
                                 onLaunch = onLaunchApp,
-                                onConfigure = onPickAppForSlot,
+                                onConfigure = onPickAppForSlot, iconScale = iconScale,
                                 modifier = Modifier.weight(1f).fillMaxWidth()
                             )
                         }
@@ -125,7 +126,7 @@ fun AppShortcutsWidget(
                                 slotBg = slotBg,
                                 slotBorder = slotBorder,
                                 onLaunch = onLaunchApp,
-                                onConfigure = onPickAppForSlot,
+                                onConfigure = onPickAppForSlot, iconScale = iconScale,
                                 modifier = Modifier.weight(1f).fillMaxHeight()
                             )
                         }
@@ -150,7 +151,7 @@ fun AppShortcutsWidget(
                                 slotBg = slotBg,
                                 slotBorder = slotBorder,
                                 onLaunch = onLaunchApp,
-                                onConfigure = onPickAppForSlot,
+                                onConfigure = onPickAppForSlot, iconScale = iconScale,
                                 modifier = Modifier.weight(1f).fillMaxWidth()
                             )
                         }
@@ -172,7 +173,7 @@ fun AppShortcutsWidget(
                                 slotBg = slotBg,
                                 slotBorder = slotBorder,
                                 onLaunch = onLaunchApp,
-                                onConfigure = onPickAppForSlot,
+                                onConfigure = onPickAppForSlot, iconScale = iconScale,
                                 modifier = Modifier.weight(1f).fillMaxHeight()
                             )
                         }
@@ -197,7 +198,7 @@ fun AppShortcutsWidget(
                                 slotBg = slotBg,
                                 slotBorder = slotBorder,
                                 onLaunch = onLaunchApp,
-                                onConfigure = onPickAppForSlot,
+                                onConfigure = onPickAppForSlot, iconScale = iconScale,
                                 modifier = Modifier.weight(1f).fillMaxHeight()
                             )
                         }
@@ -219,7 +220,7 @@ fun AppShortcutsWidget(
                                 slotBg = slotBg,
                                 slotBorder = slotBorder,
                                 onLaunch = onLaunchApp,
-                                onConfigure = onPickAppForSlot,
+                                onConfigure = onPickAppForSlot, iconScale = iconScale,
                                 modifier = Modifier.weight(1f).fillMaxWidth()
                             )
                         }
@@ -246,7 +247,7 @@ fun AppShortcutsWidget(
                                     slotBg = slotBg,
                                     slotBorder = slotBorder,
                                     onLaunch = onLaunchApp,
-                                    onConfigure = onPickAppForSlot,
+                                    onConfigure = onPickAppForSlot, iconScale = iconScale,
                                     modifier = Modifier.weight(1f).fillMaxHeight()
                                 )
                             }
@@ -267,7 +268,7 @@ fun AppShortcutsWidget(
                                     slotBg = slotBg,
                                     slotBorder = slotBorder,
                                     onLaunch = onLaunchApp,
-                                    onConfigure = onPickAppForSlot,
+                                    onConfigure = onPickAppForSlot, iconScale = iconScale,
                                     modifier = Modifier.weight(1f).fillMaxHeight()
                                 )
                             }
@@ -292,6 +293,7 @@ private fun AppShortcutSlot(
     slotBorder: Color,
     onLaunch: (String) -> Unit,
     onConfigure: (Int) -> Unit,
+    iconScale: Float = 1.0f,
     modifier: Modifier = Modifier
 ) {
     val isAssigned = packageName.isNotBlank() && appInfo != null
@@ -300,7 +302,7 @@ private fun AppShortcutSlot(
         modifier = modifier.padding(4.dp),
         contentAlignment = Alignment.Center
     ) {
-        val iconSize = (minOf(maxWidth, maxHeight) * 0.55f).coerceIn(24.dp, 60.dp)
+        val iconSize = (minOf(maxWidth, maxHeight) * 0.55f * iconScale).coerceIn(20.dp, 96.dp)
         val showLabel = maxHeight > 65.dp
 
         Column(

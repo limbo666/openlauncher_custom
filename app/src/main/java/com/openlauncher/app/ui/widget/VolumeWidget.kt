@@ -25,10 +25,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlauncher.app.util.TapSound
@@ -66,6 +68,8 @@ fun VolumeWidget(
     val toggleMute = { VolumeController.toggleMute(context) }
 
     val volumePercent = ((currentVol.toFloat() / maxVol) * 100).toInt()
+    val volumeFraction = if (maxVol > 0) (currentVol.toFloat() / maxVol).coerceIn(0f, 1f) else 0f
+    val fillColor = if (isMuted) Color(0xFF777777) else accent
 
     BoxWithConstraints(
         modifier = modifier
@@ -74,139 +78,88 @@ fun VolumeWidget(
     ) {
         val totalWidth = maxWidth
         val totalHeight = maxHeight
-        val isWide = totalWidth >= 220.dp
-        val isNarrow = totalWidth < 160.dp
-        val isCompactH = totalHeight < 140.dp
+        val isWide   = totalWidth >= 200.dp
+        val isNarrow = totalWidth < 150.dp
+        val isShort  = totalHeight < 100.dp    // one-row-height tiles (2x1 / 3x1)
+        val isUltra  = totalHeight < 55.dp     // ultra-thin strip
 
-        if (totalHeight < 55.dp) {
-            // Ultra-compact single horizontal bar
+        if (isUltra) {
+            // Ultra-compact strip: [DOWN][MUTE][UP] then bar + percentage.
             Row(
                 modifier = Modifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // Mute button
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isMuted) Color(0xFFE03131).copy(alpha = 0.22f) else buttonBg)
-                        .border(1.dp, if (isMuted) Color(0xFFE03131).copy(alpha = 0.7f) else buttonBorder, RoundedCornerShape(4.dp))
-                        .clickable(onClick = { TapSound.play(); toggleMute() }),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
-                        contentDescription = "Mute",
-                        tint = if (isMuted) Color(0xFFFF5252) else accent,
-                        modifier = Modifier.size(16.dp)
+                VolumeKey(
+                    onClick = { TapSound.play(); adjustVolume(AudioManager.ADJUST_LOWER) },
+                    height = 28.dp, bg = buttonBg, border = buttonBorder,
+                    contentColor = contentColor, icon = Icons.Default.Remove,
+                    modifier = Modifier.size(28.dp)
+                )
+                VolumeKey(
+                    onClick = { TapSound.play(); toggleMute() },
+                    height = 28.dp, bg = buttonBg, border = buttonBorder,
+                    contentColor = contentColor,
+                    icon = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                    highlight = if (isMuted) Color(0xFFE03131) else null,
+                    modifier = Modifier.size(28.dp)
+                )
+                VolumeKey(
+                    onClick = { TapSound.play(); adjustVolume(AudioManager.ADJUST_RAISE) },
+                    height = 28.dp, bg = buttonBg, border = buttonBorder,
+                    contentColor = contentColor, icon = Icons.Default.Add,
+                    modifier = Modifier.size(28.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isMuted) "MUTED" else "$volumePercent%",
+                        color = if (isMuted) Color(0xFFFF5252) else contentColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        maxLines = 1
                     )
-                }
-
-                // Volume Down
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(buttonBg)
-                        .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                        .clickable { TapSound.play(); adjustVolume(AudioManager.ADJUST_LOWER) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Remove, "Volume Down", tint = contentColor, modifier = Modifier.size(15.dp))
-                }
-
-                // Center bar + percentage
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (isMuted) "MUTED" else "$volumePercent%",
-                            color = if (isMuted) Color(0xFFFF5252) else contentColor,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        )
-                        Text(
-                            text = "SYSTEM VOLUME",
-                            color = subColor,
-                            fontSize = 7.5.sp,
-                            letterSpacing = 1.sp
-                        )
-                    }
-
-                    Spacer(Modifier.height(4.dp))
-
-                    // Interactive progress bar
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(barTrack)
-                            .pointerInput(maxVol) {
-                                detectTapGestures { offset ->
-                                    val fraction = (offset.x / size.width).coerceIn(0f, 1f)
-                                    setVolume((fraction * maxVol).toInt())
-                                }
-                            }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(if (maxVol > 0) currentVol.toFloat() / maxVol else 0f)
-                                .background(if (isMuted) Color(0xFF777777) else accent)
-                        )
-                    }
-                }
-
-                // Volume Up
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(buttonBg)
-                        .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                        .clickable { TapSound.play(); adjustVolume(AudioManager.ADJUST_RAISE) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Add, "Volume Up", tint = contentColor, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.height(3.dp))
+                    VolumeBar(
+                        modifier = Modifier.fillMaxWidth().height(6.dp),
+                        fraction = volumeFraction,
+                        barTrack = barTrack,
+                        fillColor = fillColor,
+                        maxVol = maxVol,
+                        setVolume = setVolume
+                    )
                 }
             }
         } else {
-            // Adaptive layout for 1x1, 2x1, 2x2, etc. (guaranteed no overlap)
+            // Two rows: number + bar on top; [DOWN][MUTE][UP] on the bottom. This
+            // keeps everything on two horizontal levels so short 2x1 tiles never
+            // clip the buttons.
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = if (isCompactH) 12.dp else 16.dp, bottom = 4.dp),
+                    .padding(top = if (isShort) 6.dp else 12.dp, bottom = if (isShort) 4.dp else 8.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Top row: Volume % (with optional MEDIA STREAM underneath) + Tactile Mute Button
+                // Top row: percentage + (label) on the left, bar fills the rest.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(if (isShort) 10.dp else 12.dp)
                 ) {
-                    // Left: Percentage on top, MEDIA STREAM directly underneath
-                    Column(
-                        modifier = Modifier.weight(1f, fill = false),
-                        verticalArrangement = Arrangement.Center
-                    ) {
+                    Column(modifier = Modifier.widthIn(min = 40.dp)) {
                         Text(
                             text = if (isMuted) "MUTED" else "$volumePercent%",
                             color = if (isMuted) Color(0xFFFF5252) else contentColor,
-                            fontSize = if (isNarrow) 17.sp else if (isCompactH) 19.sp else 24.sp,
+                            fontSize = when {
+                                isNarrow -> 16.sp
+                                isShort  -> 18.sp
+                                else     -> 22.sp
+                            },
                             fontWeight = FontWeight.Bold,
                             letterSpacing = (-0.5).sp,
                             maxLines = 1
                         )
-                        if (!isNarrow || totalHeight >= 115.dp) {
+                        if (totalHeight >= 90.dp) {
                             Text(
                                 text = "SYSTEM VOLUME",
                                 color = subColor,
@@ -216,129 +169,130 @@ fun VolumeWidget(
                             )
                         }
                     }
-
-                    // Right: Mute button (tactile, unpressed/pressed feedback, clean)
-                    Box(
-                        modifier = Modifier
-                            .height(if (isCompactH) 28.dp else 32.dp)
-                            .then(
-                                when {
-                                    isWide -> Modifier.widthIn(min = 60.dp).padding(horizontal = 2.dp)
-                                    isNarrow -> Modifier.width(30.dp)
-                                    else -> Modifier.width(36.dp)
-                                }
-                            )
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (isMuted) Color(0xFFE03131).copy(alpha = 0.22f) else buttonBg)
-                            .border(
-                                1.dp,
-                                if (isMuted) Color(0xFFE03131).copy(alpha = 0.75f) else buttonBorder,
-                                RoundedCornerShape(4.dp)
-                            )
-                            .clickable(onClick = { TapSound.play(); toggleMute() }),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(horizontal = if (isNarrow) 2.dp else 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
-                                contentDescription = if (isMuted) "Unmute" else "Mute",
-                                tint = if (isMuted) Color(0xFFFF5252) else accent,
-                                modifier = Modifier.size(if (isNarrow) 14.dp else 15.dp)
-                            )
-                            if (isWide) {
-                                Text(
-                                    text = if (isMuted) "MUTED" else "MUTE",
-                                    color = if (isMuted) Color(0xFFFF5252) else contentColor,
-                                    fontSize = 8.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp
-                                )
-                            }
-                        }
-                    }
+                    VolumeBar(
+                        modifier = Modifier.weight(1f).height(if (isShort) 10.dp else 14.dp),
+                        fraction = volumeFraction,
+                        barTrack = barTrack,
+                        fillColor = fillColor,
+                        maxVol = maxVol,
+                        setVolume = setVolume
+                    )
                 }
 
-                // Bottom section: Progress bar + Down/Up buttons grouped with a tight, ergonomic gap
-                Column(
+                // Bottom row: [DOWN][MUTE][UP] with the mute in the middle.
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(if (isCompactH) 6.dp else 8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Volume Progress Bar
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(if (isCompactH) 8.dp else 10.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(barTrack)
-                            .pointerInput(maxVol) {
-                                detectTapGestures { offset ->
-                                    val fraction = (offset.x / size.width).coerceIn(0f, 1f)
-                                    setVolume((fraction * maxVol).toInt())
-                                }
-                            }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(if (maxVol > 0) currentVol.toFloat() / maxVol else 0f)
-                                .background(if (isMuted) Color(0xFF777777) else accent)
-                        )
-                    }
-
-                    // Down & Up buttons: in narrow 1x1 mode show clean tactile +/- icons; in wide mode show DOWN / UP text
-                    val showButtonText = totalWidth >= 150.dp
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(if (isCompactH) 28.dp else 34.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(buttonBg)
-                                .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                                .clickable { TapSound.play(); adjustVolume(AudioManager.ADJUST_LOWER) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(Icons.Default.Remove, null, tint = contentColor, modifier = Modifier.size(if (isNarrow) 16.dp else 14.dp))
-                                if (showButtonText) {
-                                    Text("DOWN", color = contentColor, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
-                                }
-                            }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(if (isCompactH) 28.dp else 34.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(buttonBg)
-                                .border(1.dp, buttonBorder, RoundedCornerShape(4.dp))
-                                .clickable { TapSound.play(); adjustVolume(AudioManager.ADJUST_RAISE) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(Icons.Default.Add, null, tint = contentColor, modifier = Modifier.size(if (isNarrow) 16.dp else 14.dp))
-                                if (showButtonText) {
-                                    Text("UP", color = contentColor, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
-                                }
-                            }
-                        }
-                    }
+                    VolumeKey(
+                        onClick = { TapSound.play(); adjustVolume(AudioManager.ADJUST_LOWER) },
+                        height = if (isShort) 30.dp else 36.dp,
+                        bg = buttonBg, border = buttonBorder, contentColor = contentColor,
+                        icon = Icons.Default.Remove,
+                        label = "DOWN", showLabel = isWide, isNarrow = isNarrow,
+                        modifier = Modifier.weight(1f)
+                    )
+                    VolumeKey(
+                        onClick = { TapSound.play(); toggleMute() },
+                        height = if (isShort) 30.dp else 36.dp,
+                        bg = buttonBg, border = buttonBorder, contentColor = contentColor,
+                        icon = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                        label = if (isMuted) "MUTED" else "MUTE",
+                        showLabel = isWide, isNarrow = isNarrow,
+                        highlight = if (isMuted) Color(0xFFE03131) else null,
+                        modifier = Modifier.weight(1f)
+                    )
+                    VolumeKey(
+                        onClick = { TapSound.play(); adjustVolume(AudioManager.ADJUST_RAISE) },
+                        height = if (isShort) 30.dp else 36.dp,
+                        bg = buttonBg, border = buttonBorder, contentColor = contentColor,
+                        icon = Icons.Default.Add,
+                        label = "UP", showLabel = isWide, isNarrow = isNarrow,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
+    }
+}
+
+/**
+ * A square-ish key used for DOWN / MUTE / UP. [highlight] (when non-null) tints the
+ * key red — used to show the muted state without changing the key's shape or size.
+ */
+@Composable
+private fun VolumeKey(
+    onClick: () -> Unit,
+    height: Dp,
+    bg: Color,
+    border: Color,
+    contentColor: Color,
+    icon: ImageVector,
+    label: String? = null,
+    showLabel: Boolean = false,
+    isNarrow: Boolean = false,
+    highlight: Color? = null,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(height)
+            .clip(RoundedCornerShape(4.dp))
+            .background(highlight?.copy(alpha = 0.22f) ?: bg)
+            .border(1.dp, highlight?.copy(alpha = 0.75f) ?: border, RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                icon,
+                null,
+                tint = if (highlight != null) Color(0xFFFF5252) else contentColor,
+                modifier = Modifier.size(if (isNarrow) 16.dp else 14.dp)
+            )
+            if (showLabel && label != null) {
+                Text(
+                    label,
+                    color = if (highlight != null) Color(0xFFFF5252) else contentColor,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+/** Interactive horizontal volume bar with a filled portion. */
+@Composable
+private fun VolumeBar(
+    modifier: Modifier,
+    fraction: Float,
+    barTrack: Color,
+    fillColor: Color,
+    maxVol: Int,
+    setVolume: (Int) -> Unit
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(3.dp))
+            .background(barTrack)
+            .pointerInput(maxVol) {
+                detectTapGestures { offset ->
+                    val f = (offset.x / size.width).coerceIn(0f, 1f)
+                    setVolume((f * maxVol).toInt())
+                }
+            }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .background(fillColor)
+        )
     }
 }

@@ -36,8 +36,12 @@ import com.openlauncher.app.data.WidgetConfig
 import com.openlauncher.app.data.activeWidgetIds
 import com.openlauncher.app.data.computeWidgetMove
 import com.openlauncher.app.data.withWidgetContent
+import com.openlauncher.app.data.widgetContentFor
+import com.openlauncher.app.data.widgetLayoutFor
+import com.openlauncher.app.data.withWidgetLayout
 import com.openlauncher.app.data.defaultQuickActionButtons
 import com.openlauncher.app.data.defaultVitalsElements
+import com.openlauncher.app.data.defaultObdMetrics
 import com.openlauncher.app.data.defaultShortcuts
 import com.openlauncher.app.util.SunriseSunset
 import com.openlauncher.app.model.AppInfo
@@ -169,6 +173,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settingsRepo.resetToDefaults() }
     }
 
+    fun exportProfile(slot: Int, onResult: (String?) -> Unit) {
+        viewModelScope.launch { onResult(settingsRepo.exportProfile(slot)) }
+    }
+
+    fun importProfile(slot: Int, json: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch { onResult(settingsRepo.importProfile(slot, json)) }
+    }
+
     // ── Screen Blanking / Night Blackout ───────────────────────────────────────
     private val _isScreenBlanked = MutableStateFlow(false)
     val isScreenBlanked: StateFlow<Boolean> = _isScreenBlanked
@@ -271,13 +283,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun clearPipApp()          { updateSettings { copy(pipAppPackage = "") } }
     fun clearRadioApp()        { updateSettings { copy(radioPackage = "") } }
 
-    // ── Home pages (swipe left/right) ──────────────────────────────────────────
-    private fun AppSettings.layoutFor(page: Int): List<WidgetConfig> =
-        if (page == 0) widgetLayout else homePageAltLayout
-
-    private fun AppSettings.withLayout(page: Int, newLayout: List<WidgetConfig>): AppSettings =
-        if (page == 0) copy(widgetLayout = newLayout) else copy(homePageAltLayout = newLayout)
-
+    // ── Home pages (2×2 grid) ────────────────────────────────────────────────
     private fun AppSettings.withoutWidgetFlag(id: String): AppSettings = when (id) {
         "CLOCK"         -> copy(showClock = false)
         "WEATHER"       -> copy(showWeather = false)
@@ -308,7 +314,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun setHomePage(page: Int) {
         manualPageOverride = true // user chose manually — hold until the next driving-state change
-        updateSettings { copy(homePage = page.coerceIn(0, 1)) }
+        updateSettings { copy(homePage = page.coerceIn(0, 3)) }
     }
 
     private fun evaluateDrivingState(speedKmh: Float) {
@@ -345,7 +351,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             manualPageOverride = false // respect the user's manual choice until the NEXT state change
             return
         }
-        val target = if (driving) s.drivingPage else (1 - s.drivingPage)
+        val row = s.homePage / 2
+        val target = (row * 2) + (if (driving) s.drivingPage else (1 - s.drivingPage))
         if (s.homePage != target) {
             updateSettings { copy(homePage = target) }
             FileLog.log("AutoSwitch", "state=${if (driving) "DRIVING" else "PARKED"} page=$target")
@@ -432,7 +439,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun updateWidgetConfig(page: Int = 0, id: String, spanX: Int, spanY: Int) {
         updateSettings {
-            val resized = layoutFor(page).map { w ->
+            val resized = widgetLayoutFor(page).map { w ->
                 if (w.id == id) w.copy(
                     spanX = spanX.coerceIn(1, GRID_COLS - w.gridX),
                     spanY = spanY.coerceIn(1, GRID_ROWS - w.gridY)
@@ -444,7 +451,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val active    = resized.filter { it.enabled && it.id in activeIds }
             val inactive  = resized.filter { !it.enabled || it.id !in activeIds }
             val target    = active.find { it.id == id }
-            withLayout(page, if (target != null)
+            withWidgetLayout(page, if (target != null)
                 computeWidgetMove(active, id, target.gridX, target.gridY) + inactive
             else resized)
         }
@@ -453,16 +460,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun moveWidgetConfig(page: Int = 0, id: String, gridX: Int, gridY: Int) {
         updateSettings {
             val activeIds = activeWidgetIds()
-            val active   = layoutFor(page).filter { it.enabled && it.id in activeIds }
-            val inactive = layoutFor(page).filter { !it.enabled || it.id !in activeIds }
-            withLayout(page, computeWidgetMove(active, id, gridX, gridY) + inactive)
+            val active   = widgetLayoutFor(page).filter { it.enabled && it.id in activeIds }
+            val inactive = widgetLayoutFor(page).filter { !it.enabled || it.id !in activeIds }
+            withWidgetLayout(page, computeWidgetMove(active, id, gridX, gridY) + inactive)
         }
     }
 
     fun addWidget(page: Int = 0, id: String) {
         updateSettings {
             val activeIds = activeWidgetIds()
-            var layout    = layoutFor(page)
+            var layout    = widgetLayoutFor(page)
 
             val defaultSpan = when (id) {
                 "VOLUME"        -> 2 to 1
@@ -540,17 +547,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 val spanY = (defaultSpan.second.coerceAtMost(GRID_ROWS - cell_.second)).coerceAtLeast(1)
                 layout + com.openlauncher.app.data.WidgetConfig(id, cell_.first, cell_.second, spanX, spanY)
             }
-            withShow.withLayout(page, newLayout)
+            withShow.withWidgetLayout(page, newLayout)
         }
     }
 
     fun removeWidget(page: Int = 0, id: String) {
         updateSettings {
-            val thisLayout = layoutFor(page).map { w ->
+            val thisLayout = widgetLayoutFor(page).map { w ->
                 if (w.id == id) w.copy(enabled = false) else w
             }
-            val stillOnOther = layoutFor(1 - page).any { it.id == id && it.enabled }
-            var s = withLayout(page, thisLayout)
+            val stillOnOther = (0..3).any { p -> p != page && widgetLayoutFor(p).any { it.id == id && it.enabled } }
+            var s = withWidgetLayout(page, thisLayout)
             if (!stillOnOther) s = s.withoutWidgetFlag(id)
             s
         }
@@ -558,7 +565,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun setWidgetBgColor(page: Int = 0, id: String, color: Long?) {
         updateSettings {
-            withLayout(page, layoutFor(page).map { w ->
+            withWidgetLayout(page, widgetLayoutFor(page).map { w ->
                 if (w.id == id) w.copy(
                     customBgColor = color,
                     bgMode = if (color != null) WidgetBgMode.CUSTOM else WidgetBgMode.DEFAULT
@@ -569,7 +576,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun setWidgetBgMode(page: Int = 0, id: String, mode: WidgetBgMode) {
         updateSettings {
-            withLayout(page, layoutFor(page).map { w ->
+            withWidgetLayout(page, widgetLayoutFor(page).map { w ->
                 if (w.id == id) w.copy(bgMode = mode) else w
             })
         }
@@ -591,6 +598,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         customBgColor = color,
                         bgMode = if (color != null) WidgetBgMode.CUSTOM else WidgetBgMode.DEFAULT
                     ) else w
+                },
+                homePageLayout3 = homePageLayout3.map { w ->
+                    if (w.enabled) w.copy(
+                        customBgColor = color,
+                        bgMode = if (color != null) WidgetBgMode.CUSTOM else WidgetBgMode.DEFAULT
+                    ) else w
+                },
+                homePageLayout4 = homePageLayout4.map { w ->
+                    if (w.enabled) w.copy(
+                        customBgColor = color,
+                        bgMode = if (color != null) WidgetBgMode.CUSTOM else WidgetBgMode.DEFAULT
+                    ) else w
                 }
             )
         }
@@ -604,6 +623,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 },
                 homePageAltLayout = homePageAltLayout.map { w ->
                     if (w.enabled) w.copy(bgMode = mode) else w
+                },
+                homePageLayout3 = homePageLayout3.map { w ->
+                    if (w.enabled) w.copy(bgMode = mode) else w
+                },
+                homePageLayout4 = homePageLayout4.map { w ->
+                    if (w.enabled) w.copy(bgMode = mode) else w
                 }
             )
         }
@@ -611,7 +636,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun toggleWidgetTitle(page: Int = 0, id: String) {
         updateSettings {
-            withLayout(page, layoutFor(page).map { w ->
+            withWidgetLayout(page, widgetLayoutFor(page).map { w ->
                 if (w.id == id) w.copy(showTitle = !w.isTitleVisible) else w
             })
         }
@@ -647,6 +672,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun setAppShortcutCount(page: Int, count: Int) {
         updateSettings { withWidgetContent(page) { it.copy(appShortcutCount = count.coerceIn(1, 4)) } }
+    }
+
+    fun setAppShortcutIconScale(page: Int, scale: Float) {
+        updateSettings { withWidgetContent(page) { it.copy(appShortcutIconScale = scale.coerceIn(0.6f, 1.6f)) } }
     }
 
     fun setSoundboardButtonCount(page: Int, count: Int) {
@@ -698,6 +727,20 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun resetVitalsElements(page: Int) {
         updateSettings { withWidgetContent(page) { it.copy(vitalsElements = defaultVitalsElements()) } }
+    }
+
+    fun toggleObdMetric(page: Int, id: String) {
+        updateSettings {
+            withWidgetContent(page) { c ->
+                val list = c.obdMetrics.toMutableList()
+                if (id in list) list.remove(id) else list.add(id)
+                c.copy(obdMetrics = list)
+            }
+        }
+    }
+
+    fun resetObdMetrics(page: Int) {
+        updateSettings { withWidgetContent(page) { it.copy(obdMetrics = defaultObdMetrics()) } }
     }
 
     fun toggleDayNightMode() {
@@ -833,25 +876,30 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val recordAudio: Boolean,
         val attackMs: Float,
         val decayMs: Float,
-        val response: Float
+        val response: Float,
+        val agcEnabled: Boolean,
+        val agcTarget: Float
     )
 
     init {
         viewModelScope.launch {
             combine(settings, MediaListenerService.sessions, _recordAudioGranted) { s, sessions, recordAudio ->
+                val content = s.widgetContentFor(s.homePage)
                 SpectrumConfig(
                     enabled = s.showSpectrum,
                     sessionId = resolveAudioSessionId(sessions),
                     recordAudio = recordAudio,
-                    attackMs = s.spectrumAttackMs,
-                    decayMs = s.spectrumDecayMs,
-                    response = s.spectrumResponse
+                    attackMs = content.spectrumAttackMs,
+                    decayMs = content.spectrumDecayMs,
+                    response = content.spectrumResponse,
+                    agcEnabled = content.spectrumAgcEnabled,
+                    agcTarget = content.spectrumAgcTarget
                 )
             }
                 .distinctUntilChanged()
                 .collect { cfg ->
                     if (cfg.enabled) {
-                        soundVisualizer.configure(cfg.enabled, cfg.sessionId, cfg.recordAudio, cfg.attackMs, cfg.decayMs, cfg.response)
+                        soundVisualizer.configure(cfg.enabled, cfg.sessionId, cfg.recordAudio, cfg.attackMs, cfg.decayMs, cfg.response, cfg.agcEnabled, cfg.agcTarget)
                     } else {
                         soundVisualizer.stop()
                     }
@@ -918,6 +966,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 _weather.value = state.copy(isOffline = false)
                 _weatherError.value = null
                 _isOnline.value = true
+            } catch (e: java.util.concurrent.CancellationException) {
+                throw e // a newer fetch superseded this one — not a real failure
             } catch (e: Exception) {
                 android.util.Log.e("WeatherApi", "Weather fetch failed: ${e.javaClass.simpleName}: ${e.message}", e)
                 _weatherError.value = e.message
@@ -957,6 +1007,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun setAdvancedWeatherIcons(enabled: Boolean) {
         updateSettings { copy(advancedWeatherIcons = enabled) }
+    }
+
+    fun setShowWeatherForecast(page: Int, enabled: Boolean) {
+        updateSettings { withWidgetContent(page) { it.copy(showWeatherForecast = enabled) } }
     }
 
     fun refreshWeather(force: Boolean = false): Boolean {
@@ -1377,7 +1431,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             @Suppress("DEPRECATION")
             val legacyType = legacyInfo?.type
 
-            _isWifi.value = hasWifi || (legacyConnected && legacyType == ConnectivityManager.TYPE_WIFI)
+            // The emulator (and some head units) can keep reporting a WiFi transport
+            // active even after the user switches Wi-Fi off, so gate the flag on the
+            // radio actually being enabled — otherwise the status icon stays "on".
+            @Suppress("DEPRECATION")
+            val wifiEnabled = runCatching {
+                (app.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager)?.isWifiEnabled == true
+            }.getOrDefault(true)
+
+            _isWifi.value = wifiEnabled && (hasWifi || (legacyConnected && legacyType == ConnectivityManager.TYPE_WIFI))
             _isData.value = hasCell || (legacyConnected && legacyType == ConnectivityManager.TYPE_MOBILE)
             _isOnline.value = hasInternet || hasWifi || hasCell || hasEth || hasVpn || hasBt || legacyConnected
             _wifiSsid.value = if (hasWifi) currentWifiSsid(cm) else null
@@ -1441,6 +1503,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     init {
         FileLog.init(getApplication())
+        // Opt-in log collector: keep the writer disabled unless the user enabled
+        // it in Settings, so logging never costs I/O during normal use.
+        viewModelScope.launch {
+            settings.collect { FileLog.enabled = it.debugLogEnabled }
+        }
         VolumeController.init(getApplication())
         FileLog.log("Radio", "szchoicewayMcu=$hasSzchoicewayMcu")
         // Identify the head-unit vendor family. This is the evidence used to pick
@@ -1565,6 +1632,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             var lastFetchMs = 0L
             var hadGpsWeather = false
+            var deferredStartup = false
             merge(
                 settingsLoaded.filter { it }.map { null },
                 locationMgr.location.filterNotNull(),
@@ -1573,7 +1641,23 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 val now = System.currentTimeMillis()
                 val isGpsFix = loc != null
                 val needsGpsUpgrade = isGpsFix && !hadGpsWeather && settings.value.weatherUseGps
-                if (needsGpsUpgrade || now - lastFetchMs >= 20 * 60 * 1_000L || _weather.value == null) {
+                // While offline, retry every minute (not just every 20 min) so the
+                // widget recovers promptly when connectivity returns, even if the
+                // network callback never fired a clean onAvailable.
+                val isWeatherOffline = _weather.value == null || _weather.value?.isOffline == true
+                val shouldFetch = needsGpsUpgrade ||
+                    now - lastFetchMs >= 20 * 60 * 1_000L ||
+                    _weather.value == null ||
+                    (isWeatherOffline && now - lastFetchMs >= 60 * 1_000L)
+                if (shouldFetch) {
+                    if (!deferredStartup) {
+                        // Let the first frame settle before the weather data arrives and
+                        // triggers the heavier full re-composition. Show "Connecting…"
+                        // during this short startup defer so it never flashes "OFFLINE".
+                        deferredStartup = true
+                        _isWeatherRefreshing.value = true
+                        delay(2500L)
+                    }
                     lastFetchMs = now
                     if (isGpsFix) hadGpsWeather = true
                     fetchWeather()
@@ -1581,9 +1665,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
         }
 
-        // React immediately when network status changes
+        // React immediately when network status changes (skip the initial state —
+        // the settings/location collector already performs the first fetch).
         viewModelScope.launch {
-            isOnline.collect { online ->
+            isOnline.drop(1).collect { online ->
                 if (!online) {
                     _weather.value = _weather.value?.copy(isOffline = true) ?: WeatherState(
                         temperatureCelsius = 0.0,

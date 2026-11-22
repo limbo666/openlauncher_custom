@@ -1,7 +1,7 @@
 <div align="center">
   <img width="256" height="256" alt="logoo" src="https://github.com/user-attachments/assets/4c5c4ddb-836d-4c59-8325-76b8c8d78bb3" />
   <h1>Open Launcher Custom </h1><h3> (Fork) </h3>
-  <p><strong>A customized version of the open-source, <s>offline-first</s> Android launcher built specifically for aftermarket car head units.</strong></p>
+  <p><strong>A customized version of the open-source, offline-first Android launcher built specifically for aftermarket car head units.</strong></p>
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
@@ -11,8 +11,8 @@
 ### Why this fork exists
 
 Android head units are quite different from each other, and there are many models on the market. On top of that, every driver prefers different information and layouts. Although the original OpenLauncher is an amazing base and implementation, I found that it didn't quite fit my specific needs.
+
 Having a stable open-source project like OpenLauncher provides a great foundation to develop further and add features that are useful for me, and potentially for others as well. Features like volume control, auto-launching apps, auto-switching widgets, and color/style customization can be essential for users.
-Few of the additional features of this forks are relying on networks connection so "offline first" on upstream project is not followed strickly. Additionaly some functions like "automated profile switching" is designed to cover my way of using the headup unit so it may not make sense to others. 
 
 > **Note:** While development is faster with AI tools, testing on an actual physical unit is still required, and nothing can guarantee 100% compatibility across every head unit model. Real-world testing is essential, and tweaking may be needed to fit specific devices. For this reason, built-in calibration tools and system information extraction utilities have been added to help with setup and troubleshooting.
 
@@ -96,14 +96,16 @@ Kudos to all the above mentioned developers for their work
 ## Key Features & Enhancements in This Fork
 
 ### Multiple driver profiles
-  - Each drive can set layout, widgets, functios, shortcuts, colors etc and switch to his/her own preferences with just two taps from home screen.
-  - Auto profile switching is availble by hotspot name detection. The app can swicth to specific profile when the WiFi connected matches specific name. 
+  - Each driver can set layout, widgets, functions, shortcuts, colors etc. and switch to their own preferences with just two taps from the home screen.
+  - **Distinct default appearances per profile**: on a fresh install each profile slot boots with its own accent color, font and light/dark mode, so switching profiles gives an immediate visible change.
+  - Auto profile switching is available by hotspot name detection. The app can switch to a specific profile when the connected Wi-Fi matches a specific name. 
 ---
-### Dual-Page Dashboard & Driving State Auto-Switching
-- **Two Independent Home Pages**: Swipe left/right between Page 0 and Page 1, each supporting its own distinct widget grid layout and widget content configurations.
-- **Smart Driving Mode Auto-Switch**:
-  - Automatically switches to a dedicated "Driving" dashboard page when vehicle GPS speed exceeds a configured threshold (e.g. 8 km/h).
-  - Automatically reverts to the "Parked" page when the vehicle has been stopped for a set idle duration (e.g. 10 seconds).
+### 2×2 Dashboard Grid (4 pages) & Driving State Auto-Switching
+- **Four independent home pages in a 2×2 grid**: swipe left/right to move within a row (1↔2, 3↔4), up/down to move within a column (1↔3, 2↔4) — no diagonal jumps. Each page has its own widget layout **and** its own per-page widget settings (clock style, app shortcuts + icon count/size, vitals, OBD metrics, soundboard, spectrum, weather forecast, etc.).
+- **Smart Driving Mode Auto-Switch** (column-based):
+  - Automatically switches to the "Driving" column (right pages 2 & 4) when vehicle GPS speed exceeds a configured threshold (e.g. 8 km/h).
+  - Automatically reverts to the "Parked" column (left pages 1 & 3) when the vehicle has been stopped for a set idle duration (e.g. 10 seconds), preserving the current row.
+- The last-used page is remembered and restored on launch.
 ---
 ### Multi finger gestures
   - Two key tap and three key tap can assigned to specific app launching.
@@ -134,10 +136,10 @@ Kudos to all the above mentioned developers for their work
 ### Audio Spectrum Visualizer & Sound Analyzer
 - **Real-Time Equalizer Spectrum Widget (`SpectrumWidget`)**:
   - Audio spectrum analyzer with animated dancing bars reacting to playing media.
+  - **Automatic Gain Control (AGC)**: a slow-moving reference peak keeps the bars responsive across quiet and loud sources, with an on/off toggle and a target-level slider.
   - Dual analysis engine via **`SoundVisualizerManager`**:
     - **Native Visualizer Engine**: Attaches directly to active media session IDs or global mix via Android AudioFX for true Fast Fourier Transform (FFT) frequency bands.
-    - **Procedural Beat-Reactive Fallback**: Automatically activates if firmware/SELinux prevents direct audio stream access, ensuring fluid, organic equalizer animations without crashing or dropping frames.
-  - Visual customization: configurable bar count (8 to 32 bars), sensitivity gain, peak-hold meters, and custom accent/gradient color styling.
+  - Visual customization: configurable bar count (8 to 64 bars), style (bars/rounded/dots), mirroring, per-page sensitivity gain, response/peak-low contrast, custom color, and a zoom-fill fallback image for when there's no audio signal.
 
 ---
 
@@ -194,10 +196,11 @@ Many Android car head units do not use standard Android audio streams for the ph
 - **Quick Actions Widget (`QuickActionsWidget`)**: 1-tap toggles for Bluetooth, Wi-Fi, Screen Blackout (for night driving), Mute, and Launcher Settings.
 - **App Shortcuts Widget (`AppShortcutsWidget`)**: Customizable launcher tile holding 1 to 4 apps with selectable vector icons.
 - **Dynamic Weather Widget (`WeatherWidget`)**:
-  - High-quality animated weather icons (Meteocons Lottie and SVG vector assets).
+  - High-quality animated weather icons (Meteocons Lottie and SVG vector assets); the Lottie animation pauses when the app isn't visible to save CPU.
   - Dual weather providers: **Open-Meteo** and **wttr.in**.
-  - Multi-day forecasts (up to 7 days).
+  - Multi-day forecasts (up to 7 days), with a per-page "Hide/Show forecast" toggle.
   - GPS-based weather with configurable fallback location (e.g., city name).
+  - **Offline fallback gallery**: when offline, the widget can show a slideshow of images from a user-selected folder (configurable transition effect, duration, and time per image) instead of the plain offline placeholder.
 - **Custom Soundboard Widget (`SoundboardWidget`)**:
   - Up to 9 configurable audio pads.
   - Preloaded fun audio clips (What's Up Doc, Arnold "I'll be back", A Few Moments Later, Greek Stamata, Cat meow, Horn, Rooster, Boing, Chime) with support for custom audio URIs.
@@ -234,7 +237,7 @@ Many Android car head units do not use standard Android audio streams for the ph
 ---
 
 ### Personalization & Visual Styling
-- **Expanded Fonts**: Includes 8 typography choices: JetBrains Mono, Source Code Pro, Cal Sans, Fugaz One, Geom Variable, Noto Sans Display, Roboto, and System default.
+- **Expanded Fonts**: Includes 20 typography choices (JetBrains Mono, Source Code Pro, Cal Sans, Fugaz One, Geom, Noto Sans Display, Roboto, DSEG14, IBM VGA, Commissioner, Didact, Fira, Handjet, Neohellenic, Play, Playpen, Sansation, Tektur, Ubuntu, and System default).
 - **Flexible Theming**: Dark, Light, Custom, Auto (day/night based on sunrise/sunset or light sensor), and System modes.
 - **Per-Tile Widget Colors**: Each widget can follow the active theme, use default styling, or use a custom background color and transparency.
 - **Widget Title Toggle**: Option to toggle widget title headers on or off for a cleaner minimalist appearance.

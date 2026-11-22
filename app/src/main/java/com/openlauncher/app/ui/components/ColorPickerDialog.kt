@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,10 +18,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.openlauncher.app.ui.theme.LocalDayMode
+import com.openlauncher.app.ui.theme.LocalUiScales
 import com.openlauncher.app.ui.theme.accentPresetLabels
 import com.openlauncher.app.ui.theme.accentPresets
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ColorPickerDialog(
     title: String,
@@ -49,6 +54,10 @@ fun ColorPickerDialog(
     }
 
     val isDayMode = LocalDayMode.current
+    val scales = LocalUiScales.current
+    val ts = scales.ts()
+    val us = scales.us()
+
     val containerColor = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF1A1A1A)
     val titleContentColor = if (isDayMode) Color(0xFF111111) else Color.White
     val textContentColor = if (isDayMode) Color(0xFF333333) else Color(0xFFCCCCCC)
@@ -65,15 +74,21 @@ fun ColorPickerDialog(
         textContentColor  = textContentColor,
         title = { Text(title) },
         text  = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                // Preset swatches
+            Column(
+                verticalArrangement = Arrangement.spacedBy((14 * us).dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                // Preset swatches (wrap onto multiple rows when UI scale is large)
                 Text("Presets", style = MaterialTheme.typography.labelMedium, color = sectionHeaderColor)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy((8 * us).dp),
+                    verticalArrangement   = Arrangement.spacedBy((6 * us).dp)
+                ) {
                     accentPresets.forEachIndexed { i, color ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size((32 * us).dp)
                                     .clip(CircleShape)
                                     .background(color)
                                     .border(
@@ -87,8 +102,13 @@ fun ColorPickerDialog(
                                     )
                                     .clickable { syncFrom(color) }
                             )
-                            Spacer(Modifier.height(2.dp))
-                            Text(accentPresetLabels[i], style = MaterialTheme.typography.labelSmall, color = if (isDayMode) Color(0xFF666666) else Color(0xFF555555), fontSize = androidx.compose.ui.unit.TextUnit(8f, androidx.compose.ui.unit.TextUnitType.Sp))
+                            Spacer(Modifier.height((2 * us).dp))
+                            Text(
+                                accentPresetLabels[i],
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isDayMode) Color(0xFF666666) else Color(0xFF555555),
+                                fontSize = (8 * ts).sp
+                            )
                         }
                     }
                 }
@@ -98,21 +118,20 @@ fun ColorPickerDialog(
                 // Custom HSV sliders
                 Text("Custom", style = MaterialTheme.typography.labelMedium, color = sectionHeaderColor)
 
-                // Hue slider
                 Text("Hue", style = MaterialTheme.typography.labelSmall, color = sliderLabelColor)
                 Slider(
                     value = hue / 360f,
                     onValueChange = { hue = it * 360f; rebuildColor() },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(24.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                        .height((24 * us).dp)
+                        .clip(RoundedCornerShape((4 * us).dp))
                         .background(Brush.horizontalGradient(
                             colors = (0..6).map { i ->
                                 Color(android.graphics.Color.HSVToColor(floatArrayOf(i * 60f, 1f, 1f)))
                             }
                         ))
-                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.25f), RoundedCornerShape(4.dp)),
+                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.25f), RoundedCornerShape((4 * us).dp)),
                     colors = SliderDefaults.colors(
                         thumbColor = thumbColor,
                         activeTrackColor = Color.Transparent,
@@ -120,20 +139,19 @@ fun ColorPickerDialog(
                     )
                 )
 
-                // Saturation slider
                 Text("Saturation", style = MaterialTheme.typography.labelSmall, color = sliderLabelColor)
                 Slider(
                     value = sat,
                     onValueChange = { sat = it; rebuildColor() },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(24.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                        .height((24 * us).dp)
+                        .clip(RoundedCornerShape((4 * us).dp))
                         .background(Brush.horizontalGradient(listOf(
                             Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0f, value))),
                             Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, value)))
                         )))
-                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.25f), RoundedCornerShape(4.dp)),
+                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.25f), RoundedCornerShape((4 * us).dp)),
                     colors = SliderDefaults.colors(
                         thumbColor = thumbColor,
                         activeTrackColor = Color.Transparent,
@@ -141,20 +159,19 @@ fun ColorPickerDialog(
                     )
                 )
 
-                // Brightness slider
                 Text("Brightness", style = MaterialTheme.typography.labelSmall, color = sliderLabelColor)
                 Slider(
                     value = value,
                     onValueChange = { value = it; rebuildColor() },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(24.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                        .height((24 * us).dp)
+                        .clip(RoundedCornerShape((4 * us).dp))
                         .background(Brush.horizontalGradient(listOf(
                             Color.Black,
                             Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, 1f)))
                         )))
-                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.25f), RoundedCornerShape(4.dp)),
+                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.25f), RoundedCornerShape((4 * us).dp)),
                     colors = SliderDefaults.colors(
                         thumbColor = thumbColor,
                         activeTrackColor = Color.Transparent,
@@ -166,10 +183,10 @@ fun ColorPickerDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .height((36 * us).dp)
+                        .clip(RoundedCornerShape((8 * us).dp))
                         .background(selectedColor)
-                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.40f), RoundedCornerShape(8.dp))
+                        .border(1.dp, if (isDayMode) Color(0xFFCED4DA) else Color.White.copy(alpha = 0.40f), RoundedCornerShape((8 * us).dp))
                 )
             }
         },

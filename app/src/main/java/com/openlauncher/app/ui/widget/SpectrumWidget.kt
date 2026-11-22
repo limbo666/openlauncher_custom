@@ -101,7 +101,7 @@ fun SpectrumWidget(
             AsyncImage(
                 model = Uri.parse(fallbackImageUri),
                 contentDescription = null,
-                contentScale = ContentScale.Fit,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         } else {

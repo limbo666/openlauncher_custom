@@ -40,6 +40,16 @@ object VolumeProtocols {
             (ctx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager)?.setStreamVolume(AudioManager.STREAM_MUSIC, v, 0)
         },
         VolumeProtocol(
+            id = "nwd_system",
+            name = "NWD (Settings mcu_system_volume)",
+            detail = "NWD / Qualcomm units — writes Settings.System mcu_system_volume (0-30) and mcu_mute_state (0/1).",
+            max = 30
+        ) { ctx, v ->
+            val cr = ctx.contentResolver
+            android.provider.Settings.System.putInt(cr, "mcu_system_volume", v.coerceIn(0, 30))
+            android.provider.Settings.System.putInt(cr, "mcu_mute_state", if (v == 0) 1 else 0)
+        },
+        VolumeProtocol(
             id = "microntek",
             name = "Microntek / MTC",
             detail = "Rockchip MTC units — broadcast com.microntek.volumechange (extra volume, 0-30).",

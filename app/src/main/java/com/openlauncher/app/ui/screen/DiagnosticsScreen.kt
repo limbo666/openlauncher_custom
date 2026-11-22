@@ -48,6 +48,7 @@ import com.openlauncher.app.util.FileLog
 import com.openlauncher.app.util.LocationData
 import com.openlauncher.app.util.SafeExport
 import com.openlauncher.app.util.TapSound
+import com.openlauncher.app.util.VolumeController
 import kotlinx.coroutines.launch
 
 private enum class DiagStatus { OK, WARN, ERROR }
@@ -637,6 +638,15 @@ private fun buildReport(
     sb.appendLine("  Temperature: ${weather?.temperatureDisplay(settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC) ?: "—"}")
     sb.appendLine("  Location: ${weather?.locationName?.ifBlank { "—" } ?: "—"}")
     sb.appendLine("  Last error: ${weatherError ?: "none"}")
+    sb.appendLine()
+    sb.appendLine("VOLUME / AUDIO")
+    sb.appendLine("  Resolved protocol: ${VolumeController.vendor.value}")
+    sb.appendLine("  Level: ${VolumeController.level.value ?: -1} / Max: ${VolumeController.max.value}")
+    sb.appendLine("  Muted: ${VolumeController.muted.value}")
+    sb.appendLine("  Stored protocol: ${settings.volumeProtocol}")
+    sb.appendLine("  canWriteSettings: ${android.provider.Settings.System.canWrite(context)}")
+    sb.appendLine()
+    sb.appendLine(VolumeController.collectAudioInfo(context))
     sb.appendLine()
     sb.appendLine("PERMISSIONS")
     sb.appendLine("  Notification access: $isMediaConnected")

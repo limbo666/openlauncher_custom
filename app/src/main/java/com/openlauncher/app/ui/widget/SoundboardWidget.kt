@@ -10,8 +10,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Clear
@@ -22,10 +26,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import com.openlauncher.app.ui.theme.LocalHelpTextColor
+import com.openlauncher.app.ui.theme.LocalUiScales
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -320,6 +327,7 @@ private fun PadAssignDialog(
     onSave: (SoundPadConfig) -> Unit
 ) {
     val context    = LocalContext.current
+    val keyboard   = LocalSoftwareKeyboardController.current
     val accentLum = 0.299f * accent.red + 0.587f * accent.green + 0.114f * accent.blue
     val effectiveAccent = if (isDayMode && accentLum > 0.65f) Color(0xFF111111)
                           else if (!isDayMode && accentLum < 0.25f) Color(0xFFEEEEEE)
@@ -330,6 +338,10 @@ private fun PadAssignDialog(
     val contentColor = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
     val dimColor   = if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
     val fieldBorder = if (isDayMode) Color(0xFFCED4DA) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f)
+
+    val scales = LocalUiScales.current
+    val ts = scales.ts()
+    val us = scales.us()
 
     var labelText   by remember { mutableStateOf(pad.label) }
     var synthType   by remember { mutableStateOf(pad.synthType) }
@@ -353,45 +365,49 @@ private fun PadAssignDialog(
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
+                .width((340 * us).dp) // Fixed size: increased from 220dp to 340dp for landscape headunit displays
+                .heightIn(max = (560 * us).dp)
+                .clip(RoundedCornerShape((8 * us).dp))
                 .background(menuBg)
-                .border(1.dp, menuBorder, RoundedCornerShape(8.dp))
-                .padding(18.dp)
-                .width(340.dp), // Fixed size: increased from 220dp to 340dp for landscape headunit displays
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .border(1.dp, menuBorder, RoundedCornerShape((8 * us).dp))
+                .verticalScroll(rememberScrollState())
+                .padding((18 * us).dp),
+            verticalArrangement = Arrangement.spacedBy((14 * us).dp)
         ) {
             Text(
                 "ASSIGN PAD SOUND",
                 color = contentColor,
-                fontSize = 10.sp,
+                fontSize = (10 * ts).sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp
+                letterSpacing = (2 * ts).sp
             )
 
             // Label field
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("PAD LABEL", color = dimColor, fontSize = 7.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.5.sp)
+            Column(verticalArrangement = Arrangement.spacedBy((4 * us).dp)) {
+                Text("PAD LABEL", color = dimColor, fontSize = (7 * ts).sp, fontFamily = FontFamily.Monospace, letterSpacing = (1.5f * ts).sp)
                 BasicTextField(
                     value = labelText,
                     onValueChange = { if (it.length <= 12) labelText = it },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
                     textStyle = TextStyle(
                         color = contentColor,
-                        fontSize = 11.sp,
+                        fontSize = (11 * ts).sp,
                         fontFamily = FontFamily.Monospace
                     ),
                     cursorBrush = SolidColor(effectiveAccent),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, fieldBorder, RoundedCornerShape(2.dp))
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .border(1.dp, fieldBorder, RoundedCornerShape((2 * us).dp))
+                        .padding(horizontal = (8 * us).dp, vertical = (6 * us).dp)
                 )
             }
 
             // Preloaded Audio Selector (replaces old raw waveform synth generation)
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("PRELOADED AUDIO", color = dimColor, fontSize = 7.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.5.sp)
+            Column(verticalArrangement = Arrangement.spacedBy((4 * us).dp)) {
+                Text("PRELOADED AUDIO", color = dimColor, fontSize = (7 * ts).sp, fontFamily = FontFamily.Monospace, letterSpacing = (1.5f * ts).sp)
                 val preloadedSounds = listOf(
                     Triple("whats_up_doc", "doc", "whats_up_doc"),
                     Triple("adhimahadi_arnold_ill_be_back_8276", "be back", "be_back"),
@@ -405,7 +421,7 @@ private fun PadAssignDialog(
                 )
                 preloadedSounds.chunked(3).forEach { rowItems ->
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy((6 * us).dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         rowItems.forEach { (type, chipLabel, padLabel) ->
@@ -413,9 +429,9 @@ private fun PadAssignDialog(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(28.dp)
-                                    .border(1.dp, if (active) effectiveAccent else fieldBorder, RoundedCornerShape(3.dp))
-                                    .clip(RoundedCornerShape(3.dp))
+                                    .height((28 * us).dp)
+                                    .border(1.dp, if (active) effectiveAccent else fieldBorder, RoundedCornerShape((3 * us).dp))
+                                    .clip(RoundedCornerShape((3 * us).dp))
                                     .background(if (active) effectiveAccent.copy(alpha = if (isDayMode) 0.12f else 0.20f) else Color.Transparent)
                                     .clickable { 
                                         synthType = type
@@ -427,7 +443,7 @@ private fun PadAssignDialog(
                                 Text(
                                     chipLabel,
                                     color = if (active) effectiveAccent else dimColor,
-                                    fontSize = 8.sp,
+                                    fontSize = (8 * ts).sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -438,26 +454,26 @@ private fun PadAssignDialog(
             }
 
             // Custom audio file picker
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("CUSTOM AUDIO FILE", color = dimColor, fontSize = 7.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.5.sp)
+            Column(verticalArrangement = Arrangement.spacedBy((4 * us).dp)) {
+                Text("CUSTOM AUDIO FILE", color = dimColor, fontSize = (7 * ts).sp, fontFamily = FontFamily.Monospace, letterSpacing = (1.5f * ts).sp)
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy((6 * us).dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
                         onClick = { filePicker.launch(arrayOf("audio/*")) },
-                        modifier = Modifier.weight(1f).height(30.dp),
-                        shape = RoundedCornerShape(2.dp),
+                        modifier = Modifier.weight(1f).height((30 * us).dp),
+                        shape = RoundedCornerShape((2 * us).dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = effectiveAccent),
                         border = androidx.compose.foundation.BorderStroke(1.dp, if (audioUri.isNotEmpty()) effectiveAccent else fieldBorder),
-                        contentPadding = PaddingValues(horizontal = 8.dp)
+                        contentPadding = PaddingValues(horizontal = (8 * us).dp)
                     ) {
-                        Icon(Icons.Default.AudioFile, null, tint = effectiveAccent, modifier = Modifier.size(12.dp))
-                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.AudioFile, null, tint = effectiveAccent, modifier = Modifier.size((12 * us).dp))
+                        Spacer(Modifier.width((4 * us).dp))
                         Text(
                             if (audioUri.isNotEmpty()) "CUSTOM FILE ASSIGNED" else "PICK AUDIO FILE",
                             color = effectiveAccent,
-                            fontSize = 7.sp,
+                            fontSize = (7 * ts).sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         )
@@ -465,9 +481,9 @@ private fun PadAssignDialog(
                     if (audioUri.isNotEmpty()) {
                         IconButton(
                             onClick = { audioUri = "" },
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size((28 * us).dp)
                         ) {
-                            Icon(Icons.Default.Clear, null, tint = dimColor, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.Clear, null, tint = dimColor, modifier = Modifier.size((14 * us).dp))
                         }
                     }
                 }
@@ -475,7 +491,7 @@ private fun PadAssignDialog(
                     Text(
                         audioUri.substringAfterLast('/').take(36),
                         color = dimColor.copy(alpha = 0.6f),
-                        fontSize = 6.5.sp,
+                        fontSize = (6.5f * ts).sp,
                         fontFamily = FontFamily.Monospace,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -492,30 +508,30 @@ private fun PadAssignDialog(
                             synthType = ""
                         ))
                     },
-                    modifier = Modifier.fillMaxWidth().height(32.dp),
-                    shape = RoundedCornerShape(2.dp),
+                    modifier = Modifier.fillMaxWidth().height((32 * us).dp),
+                    shape = RoundedCornerShape((2 * us).dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF884444)),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF884444)),
                     contentPadding = PaddingValues(0.dp)
                 ) {
-                    Text("CLEAR SOUND", color = Color(0xFF884444), fontSize = 7.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    Text("CLEAR SOUND", color = Color(0xFF884444), fontSize = (7.5f * ts).sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                 }
             }
 
             // Save / Cancel row
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy((8 * us).dp)
             ) {
                 OutlinedButton(
                     onClick = onDismiss,
-                    modifier = Modifier.weight(1f).height(32.dp),
-                    shape = RoundedCornerShape(2.dp),
+                    modifier = Modifier.weight(1f).height((32 * us).dp),
+                    shape = RoundedCornerShape((2 * us).dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = dimColor),
                     border = androidx.compose.foundation.BorderStroke(1.dp, fieldBorder),
                     contentPadding = PaddingValues(0.dp)
                 ) {
-                    Text("CANCEL", color = dimColor, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    Text("CANCEL", color = dimColor, fontSize = (7.5f * ts).sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                 }
                 Button(
                     onClick = {
@@ -525,15 +541,15 @@ private fun PadAssignDialog(
                             synthType = synthType
                         ))
                     },
-                    modifier = Modifier.weight(1f).height(32.dp),
-                    shape = RoundedCornerShape(2.dp),
+                    modifier = Modifier.weight(1f).height((32 * us).dp),
+                    shape = RoundedCornerShape((2 * us).dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = effectiveAccent,
                         contentColor = if (effectiveAccent.luminance() > 0.5f) Color.Black else Color.White
                     ),
                     contentPadding = PaddingValues(0.dp)
                 ) {
-                    Text("SAVE SOUND", color = if (effectiveAccent.luminance() > 0.5f) Color.Black else Color.White, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    Text("SAVE SOUND", color = if (effectiveAccent.luminance() > 0.5f) Color.Black else Color.White, fontSize = (7.5f * ts).sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                 }
             }
         }

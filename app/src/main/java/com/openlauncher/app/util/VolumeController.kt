@@ -38,6 +38,8 @@ object VolumeController {
     private val _isMicrontek = MutableStateFlow(false)
     val isMicrontek: StateFlow<Boolean> = _isMicrontek
 
+    @Volatile private var isNwd = false
+
     @Volatile private var protocolId: String = VolumeProtocols.AUTO
     @Volatile private var preMute = -1
     @Volatile private var initialized = false
@@ -53,6 +55,9 @@ object VolumeController {
             _isMicrontek.value = runCatching {
                 app.packageManager.getInstalledApplications(0).any { it.packageName.startsWith("com.microntek") }
             }.getOrDefault(false)
+            isNwd = runCatching {
+                app.packageManager.getInstalledApplications(0).any { it.packageName.startsWith("com.nwd") }
+            }.getOrDefault(false)
 
             refreshResolved()
             val am = app.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -64,7 +69,7 @@ object VolumeController {
             initialized = true
             FileLog.log(
                 "Volume",
-                "controller init protocol=$protocolId resolved=${_vendor.value} level=${_level.value} max=${_max.value} microntek=${_isMicrontek.value}"
+                "controller init protocol=$protocolId resolved=${_vendor.value} level=${_level.value} max=${_max.value} microntek=${_isMicrontek.value} nwd=$isNwd canWriteSettings=${android.provider.Settings.System.canWrite(app)}"
             )
             runCatching {
                 FileLog.log("Volume", "cfg_maxvolume query=${am?.getParameters("cfg_maxvolume=")}")
@@ -85,7 +90,11 @@ object VolumeController {
         val am = app.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         val streamMax = am?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15
         val id = if (protocolId == VolumeProtocols.AUTO) {
-            if (_isMicrontek.value) "microntek_volset" else "stream"
+            when {
+                _isMicrontek.value -> "microntek_volset"
+                isNwd              -> "nwd_system"
+                else               -> "stream"
+            }
         } else protocolId
         val proto = VolumeProtocols.byId(id)
         val effectiveMax = if (proto.id == "stream") streamMax.coerceAtLeast(1) else proto.max
@@ -100,7 +109,11 @@ object VolumeController {
         val am = app.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         val streamMax = am?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15
         val id = if (protocolId == VolumeProtocols.AUTO) {
-            if (_isMicrontek.value) "microntek_volset" else "stream"
+            when {
+                _isMicrontek.value -> "microntek_volset"
+                isNwd              -> "nwd_system"
+                else               -> "stream"
+            }
         } else protocolId
         val proto = VolumeProtocols.byId(id)
         val effectiveMax = if (proto.id == "stream") streamMax.coerceAtLeast(1) else proto.max
@@ -110,6 +123,8 @@ object VolumeController {
         if (v > 0) preMute = v
         val wire = if (proto.id == "microntek_volset100") (v * 100) / 30 else v
         runCatching { proto.apply(context, v) }
+            .exceptionOrNull()
+            ?.let { FileLog.log("Volume", "apply ${proto.id} FAILED: ${it.javaClass.simpleName}: ${it.message}") }
         lastCommandAt = android.os.SystemClock.uptimeMillis()
         FileLog.log("Volume", "set protocol=${proto.id} v=$v wire=$wire max=$effectiveMax")
     }
@@ -207,10 +222,33 @@ object VolumeController {
                 android.provider.Settings.System.getUriFor("av_volume"), false, observer
             )
         }
+        // NWD / Qualcomm units: the physical knob writes mcu_system_volume + mcu_mute_state.
+        runCatching {
+            val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) {
+                    if (android.os.SystemClock.uptimeMillis() - lastCommandAt < 500) return
+                    val v = android.provider.Settings.System.getInt(app.contentResolver, "mcu_system_volume", -1)
+                    if (v in 0.._max.value) {
+                        _level.value = v
+                        _muted.value = v == 0
+                        if (v > 0) preMute = v
+                        FileLog.log("Volume", "mcu_system_volume changed v=$v max=${_max.value}")
+                    }
+                    val mute = android.provider.Settings.System.getInt(app.contentResolver, "mcu_mute_state", 0)
+                    if (mute == 1) _muted.value = true
+                }
+            }
+            app.contentResolver.registerContentObserver(
+                android.provider.Settings.System.getUriFor("mcu_system_volume"), false, observer
+            )
+            app.contentResolver.registerContentObserver(
+                android.provider.Settings.System.getUriFor("mcu_mute_state"), false, observer
+            )
+        }
     }
 
     private fun isStreamActive(): Boolean =
-        protocolId == "stream" || (protocolId == VolumeProtocols.AUTO && !_isMicrontek.value)
+        protocolId == "stream" || (protocolId == VolumeProtocols.AUTO && !_isMicrontek.value && !isNwd)
 
     /** The MCU reports its native scale (0-30 on MTC units), which already matches [_max]. */
     private fun wireToLevel(wire: Int): Int = wire.coerceIn(0, _max.value)
@@ -240,7 +278,8 @@ object VolumeController {
             val pkgs = context.packageManager.getInstalledApplications(0).map { it.packageName }
             val vendor = pkgs.filter { p ->
                 p.startsWith("com.microntek") || p.startsWith("com.hct") || p.startsWith("com.navimods") ||
-                p.startsWith("com.syu") || p.startsWith("com.forfan") || p.startsWith("com.szchoiceway")
+                p.startsWith("com.syu") || p.startsWith("com.forfan") || p.startsWith("com.szchoiceway") ||
+                p.startsWith("com.nwd")
             }
             sb.appendLine("  vendor pkgs: ${vendor.joinToString(",")}")
         }
@@ -258,6 +297,18 @@ object VolumeController {
             sb.appendLine("  settings.av_channel: $ch")
             val sysAv = android.provider.Settings.System.getString(context.contentResolver, "av_volume")
             sb.appendLine("  settings.system av_volume: $sysAv")
+        }
+        // NWD / Qualcomm channel (what the G5 unit actually reads/writes).
+        runCatching {
+            val mcuVol = android.provider.Settings.System.getInt(context.contentResolver, "mcu_system_volume", -1)
+            sb.appendLine("  settings.system mcu_system_volume: $mcuVol")
+            val mcuMute = android.provider.Settings.System.getInt(context.contentResolver, "mcu_mute_state", -1)
+            sb.appendLine("  settings.system mcu_mute_state: $mcuMute")
+            val mcuMax = android.provider.Settings.System.getInt(context.contentResolver, "mcu_volume_max", -1)
+            sb.appendLine("  settings.system mcu_volume_max: $mcuMax")
+            val mcuMin = android.provider.Settings.System.getInt(context.contentResolver, "mcu_volume_min", -1)
+            sb.appendLine("  settings.system mcu_volume_min: $mcuMin")
+            sb.appendLine("  canWriteSettings: ${android.provider.Settings.System.canWrite(context)}")
         }
         return sb.toString()
     }

@@ -61,8 +61,8 @@ android {
         applicationId  = "com.limbo.openlauncher"
         minSdk         = 21
         targetSdk      = 34
-        versionCode    = 119
-        versionName    = "0.9.119"
+        versionCode    = 179
+        versionName    = "0.9.179"
 
         // Google Maps key is NOT stored in the repo. Put it in local.properties
         // (git-ignored) as:  MAPS_API_KEY=AIza...

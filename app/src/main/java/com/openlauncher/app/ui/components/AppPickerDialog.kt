@@ -25,6 +25,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CheckCircle
@@ -49,6 +51,8 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +60,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.graphics.drawable.toBitmap
 import com.openlauncher.app.data.AppDrawerFilter
 import com.openlauncher.app.model.AppInfo
+import com.openlauncher.app.ui.theme.LocalUiScales
 import com.openlauncher.app.util.TapSound
 
 /**
@@ -102,6 +107,11 @@ fun AppPickerDialog(
     val chipContainer = effectiveAccent.copy(alpha = if (isDayMode) 0.12f else 0.22f)
     val chipLabelSelected = if (isDayMode) Color(0xFF111111) else Color(0xFFEEEEEE)
 
+    val scales = LocalUiScales.current
+    val ts = scales.ts()
+    val us = scales.us()
+    val keyboard = LocalSoftwareKeyboardController.current
+
     var query  by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(AppDrawerFilter.ALL) }
 
@@ -125,26 +135,26 @@ fun AppPickerDialog(
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .widthIn(min = 380.dp, max = 720.dp)
+                .widthIn(min = (380 * us).dp, max = (720 * us).dp)
                 .fillMaxWidth(0.94f)
-                .heightIn(max = 560.dp)
+                .heightIn(max = (560 * us).dp)
                 .fillMaxHeight(0.88f)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape((10 * us).dp))
                 .background(dialogBg)
-                .border(1.dp, dialogBorder, RoundedCornerShape(10.dp))
-                .padding(16.dp)
+                .border(1.dp, dialogBorder, RoundedCornerShape((10 * us).dp))
+                .padding((16 * us).dp)
         ) {
             // ── Header: title + current selection + clear + close ──────────────
             Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = (10 * us).dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text          = title.uppercase(),
                         color         = effectiveAccent,
-                        fontSize      = 11.sp,
-                        letterSpacing = 2.sp,
+                        fontSize      = (11 * ts).sp,
+                        letterSpacing = (2 * ts).sp,
                         fontWeight    = FontWeight.Bold,
                         maxLines      = 1,
                         overflow      = TextOverflow.Ellipsis
@@ -153,8 +163,8 @@ fun AppPickerDialog(
                         text = if (currentApp != null) "Current: ${currentApp.appName}"
                                else "No app assigned",
                         color = subColor,
-                        fontSize = 9.sp,
-                        letterSpacing = 0.5.sp,
+                        fontSize = (9 * ts).sp,
+                        letterSpacing = (0.5f * ts).sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -166,26 +176,26 @@ fun AppPickerDialog(
                             onClear()
                             onDismiss()
                         },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = (8 * us).dp, vertical = (2 * us).dp)
                     ) {
                         Text(
                             clearLabel,
                             color = Color(0xFFE03131),
-                            fontSize = 10.sp,
+                            fontSize = (10 * ts).sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
+                            letterSpacing = (1 * ts).sp
                         )
                     }
                 }
                 IconButton(
                     onClick = { TapSound.play(); onDismiss() },
-                    modifier = Modifier.size(26.dp)
+                    modifier = Modifier.size((26 * us).dp)
                 ) {
                     Icon(
                         Icons.Default.Close,
                         null,
                         tint = subColor,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size((16 * us).dp)
                     )
                 }
             }
@@ -194,31 +204,33 @@ fun AppPickerDialog(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(RoundedCornerShape((4 * us).dp))
                     .background(searchBg)
-                    .border(1.dp, if (isDayMode) Color(0xFFD0D0D0) else Color(0xFF282828), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                    .border(1.dp, if (isDayMode) Color(0xFFD0D0D0) else Color(0xFF282828), RoundedCornerShape((4 * us).dp))
+                    .padding(horizontal = (10 * us).dp, vertical = (7 * us).dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Default.Search,
                         null,
                         tint = subColor,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size((14 * us).dp)
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width((8 * us).dp))
                     BasicTextField(
                         value = query,
                         onValueChange = { query = it },
-                        textStyle = TextStyle(color = textColor, fontSize = 12.sp),
+                        textStyle = TextStyle(color = textColor, fontSize = (12 * ts).sp),
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
                         modifier = Modifier.weight(1f),
                         decorationBox = { innerTextField ->
                             if (query.isEmpty()) {
                                 Text(
                                     "Search by name or package...",
                                     color = if (isDayMode) Color(0xFF999999) else Color(0xFF555555),
-                                    fontSize = 12.sp
+                                    fontSize = (12 * ts).sp
                                 )
                             }
                             innerTextField()
@@ -227,27 +239,27 @@ fun AppPickerDialog(
                     if (query.isNotEmpty()) {
                         IconButton(
                             onClick = { TapSound.play(); query = "" },
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size((20 * us).dp)
                         ) {
                             Icon(
                                 Icons.Default.Close,
                                 "Clear search",
                                 tint = subColor,
-                                modifier = Modifier.size(12.dp)
+                                modifier = Modifier.size((12 * us).dp)
                             )
                         }
                     }
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height((8 * us).dp))
 
             // ── App drawer filter chips ─────────────────────────────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy((4 * us).dp)
             ) {
                 AppDrawerFilter.entries.forEach { f ->
                     TapFilterChip(
@@ -262,8 +274,8 @@ fun AppPickerDialog(
                                     AppDrawerFilter.SYSTEM   -> "System"
                                     AppDrawerFilter.ALL      -> "All"
                                 },
-                                fontSize = 9.sp,
-                                letterSpacing = 0.5.sp
+                                fontSize = (9 * ts).sp,
+                                letterSpacing = (0.5f * ts).sp
                             )
                         },
                         colors = FilterChipDefaults.filterChipColors(
@@ -275,7 +287,7 @@ fun AppPickerDialog(
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height((10 * us).dp))
 
             // ── App grid ────────────────────────────────────────────────────────
             if (filtered.isEmpty()) {
@@ -286,15 +298,15 @@ fun AppPickerDialog(
                     Text(
                         text = if (query.isBlank()) "No apps in this category" else "No apps match \"$query\"",
                         color = subColor,
-                        fontSize = 11.sp,
-                        letterSpacing = 1.sp
+                        fontSize = (11 * ts).sp,
+                        letterSpacing = (1 * ts).sp
                     )
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 84.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    columns = GridCells.Adaptive(minSize = (84 * us).dp),
+                    horizontalArrangement = Arrangement.spacedBy((8 * us).dp),
+                    verticalArrangement = Arrangement.spacedBy((8 * us).dp),
                     modifier = Modifier.weight(1f).fillMaxWidth()
                 ) {
                     items(filtered, key = { it.packageName }) { app ->
@@ -313,14 +325,14 @@ fun AppPickerDialog(
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height((6 * us).dp))
 
             // ── Footer count ────────────────────────────────────────────────────
             Text(
                 text          = "${filtered.size} app${if (filtered.size == 1) "" else "s"}",
                 color         = subColor.copy(alpha = 0.8f),
-                fontSize      = 9.sp,
-                letterSpacing = 1.sp,
+                fontSize      = (9 * ts).sp,
+                letterSpacing = (1 * ts).sp,
                 modifier      = Modifier.align(Alignment.End)
             )
         }
@@ -339,17 +351,20 @@ private fun AppPickTile(
     isDayMode: Boolean,
     onPick: () -> Unit
 ) {
+    val scales = LocalUiScales.current
+    val ts = scales.ts()
+    val us = scales.us()
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape((6 * us).dp))
             .background(if (isCurrent) accent.copy(alpha = if (isDayMode) 0.12f else 0.2f) else tileBg)
-            .border(1.dp, if (isCurrent) accent else tileBorder, RoundedCornerShape(6.dp))
+            .border(1.dp, if (isCurrent) accent else tileBorder, RoundedCornerShape((6 * us).dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) { TapSound.play(); onPick() }
-            .padding(8.dp),
+            .padding((8 * us).dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -362,14 +377,14 @@ private fun AppPickTile(
                     painter = BitmapPainter(bmp.asImageBitmap()),
                     contentDescription = app.appName,
                     tint = Color.Unspecified,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size((40 * us).dp)
                 )
             } else {
                 Icon(
                     Icons.Default.Apps,
                     null,
                     tint = accent,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size((40 * us).dp)
                 )
             }
             if (isCurrent) {
@@ -377,24 +392,24 @@ private fun AppPickTile(
                     Icons.Default.CheckCircle,
                     "Current",
                     tint = accent,
-                    modifier = Modifier.size(14.dp)
+                    modifier = Modifier.size((14 * us).dp)
                 )
             }
         }
-        Spacer(Modifier.height(5.dp))
+        Spacer(Modifier.height((5 * us).dp))
         Text(
             text = app.appName,
             color = textColor,
-            fontSize = 9.5.sp,
+            fontSize = (9.5f * ts).sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
-            lineHeight = 11.sp
+            lineHeight = (11 * ts).sp
         )
         Text(
             text = app.packageName,
             color = subColor,
-            fontSize = 7.sp,
+            fontSize = (7 * ts).sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center

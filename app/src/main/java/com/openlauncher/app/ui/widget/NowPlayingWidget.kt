@@ -34,6 +34,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -85,6 +88,8 @@ fun NowPlayingWidget(
     showRadioBands: Boolean = false,
     logoScale: Float = 1.0f,
     logoDim: Float = 0.25f,
+    artBlend: Float = 0.7f,
+    widgetBackground: Color = Color(0xFF0E0E12),
     assignedRadioPackage: String = ""
 ) {
     val context     = LocalContext.current
@@ -169,16 +174,26 @@ fun NowPlayingWidget(
                 onTapToOpenApp = onTapToOpenApp,
                 logoScale = logoScale,
                 logoDim = logoDim,
+                artBlend = artBlend,
+                widgetBackground = widgetBackground,
                 modifier = Modifier.fillMaxSize()
             )
         }
 
         // 2. VISIBLE SOURCE SELECTOR (Top-Right): PLAYER | RADIO
-        val segActiveBg   = if (isDayMode) Color(0xFF222222) else Color(0xFFDDDDDD)
-        val segActiveText = if (isDayMode) Color.White else Color(0xFF111111)
-        val segInactiveBg = if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF1A1A1A)
-        val segDimText    = if (isDayMode) Color(0xFF777777) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-        val segBorder     = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
+        // Colours are derived from the tile's own text/theme colour (not the
+        // global theme) so the selected/unselected chips stay legible on every
+        // theme — the inactive chip can never fall back to an unreadable black.
+        val accentLum = 0.299f * accent.red + 0.587f * accent.green + 0.114f * accent.blue
+        val customLum = customContentColor?.let { 0.299f * it.red + 0.587f * it.green + 0.114f * it.blue }
+        val tileIsLight = isDayMode || (customLum != null && customLum < 0.5f)
+        val contentColor = customContentColor ?: if (tileIsLight) Color(0xFF16181C) else Color(0xFFEDEFF2)
+
+        val segActiveBg   = accent
+        val segActiveText = if (accentLum > 0.5f) Color(0xFF141414) else Color.White
+        val segInactiveBg = if (tileIsLight) Color(0xFFE8EBEF) else Color(0xFF2B2F35)
+        val segDimText    = contentColor.copy(alpha = if (tileIsLight) 0.75f else 0.80f)
+        val segBorder     = contentColor.copy(alpha = if (tileIsLight) 0.20f else 0.28f)
         
         Row(
             modifier = Modifier
@@ -230,7 +245,7 @@ private fun RadioDeck(
 ) {
     val isLightMode  = isDayMode || (customContentColor != null && (0.299f * customContentColor.red + 0.587f * customContentColor.green + 0.114f * customContentColor.blue) < 0.5f)
     val contentColor = customContentColor ?: if (isLightMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val dimColor     = LocalHelpTextColor.current ?: customContentColor?.copy(alpha = 0.60f) ?: if (isLightMode) Color(0xFF444444) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val dimColor     = customContentColor?.copy(alpha = 0.60f) ?: LocalHelpTextColor.current ?: if (isLightMode) Color(0xFF444444) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
     val borderColor  = customContentColor?.copy(alpha = 0.25f) ?: if (isLightMode) Color(0xFF777777) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
 
     if (hardwareRadio == null) {
@@ -300,9 +315,9 @@ private fun RadioDeck(
     val displayUnit = if (hardwareRadio.isAm) "kHz" else "MHz"
     val hasFreq     = freqFloat != null
 
-    val chipInactiveBg = if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF1A1A1A)
-    val chipActiveBg   = if (isDayMode) Color(0xFF222222) else Color(0xFFDDDDDD)
-    val chipActiveText = if (isDayMode) Color.White else Color(0xFF111111)
+    val chipInactiveBg = if (isLightMode) Color(0xFFE0E0E0) else Color(0xFF2B2F35)
+    val chipActiveBg   = if (isLightMode) Color(0xFF222222) else Color(0xFFDDDDDD)
+    val chipActiveText = if (isLightMode) Color.White else Color(0xFF111111)
 
     Column(
         modifier = modifier
@@ -615,6 +630,8 @@ private fun StandardMinimalPlayer(
     onTapToOpenApp: () -> Unit,
     logoScale: Float = 1.0f,
     logoDim: Float = 0.25f,
+    artBlend: Float = 0.7f,
+    widgetBackground: Color = Color(0xFF0E0E12),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -736,16 +753,30 @@ private fun StandardMinimalPlayer(
                 }
             }
 
-            // Draw Album Art as background with smooth blur overlay if present
+            // Draw Album Art as background with smooth blur overlay if present.
+            // Text/control colours derive from the tile's own background so they
+            // stay legible on any custom/follow-theme colour (white-on-white bug).
+            val bgLum = 0.299f * widgetBackground.red + 0.587f * widgetBackground.green + 0.114f * widgetBackground.blue
+            val bgDark = bgLum < 0.5f
             val hasAlbumArt = nonNullState.albumArt != null || nonNullState.artUri != null
-            val useDarkTheme = hasAlbumArt || (!isLightMode)
+            // Always follow the TILE background (not the artwork): a whitish tile
+            // yields dark text even when artwork/logo is present.
+            val useDarkTheme = bgDark
 
-            val currentTextColor = if (hasAlbumArt) Color.White else (customContentColor ?: if (isLightMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground)
-            val currentSubTextColor = LocalHelpTextColor.current ?: if (hasAlbumArt) Color.White.copy(alpha = 0.6f) else (customContentColor?.copy(alpha = 0.6f) ?: if (isLightMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
-            val currentProgressColor = if (useDarkTheme) accent else if (isLightMode) Color(0xFF111111) else accent
+            val currentTextColor = when {
+                customContentColor != null -> customContentColor
+                bgDark -> Color(0xFFF2F2F2)
+                else -> Color(0xFF16181C)
+            }
+            val currentSubTextColor = when {
+                customContentColor != null -> customContentColor.copy(alpha = 0.60f)
+                bgDark -> Color(0xFFF2F2F2).copy(alpha = 0.60f)
+                else -> Color(0xFF16181C).copy(alpha = 0.60f)
+            }
+            val currentProgressColor = if (useDarkTheme) accent else Color(0xFF16181C)
             val currentProgressTrack = currentTextColor.copy(alpha = 0.15f)
             val currentIconColor = currentTextColor.copy(alpha = 0.75f)
-            val currentPlayBgColor = if (useDarkTheme) accent.copy(alpha = 0.9f) else if (isLightMode) Color(0xFF111111) else accent.copy(alpha = 0.9f)
+            val currentPlayBgColor = if (useDarkTheme) accent.copy(alpha = 0.9f) else Color(0xFF16181C)
             val currentPlayIconColor = if (useDarkTheme) Color.Black else Color.White
 
             if (hasAlbumArt) {
@@ -774,13 +805,37 @@ private fun StandardMinimalPlayer(
                     error = nonNullState.albumArt?.let {
                         androidx.compose.ui.graphics.painter.BitmapPainter(it.asImageBitmap())
                     },
-                    modifier = Modifier.fillMaxSize().scale(logoScale.coerceIn(0.5f, 1f))
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .scale(logoScale.coerceIn(0.5f, 1f))
                 )
-                // Adjustable dark veil so controls/text stay legible over bright logos
+                // Edge blend: fade the artwork into the widget's own background
+                // colour (detected per tile) so it reads as part of the tile,
+                // not a hard rectangle. Intensity is user-controlled (0 = off).
+                if (artBlend > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .drawWithContent {
+                                drawRect(
+                                    brush = Brush.radialGradient(
+                                        0f to Color.Transparent,
+                                        0.5f to Color.Transparent,
+                                        1f to widgetBackground.copy(alpha = artBlend.coerceIn(0f, 1f)),
+                                        center = Offset(size.width / 2f, size.height / 2f),
+                                        radius = minOf(size.width, size.height) / 2f
+                                    )
+                                )
+                            }
+                    )
+                }
+                // Adjustable veil so controls/text stay legible over the artwork:
+                // darkens art on a dark tile (white text), lightens it on a light
+                // tile (dark text).
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = logoDim.coerceIn(0f, 0.8f)))
+                        .background((if (bgDark) Color.Black else Color.White).copy(alpha = logoDim.coerceIn(0f, 0.8f)))
                 )
             }
 

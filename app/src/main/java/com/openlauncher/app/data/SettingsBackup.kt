@@ -82,6 +82,7 @@ object SettingsBackup {
         val safeSidebarWidth = restored.sidebarWidth.coerceIn(40, 120)
         val safeSidebarIconScale = restored.sidebarIconScale.coerceIn(0.6f, 1.8f)
         val safeTileAlpha = restored.tileAlpha.coerceIn(0f, 1f)
+        val safeGlareIntensity = restored.glareIntensity.coerceIn(0.15f, 1f)
         val safeSpectrumGain = restored.spectrumGain.coerceIn(0.3f, 3f)
         val safeSpectrumBarCount = restored.spectrumBarCount.coerceIn(8, 64)
         val safeSpectrumAttackMs = restored.spectrumAttackMs.coerceIn(5f, 200f)
@@ -108,6 +109,7 @@ object SettingsBackup {
         val safeWidgetContentAlt = restored.widgetContentAlt?.let { alt ->
             alt.copy(
                 vitalsElements       = alt.vitalsElements.orEmpty().ifEmpty { defaultVitalsElements() },
+                obdMetrics           = alt.obdMetrics.orEmpty().filter { it in defaultObdMetrics() }.ifEmpty { defaultObdMetrics() },
                 quickActionButtons   = alt.quickActionButtons.orEmpty().ifEmpty { defaultQuickActionButtons() },
                 soundboardPads       = alt.soundboardPads.orEmpty(),
                 appWidgetPackages    = (alt.appWidgetPackages.orEmpty() + List(4) { "" }).take(4),
@@ -117,6 +119,12 @@ object SettingsBackup {
         }
 
         // Sanitize the floating quick-controls panel (cap slots, valid actions, ranges)
+        // Sanitize the OBD metric selection: drop unknown IDs and fall back to
+        // the full default set when nothing valid remains.
+        val sanitizedObdMetrics = restored.obdMetrics.orEmpty()
+            .filter { it in defaultObdMetrics() }
+            .ifEmpty { defaultObdMetrics() }
+
         val safeFloatingActions = restored.floatingPanelActions
             .orEmpty()
             .filter { it.packageName.isNotBlank() || it.type != FloatingActionType.APP }
@@ -135,6 +143,7 @@ object SettingsBackup {
             sidebarWidth = safeSidebarWidth,
             sidebarIconScale = safeSidebarIconScale,
             tileAlpha = safeTileAlpha,
+            glareIntensity = safeGlareIntensity,
             spectrumGain = safeSpectrumGain,
             spectrumBarCount = safeSpectrumBarCount,
             spectrumAttackMs = safeSpectrumAttackMs,
@@ -144,6 +153,7 @@ object SettingsBackup {
             widgetLayout = if (sanitizedLayout.isNotEmpty()) sanitizedLayout else defaultWidgetLayout(),
             homePageAltLayout = sanitizedAltLayout,
             widgetContentAlt = safeWidgetContentAlt,
+            obdMetrics = sanitizedObdMetrics,
             floatingPanelActions = safeFloatingActions,
             floatingPanelScale = safeFloatingScale,
             floatingPanelOpacity = safeFloatingOpacity

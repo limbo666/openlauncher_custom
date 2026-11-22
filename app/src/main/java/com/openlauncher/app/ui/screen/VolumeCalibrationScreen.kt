@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.openlauncher.app.ui.theme.LocalUiScales
 import com.openlauncher.app.util.FileLog
 import com.openlauncher.app.util.HeadUnitInspector
 import com.openlauncher.app.util.TapSound
@@ -90,15 +91,16 @@ fun VolumeCalibrationScreen(
     }
 
     if (confirmId != null) {
+        val dts = LocalUiScales.current.ts()
         AlertDialog(
             onDismissRequest = { confirmId = null },
             containerColor = cardBg,
-            title = { Text("Did the volume mute?", color = textColor, fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+            title = { Text("Did the volume mute?", color = textColor, fontSize = (15 * dts).sp, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
                     "If you heard the sound cut out for a moment and come back, this protocol works.",
                     color = subColor,
-                    fontSize = 12.sp
+                    fontSize = (12 * dts).sp
                 )
             },
             confirmButton = {
@@ -108,11 +110,11 @@ fun VolumeCalibrationScreen(
                     onSelectProtocol(id)
                     FileLog.log("Volume", "wizard confirmed $id")
                     confirmId = null
-                }) { Text("YES, USE IT", color = accent, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                }) { Text("YES, USE IT", color = accent, fontWeight = FontWeight.Bold, fontSize = (12 * dts).sp) }
             },
             dismissButton = {
                 TextButton(onClick = { TapSound.play(); confirmId = null }) {
-                    Text("NO", color = subColor, fontSize = 12.sp)
+                    Text("NO", color = subColor, fontSize = (12 * dts).sp)
                 }
             }
         )

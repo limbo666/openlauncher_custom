@@ -43,6 +43,7 @@ import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.ui.theme.LocalDayMode
+import com.openlauncher.app.ui.theme.LocalUiScales
 import com.openlauncher.app.ui.theme.effectiveAccent
 import com.openlauncher.app.util.TapSound
 import kotlin.math.roundToInt
@@ -448,14 +449,17 @@ private fun ShortcutActionDialog(
     val actionTint = if (isDayMode) Color(0xFF111111) else effectiveAccent
     val removeTint = if (isDayMode) Color(0xFFE03131) else Color(0xFFFF6B6B)
 
+    val scales = LocalUiScales.current
+    val us = scales.us()
+
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape((8 * us).dp))
                 .background(dialogBg)
-                .border(1.dp, dialogBorder, RoundedCornerShape(8.dp))
-                .padding(vertical = 6.dp)
-                .width(220.dp)
+                .border(1.dp, dialogBorder, RoundedCornerShape((8 * us).dp))
+                .padding(vertical = (6 * us).dp)
+                .width((220 * us).dp)
         ) {
             if (hasApp) {
                 ActionRow("OPEN APP", Icons.Default.Launch, actionTint, onLaunchApp)
@@ -472,16 +476,19 @@ private fun ShortcutActionDialog(
 
 @Composable
 private fun ActionRow(label: String, icon: ImageVector, tint: Color, onClick: () -> Unit) {
+    val scales = LocalUiScales.current
+    val ts = scales.ts()
+    val us = scales.us()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .tapClickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = (16 * us).dp, vertical = (12 * us).dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy((12 * us).dp)
     ) {
-        Icon(icon, null, tint = tint, modifier = Modifier.size(16.dp))
-        Text(label, color = tint, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+        Icon(icon, null, tint = tint, modifier = Modifier.size((16 * us).dp))
+        Text(label, color = tint, fontSize = (10 * ts).sp, fontWeight = FontWeight.SemiBold, letterSpacing = (1 * ts).sp)
     }
 }
 
@@ -507,59 +514,63 @@ private fun IconPickerDialog(
     val unselectedBoxBorder = if (isDayMode) Color(0xFFCED4DA) else Color(0xFF282828)
     val unselectedIconTint = if (isDayMode) Color(0xFF495057) else Color(0xFF888888)
 
+    val scales = LocalUiScales.current
+    val ts = scales.ts()
+    val us = scales.us()
+
     val vectorOptions = DefaultShortcutIcon.entries.filter { it != DefaultShortcutIcon.NONE }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape((8 * us).dp))
                 .background(dialogBg)
-                .border(1.dp, dialogBorder, RoundedCornerShape(8.dp))
-                .padding(14.dp)
+                .border(1.dp, dialogBorder, RoundedCornerShape((8 * us).dp))
+                .padding((14 * us).dp)
         ) {
             Text(
                 "CHOOSE ICON",
                 color         = headerColor,
-                fontSize      = 9.sp,
+                fontSize      = (9 * ts).sp,
                 fontWeight    = FontWeight.Bold,
-                letterSpacing = 2.sp,
-                modifier      = Modifier.padding(bottom = 10.dp)
+                letterSpacing = (2 * ts).sp,
+                modifier      = Modifier.padding(bottom = (10 * us).dp)
             )
 
             if (hasNativeIcon) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape((6 * us).dp))
                         .background(if (currentOverride == null) effectiveAccent.copy(alpha = if (isDayMode) 0.10f else 0.18f) else Color.Transparent)
-                        .border(1.dp, if (currentOverride == null) effectiveAccent else Color.Transparent, RoundedCornerShape(6.dp))
+                        .border(1.dp, if (currentOverride == null) effectiveAccent else Color.Transparent, RoundedCornerShape((6 * us).dp))
                         .clickable { onPick(null) }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = (12 * us).dp, vertical = (10 * us).dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy((10 * us).dp)
                 ) {
                     Icon(
                         Icons.Default.Apps,
                         null,
                         tint = if (currentOverride == null) effectiveAccent else unselectedIconTint,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size((18 * us).dp)
                     )
                     Text(
                         "NATIVE APP ICON",
                         color         = if (currentOverride == null) effectiveAccent else (if (isDayMode) Color(0xFF333333) else Color(0xFF888888)),
-                        fontSize      = 9.sp,
+                        fontSize      = (9 * ts).sp,
                         fontWeight    = if (currentOverride == null) FontWeight.Bold else FontWeight.Normal,
-                        letterSpacing = 1.sp
+                        letterSpacing = (1 * ts).sp
                     )
                 }
-                HorizontalDivider(color = dividerColor, modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(color = dividerColor, modifier = Modifier.padding(vertical = (8 * us).dp))
             }
 
             LazyVerticalGrid(
                 columns               = GridCells.Fixed(5),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement   = Arrangement.spacedBy(6.dp),
-                modifier              = Modifier.heightIn(max = 300.dp)
+                horizontalArrangement = Arrangement.spacedBy((6 * us).dp),
+                verticalArrangement   = Arrangement.spacedBy((6 * us).dp),
+                modifier              = Modifier.heightIn(max = (300 * us).dp)
             ) {
                 items(vectorOptions) { iconOption ->
                     val isSelected = currentOverride == iconOption
@@ -567,7 +578,7 @@ private fun IconPickerDialog(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .aspectRatio(1f)
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape((6 * us).dp))
                             .background(
                                 if (isSelected) effectiveAccent.copy(alpha = if (isDayMode) 0.12f else 0.22f)
                                 else unselectedBoxBg
@@ -575,7 +586,7 @@ private fun IconPickerDialog(
                             .border(
                                 1.dp,
                                 if (isSelected) effectiveAccent else unselectedBoxBorder,
-                                RoundedCornerShape(6.dp)
+                                RoundedCornerShape((6 * us).dp)
                             )
                             .clickable { onPick(iconOption) }
                     ) {
@@ -583,7 +594,7 @@ private fun IconPickerDialog(
                             imageVector        = iconOption.toIcon(),
                             contentDescription = iconOption.name,
                             tint               = if (isSelected) effectiveAccent else unselectedIconTint,
-                            modifier           = Modifier.size(20.dp)
+                            modifier           = Modifier.size((20 * us).dp)
                         )
                     }
                 }

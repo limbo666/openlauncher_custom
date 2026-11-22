@@ -32,6 +32,10 @@
          some devices/ROMs to attach a Visualizer effect to the global output mix) -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- NWD/Qualcomm head-unit volume writes Settings.System mcu_system_volume.
+         Needs the user-grantable "Modify system settings" app-op (Android 6+). -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
     <!-- Sound visualizer: RECORD_AUDIO is requested at runtime; the two signature
          permissions below are normally ignored on stock Android but many aftermarket
          head-unit ROMs (Rockchip/szchoiceway) don't enforce them, which unlocks the

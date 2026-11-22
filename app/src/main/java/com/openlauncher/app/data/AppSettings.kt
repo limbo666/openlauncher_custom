@@ -9,7 +9,7 @@ enum class MapType { ROADMAP, SATELLITE, HYBRID, TERRAIN }
 enum class MapProvider { GOOGLE, OSM }
 
 /** Size of the map widget's on-screen controls (chips, zoom, search, navigate). */
-enum class MapControlScale(val multiplier: Float) { NORMAL(1f), LARGE(1.3f) }
+enum class MapControlScale(val multiplier: Float) { NORMAL(1f), LARGE(1.15f) }
 enum class ParticleEffect { NONE, SNOW, RAIN, STARS, CONSTELLATION }
 enum class AppFont {
     SYSTEM,
@@ -40,6 +40,7 @@ enum class GradientDirection { TOP_TO_BOTTOM, LEFT_TO_RIGHT, DIAGONAL, RADIAL }
 enum class WeatherProvider { WTTR_IN, OPEN_METEO }
 enum class WidgetBgMode { DEFAULT, FOLLOW_THEME, CUSTOM }
 enum class SpectrumStyle { BARS, ROUNDED, DOTS }
+enum class GalleryEffect { CROSSFADE, SLIDE, ZOOM, FADE_THROUGH }
 
 enum class FloatingActionType { HOME, BACK, VOL_UP, VOL_DOWN, MUTE, BLACKOUT, DAY_NIGHT, APP }
 
@@ -121,12 +122,15 @@ data class WidgetConfig(
 
 data class AppSettings(
     val vehicleName: String = "MY CAR",
-    val accentColor: Int = Color.White.toArgb(),
+    val accentColor: Int = Color(0xFF9624BA).toArgb(),   // profile base: purple (ref.json)
     val backgroundColor: Int = Color.Black.toArgb(),
     val fontColor: Int = Color.White.toArgb(),
     val tileColorDark: Int = Color.Black.toArgb(),
     val tileColorLight: Int = Color.White.toArgb(),
     val tileAlpha: Float = 0.65f,
+    // Light glare: a soft diagonal light sweep passing across the widget tiles
+    val glareEnabled: Boolean = false,
+    val glareIntensity: Float = 0.5f,  // 0.15..1.0 strength of the sheen
     val wallpaperUri: String = "",
     // Video wallpaper: looping muted video behind the UI (SAF URI, empty = off)
     val wallpaperVideoUri: String = "",
@@ -138,7 +142,7 @@ data class AppSettings(
     val uiScale: Float = 1.0f,
     val clockStyle: ClockStyle = ClockStyle.DIGITAL,
     val unitSystem: UnitSystem = UnitSystem.METRIC,
-    val appFont: AppFont = AppFont.JETBRAINS_MONO,
+    val appFont: AppFont = AppFont.CAL_SANS,
     val showWeather: Boolean = true,
     val showClock: Boolean = true,
     val showTelemetry: Boolean = true,
@@ -147,12 +151,16 @@ data class AppSettings(
     val widgetLayout: List<WidgetConfig> = defaultWidgetLayout(),
     // Second home page ("swipe left/right") — independent widget placement per page
     val homePageAltLayout: List<WidgetConfig> = emptyList(),
-    // Which home page is currently shown (persisted across restarts)
+    // Third & fourth home pages (2×2 grid, bottom row) — independent per page
+    val homePageLayout3: List<WidgetConfig> = emptyList(),
+    val homePageLayout4: List<WidgetConfig> = emptyList(),
+    // Which home page is currently shown (persisted across restarts) — 0..3
     val homePage: Int = 0,
     // Auto-switch pages by driving state (GPS speed) — Stage 2
     val autoSwitchPages: Boolean = false,
-    // Which page shows while driving (the other shows while parked)
-    val drivingPage: Int = 0,
+    // Which COLUMN shows while driving (the other column shows while parked).
+    // 0 = left column (pages 1 & 3), 1 = right column (pages 2 & 4).
+    val drivingPage: Int = 1,
     // Enter "driving" above this speed (km/h)
     val autoSwitchSpeedKmh: Float = 8f,
     // Seconds stopped before switching back to the parked page
@@ -168,7 +176,7 @@ data class AppSettings(
     val bottomBarShortcutsRight: Boolean = false,
     val showAltimeter: Boolean = true,
     val showSpeedometer: Boolean = true,
-    val dayNightMode: DayNightMode = DayNightMode.DARK,
+    val dayNightMode: DayNightMode = DayNightMode.LIGHT,
     val showPip: Boolean = false,
     val pipAppPackage: String = "",
     // Head unit's radio app — mirrored & controlled via its MediaSession
@@ -186,6 +194,7 @@ data class AppSettings(
     val soundboardPads: List<SoundPadConfig> = defaultSoundboardPads(),
     val vitalsAsBars: Boolean = false,
     val vitalsElements: List<String> = defaultVitalsElements(),
+    val obdMetrics: List<String> = defaultObdMetrics(),
     val speedometerDigitalOnly: Boolean = false,
     val speedometerAnimals: Boolean = false,
     val gradientDirection: GradientDirection = GradientDirection.DIAGONAL,
@@ -202,11 +211,20 @@ data class AppSettings(
     val weatherCustomLocation: String = "Athens",
     val weatherProvider: WeatherProvider = WeatherProvider.OPEN_METEO,
     val weatherForecastDays: Int = 5,
+    val showWeatherForecast: Boolean = true,
     val advancedWeatherIcons: Boolean = true,
+    // Weather fallback gallery: when weather is offline/stale, show a slideshow
+    // from a user-picked folder (SAF tree URI) instead of the offline placeholder.
+    val galleryFallbackEnabled: Boolean = false,
+    val galleryDirectoryUri: String = "",       // SAF tree URI string ("" = none)
+    val galleryIntervalMs: Long = 6000L,        // time each image shows
+    val galleryTransitionMs: Long = 700L,       // transition duration
+    val galleryEffect: GalleryEffect = GalleryEffect.CROSSFADE,
     val showStatusIcons: Boolean = true,
     val showNetworkSpeed: Boolean = false,
     val showNetworkSpeedIndicator: Boolean = false,
     val appShortcutCount: Int = 4,
+    val appShortcutIconScale: Float = 1.0f,   // 0.6..1.6 — app-shortcut icon size
     val soundboardButtonCount: Int = 6,
     // Sound visualizer / spectrum widget
     val showSpectrum: Boolean = false,
@@ -219,6 +237,8 @@ data class AppSettings(
     val spectrumAttackMs: Float = 40f,         // 5..200 — bar rise time constant (ms)
     val spectrumDecayMs: Float = 350f,         // 50..1500 — bar fall-off time constant (ms)
     val spectrumResponse: Float = 1.0f,        // 0.4..2.5 — curve: higher spreads bars (less all-peaking)
+    val spectrumAgcEnabled: Boolean = true,    // auto gain control keeps bars responsive across volumes
+    val spectrumAgcTarget: Float = 0.6f,       // 0.2..1.0 — desired peak level for AGC
     val showObd: Boolean = false,
     val obdDeviceAddress: String = "",
     val obdDeviceName: String = "",
@@ -236,13 +256,19 @@ data class AppSettings(
     val carImageUri: String = "",
     // Page 1 (second home screen) overrides for widget content. null = mirror page 0.
     val widgetContentAlt: WidgetContent? = null,
+    // Page 2 & 3 (bottom row) content overrides. null = mirror page 0.
+    val widgetContentAlt2: WidgetContent? = null,
+    val widgetContentAlt3: WidgetContent? = null,
     // Last settings category the user was viewing (persisted so Settings reopens there)
     val settingsCategory: String = "Display",
+    // Opt-in diagnostic log collector (off by default to avoid logging overhead)
+    val debugLogEnabled: Boolean = false,
     // Now Playing / Radio widget options
     val showRadioBands: Boolean = false,       // FM/AM band chips in the radio deck
     val showRadioPopup: Boolean = false,       // glassmorphism station-change popup on the home screen
     val nowPlayingLogoScale: Float = 1.0f,     // 0.5..1.0 — album-art/logo size in the player card
     val nowPlayingLogoDim: Float = 0.25f,      // 0..0.8 — dark veil over the artwork for control contrast
+    val nowPlayingArtBlend: Float = 0.7f,      // 0..1.0 — edge blend of the artwork into the widget background
     // Floating quick-controls panel (drawn over other apps via SYSTEM_ALERT_WINDOW)
     val floatingPanelEnabled: Boolean = false,
     val floatingPanelActions: List<FloatingPanelAction> = defaultFloatingActions(),
@@ -320,6 +346,32 @@ fun AppSettings.withSharedFieldsFrom(source: AppSettings): AppSettings = copy(
 )
 
 /**
+ * Distinct default appearance for each driver profile slot, so a fresh install
+ * and switching to a never-used profile each look visibly different. Profile 0
+ * is the reference appearance (purple / Cal Sans / light). The others vary the
+ * accent, font and light/dark mode — the highest-visibility appearance knobs —
+ * so switching profiles gives an immediate visual change.
+ */
+fun defaultProfileAppearance(profile: Int): AppSettings = when (profile.coerceIn(0, 3)) {
+    0 -> AppSettings()
+    1 -> AppSettings().copy(
+        accentColor   = Color(0xFF00ACC1).toArgb(),   // teal
+        dayNightMode  = DayNightMode.DARK,
+        appFont       = AppFont.COMMISSIONER
+    )
+    2 -> AppSettings().copy(
+        accentColor   = Color(0xFF43A047).toArgb(),   // green
+        dayNightMode  = DayNightMode.LIGHT,
+        appFont       = AppFont.FIRA
+    )
+    else -> AppSettings().copy(
+        accentColor   = Color(0xFFFB8C00).toArgb(),   // amber
+        dayNightMode  = DayNightMode.DARK,
+        appFont       = AppFont.PLAY
+    )
+}
+
+/**
  * Per-page "content" for widgets whose inner content is user-selectable (clock
  * style, vitals elements, quick actions, soundboard pads, app shortcuts, etc.).
  * Page 0 is backed by AppSettings' legacy flat fields; page 1 uses [widgetContentAlt]
@@ -331,17 +383,25 @@ data class WidgetContent(
     val speedometerAnimals: Boolean = false,
     val vitalsAsBars: Boolean = false,
     val vitalsElements: List<String> = defaultVitalsElements(),
+    val obdMetrics: List<String> = defaultObdMetrics(),
     val quickActionButtons: List<String> = defaultQuickActionButtons(),
     val soundboardPads: List<SoundPadConfig> = defaultSoundboardPads(),
     val soundboardButtonCount: Int = 6,
     val appWidgetPackages: List<String> = listOf("", "", "", ""),
     val appShortcutCount: Int = 4,
+    val appShortcutIconScale: Float = 1.0f,
     val spectrumBarCount: Int = 24,
     val spectrumStyle: SpectrumStyle = SpectrumStyle.BARS,
     val spectrumMirror: Boolean = false,
     val spectrumColor: Int? = null,
     val spectrumGain: Float = 1.0f,
-    val spectrumFallbackImageUri: String = ""
+    val spectrumFallbackImageUri: String = "",
+    val spectrumAttackMs: Float = 40f,
+    val spectrumDecayMs: Float = 350f,
+    val spectrumResponse: Float = 1.0f,
+    val spectrumAgcEnabled: Boolean = true,
+    val spectrumAgcTarget: Float = 0.6f,
+    val showWeatherForecast: Boolean = true
 )
 
 fun AppSettings.pageZeroWidgetContent(): WidgetContent = WidgetContent(
@@ -350,21 +410,33 @@ fun AppSettings.pageZeroWidgetContent(): WidgetContent = WidgetContent(
     speedometerAnimals      = speedometerAnimals,
     vitalsAsBars            = vitalsAsBars,
     vitalsElements          = vitalsElements,
+    obdMetrics              = obdMetrics,
     quickActionButtons      = quickActionButtons,
     soundboardPads          = soundboardPads,
     soundboardButtonCount   = soundboardButtonCount,
     appWidgetPackages       = appWidgetPackages,
     appShortcutCount        = appShortcutCount,
+    appShortcutIconScale    = appShortcutIconScale,
     spectrumBarCount        = spectrumBarCount,
     spectrumStyle           = spectrumStyle,
     spectrumMirror          = spectrumMirror,
     spectrumColor           = spectrumColor,
     spectrumGain            = spectrumGain,
-    spectrumFallbackImageUri = spectrumFallbackImageUri
+    spectrumFallbackImageUri = spectrumFallbackImageUri,
+    spectrumAttackMs        = spectrumAttackMs,
+    spectrumDecayMs         = spectrumDecayMs,
+    spectrumResponse        = spectrumResponse,
+    spectrumAgcEnabled      = spectrumAgcEnabled,
+    spectrumAgcTarget       = spectrumAgcTarget,
+    showWeatherForecast     = showWeatherForecast
 )
 
-fun AppSettings.widgetContentFor(page: Int): WidgetContent =
-    if (page == 0) pageZeroWidgetContent() else (widgetContentAlt ?: pageZeroWidgetContent())
+fun AppSettings.widgetContentFor(page: Int): WidgetContent = when (page) {
+    1 -> widgetContentAlt  ?: pageZeroWidgetContent()
+    2 -> widgetContentAlt2 ?: pageZeroWidgetContent()
+    3 -> widgetContentAlt3 ?: pageZeroWidgetContent()
+    else -> pageZeroWidgetContent()
+}
 
 fun AppSettings.withWidgetContent(page: Int, transform: (WidgetContent) -> WidgetContent): AppSettings {
     val updated = transform(widgetContentFor(page))
@@ -375,20 +447,48 @@ fun AppSettings.withWidgetContent(page: Int, transform: (WidgetContent) -> Widge
             speedometerAnimals     = updated.speedometerAnimals,
             vitalsAsBars           = updated.vitalsAsBars,
             vitalsElements         = updated.vitalsElements,
+            obdMetrics             = updated.obdMetrics,
             quickActionButtons     = updated.quickActionButtons,
             soundboardPads         = updated.soundboardPads,
             soundboardButtonCount  = updated.soundboardButtonCount,
             appWidgetPackages      = updated.appWidgetPackages,
             appShortcutCount       = updated.appShortcutCount,
+            appShortcutIconScale   = updated.appShortcutIconScale,
             spectrumBarCount       = updated.spectrumBarCount,
             spectrumStyle          = updated.spectrumStyle,
             spectrumMirror         = updated.spectrumMirror,
             spectrumColor          = updated.spectrumColor,
             spectrumGain           = updated.spectrumGain,
-            spectrumFallbackImageUri = updated.spectrumFallbackImageUri
+            spectrumFallbackImageUri = updated.spectrumFallbackImageUri,
+            spectrumAttackMs       = updated.spectrumAttackMs,
+            spectrumDecayMs        = updated.spectrumDecayMs,
+            spectrumResponse       = updated.spectrumResponse,
+            spectrumAgcEnabled     = updated.spectrumAgcEnabled,
+            spectrumAgcTarget      = updated.spectrumAgcTarget,
+            showWeatherForecast    = updated.showWeatherForecast
         )
     }
-    return copy(widgetContentAlt = updated)
+    return when (page) {
+        1 -> copy(widgetContentAlt = updated)
+        2 -> copy(widgetContentAlt2 = updated)
+        3 -> copy(widgetContentAlt3 = updated)
+        else -> copy(widgetContentAlt = updated)
+    }
+}
+
+/** The per-page widget layout by page index (0..3). */
+fun AppSettings.widgetLayoutFor(page: Int): List<WidgetConfig> = when (page) {
+    1 -> homePageAltLayout
+    2 -> homePageLayout3
+    3 -> homePageLayout4
+    else -> widgetLayout
+}
+
+fun AppSettings.withWidgetLayout(page: Int, layout: List<WidgetConfig>): AppSettings = when (page) {
+    1 -> copy(homePageAltLayout = layout)
+    2 -> copy(homePageLayout3 = layout)
+    3 -> copy(homePageLayout4 = layout)
+    else -> copy(widgetLayout = layout)
 }
 
 /**
@@ -422,12 +522,15 @@ fun reconcileWidgetFlags(s: AppSettings): AppSettings {
         layout.map { w -> if (flags[w.id] == false) w.copy(enabled = false) else w }
     return s.copy(
         widgetLayout = rec(s.widgetLayout),
-        homePageAltLayout = rec(s.homePageAltLayout)
+        homePageAltLayout = rec(s.homePageAltLayout),
+        homePageLayout3 = rec(s.homePageLayout3),
+        homePageLayout4 = rec(s.homePageLayout4)
     )
 }
 
 fun defaultQuickActionButtons() = listOf("BLUETOOTH", "WIFI", "BLACKOUT", "MUTE", "SETTINGS")
 fun defaultVitalsElements() = listOf("CPU", "RAM", "TEMP")
+fun defaultObdMetrics() = listOf("RPM", "SPEED", "COOLANT", "THROTTLE", "LOAD", "FUEL", "INTAKE", "BATTERY")
 
 fun defaultShortcuts() = listOf(
     ShortcutConfig(label = "Radio", isDefault = true, defaultIcon = DefaultShortcutIcon.RADIO),

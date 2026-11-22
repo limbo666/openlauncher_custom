@@ -1,5 +1,15 @@
 package com.openlauncher.app.ui.widget
 
+import android.content.Context
+import android.net.Uri
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -30,6 +40,7 @@ import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,10 +53,17 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.decode.SvgDecoder
 import com.airbnb.lottie.compose.*
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.openlauncher.app.data.GalleryEffect
 import com.openlauncher.app.model.DailyForecast
 import com.openlauncher.app.model.WeatherState
+import android.provider.DocumentsContract
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun WeatherWidget(
@@ -56,10 +74,16 @@ fun WeatherWidget(
     customContentColor: Color? = null,
     isOnline: Boolean = true,
     forecastDaysCount: Int = 5,
+    showForecast: Boolean = true,
     isRefreshing: Boolean = false,
     onRefresh: () -> Unit = {},
     onLongClick: (() -> Unit)? = null,
     isEditing: Boolean = false,
+    galleryEnabled: Boolean = false,
+    galleryDirectoryUri: String = "",
+    galleryIntervalMs: Long = 6000L,
+    galleryTransitionMs: Long = 700L,
+    galleryEffect: GalleryEffect = GalleryEffect.CROSSFADE,
     modifier: Modifier = Modifier
 ) {
     val contentColor = customContentColor ?: if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
@@ -75,7 +99,11 @@ fun WeatherWidget(
             .build()
     }
 
-    val isActuallyOffline = state == null || state.isOffline || !isOnline
+    // Offline = no data yet, the last fetch failed, or the device reports no
+    // connectivity. A simply *old* reading is NOT offline (the fetch interval is
+    // ~20 min, so "older than 5 min" was wrongly flipping to the gallery while
+    // the connection was perfectly fine).
+    val isOffline = state == null || state.isOffline || !isOnline
 
     // ── Tap to refresh with cooldown ─────────────────────────────────────────
     var lastTapEpochMs by remember { mutableStateOf(0L) }
@@ -86,7 +114,7 @@ fun WeatherWidget(
         if (!isEditing) {
             val now = System.currentTimeMillis()
             val elapsed = now - lastTapEpochMs
-            val cooldownDurationMs = if (isActuallyOffline) 5_000L else 30_000L
+            val cooldownDurationMs = if (isOffline) 5_000L else 30_000L
             if (elapsed < cooldownDurationMs && lastTapEpochMs > 0L) {
                 val rem = ((cooldownDurationMs - elapsed) / 1000L).coerceAtLeast(1L)
                 cooldownFeedback = "Wait ${rem}s"
@@ -164,7 +192,7 @@ fun WeatherWidget(
                         .size(13.dp)
                         .rotate(spinAngle)
                 )
-            } else if (isActuallyOffline) {
+            } else if (isOffline) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -197,9 +225,28 @@ fun WeatherWidget(
             }
         }
 
-        val showFullOfflinePlaceholder = state == null || (isActuallyOffline && state.dailyForecast.isEmpty() && state.temperatureCelsius == 0.0)
+        val showFullOfflinePlaceholder = state == null || (isOffline && state.dailyForecast.isEmpty() && state.temperatureCelsius == 0.0)
 
-        if (showFullOfflinePlaceholder) {
+        // Fallback gallery: when offline AND enabled AND a folder is selected AND
+        // it contains at least one image, replace the offline placeholder with a
+        // timed image slideshow. Folder listing runs off the main thread.
+        val galleryImages by produceState<List<Uri>>(emptyList(), galleryDirectoryUri) {
+            value = if (galleryDirectoryUri.isNotEmpty()) {
+                withContext(Dispatchers.IO) { loadGalleryImages(context, galleryDirectoryUri) }
+            } else emptyList()
+        }
+        val showGallery = galleryEnabled && galleryDirectoryUri.isNotEmpty() &&
+            isOffline && galleryImages.isNotEmpty()
+
+        if (showGallery) {
+            WeatherFallbackGallery(
+                images       = galleryImages,
+                intervalMs   = galleryIntervalMs,
+                transitionMs = galleryTransitionMs,
+                effect       = galleryEffect,
+                modifier     = Modifier.fillMaxSize()
+            )
+        } else if (showFullOfflinePlaceholder) {
             // ── OFFLINE STATE (Dynamic scaling, zero text cut off in 1x1) ──────────
             if (is1x1) {
                 Row(
@@ -261,6 +308,7 @@ fun WeatherWidget(
                         svgLoader = svgImageLoader
                     )
                     Column(
+                        modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
@@ -268,14 +316,17 @@ fun WeatherWidget(
                             color = contentColor,
                             fontSize = if (isLarge) 20.sp else if (isMedium) 16.sp else 14.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp
+                            letterSpacing = 2.sp,
+                            maxLines = 1
                         )
                         Spacer(Modifier.height(3.dp))
                         Text(
                             text = if (isRefreshing) "CONNECTING TO WEATHER SERVICE" else "NO INTERNET CONNECTION",
                             color = subColor,
                             fontSize = if (isLarge) 11.sp else if (isMedium) 9.5.sp else 8.5.sp,
-                            letterSpacing = 1.2.sp
+                            letterSpacing = 1.2.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
@@ -283,7 +334,9 @@ fun WeatherWidget(
                             color = effectiveAccent,
                             fontSize = if (isLarge) 9.5.sp else 8.sp,
                             fontWeight = FontWeight.Medium,
-                            letterSpacing = 0.8.sp
+                            letterSpacing = 0.8.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -358,6 +411,7 @@ fun WeatherWidget(
             }
         } else if (isWideStrip) {
             // ── WIDE STRIP LAYOUT (e.g. 2x1, 3x1, 4x1): Current left, dynamic forecast right ──
+            val forecastShown = showForecast && state.dailyForecast.isNotEmpty()
             Row(
                 modifier = Modifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -366,10 +420,11 @@ fun WeatherWidget(
                 // Left cluster: the symbol with location + condition directly beneath it
                 // (the icon column is wider than the squeezed text column), then the big
                 // temperature and the stats beside it.
-                val leftIconSize = (h * 0.6f).coerceIn(52.dp, 88.dp)
+                val leftIconSize = if (forecastShown) (h * 0.6f).coerceIn(52.dp, 88.dp)
+                                   else (h * 0.68f).coerceIn(54.dp, 96.dp)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (forecastShown) 14.dp else 20.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -382,11 +437,11 @@ fun WeatherWidget(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
-                                Icon(Icons.Default.LocationOn, null, tint = effectiveAccent, modifier = Modifier.size(9.dp))
+                                Icon(Icons.Default.LocationOn, null, tint = effectiveAccent, modifier = Modifier.size(if (forecastShown) 9.dp else 11.dp))
                                 Text(
                                     text = state.locationName.uppercase(),
                                     color = subColor,
-                                    fontSize = 8.5.sp,
+                                    fontSize = if (forecastShown) 8.5.sp else 10.sp,
                                     letterSpacing = 0.3.sp,
                                     maxLines = 1,
                                     softWrap = false,
@@ -397,7 +452,7 @@ fun WeatherWidget(
                         Text(
                             text = state.conditionLabel.uppercase(),
                             color = effectiveAccent,
-                            fontSize = 9.sp,
+                            fontSize = if (forecastShown) 9.sp else 11.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.5.sp,
                             maxLines = 1,
@@ -413,17 +468,18 @@ fun WeatherWidget(
                         Text(
                             text = state.temperatureDisplay(metric),
                             color = contentColor,
-                            fontSize = if (h > 120.dp) 34.sp else 30.sp,
+                            fontSize = if (forecastShown) (if (h > 120.dp) 34.sp else 30.sp)
+                                       else (if (h > 120.dp) 40.sp else 34.sp),
                             fontWeight = FontWeight.Bold,
                             letterSpacing = (-0.5).sp,
                             maxLines = 1,
                             softWrap = false
                         )
-                        StatsRow(today, state, metric, contentColor, subColor, effectiveAccent, iconSize = 10.dp, fontSize = 8.5.sp)
+                        StatsRow(today, state, metric, contentColor, subColor, effectiveAccent, iconSize = if (forecastShown) 10.dp else 12.dp, fontSize = if (forecastShown) 8.5.sp else 10.sp)
                     }
                 }
 
-                if (state.dailyForecast.isNotEmpty()) {
+                if (forecastShown) {
                     // Divider
                     Box(
                         modifier = Modifier
@@ -464,9 +520,12 @@ fun WeatherWidget(
             }
         } else if (isTall) {
             // ── TALL NARROW (1x2, 1x3) — vertical hero so nothing gets squeezed ──
+            val forecastShown = showForecast && state.dailyForecast.isNotEmpty()
             Column(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = if (forecastShown) Arrangement.SpaceBetween
+                                      else Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -474,13 +533,16 @@ fun WeatherWidget(
                 ) {
                     MeteoconAnimatedIcon(
                         slug = state.conditionSlug,
-                        modifier = Modifier.size((w * 0.62f).coerceIn(64.dp, 116.dp))
+                        modifier = Modifier.size(
+                            (w * (if (forecastShown) 0.62f else 0.74f))
+                                .coerceIn(if (forecastShown) 64.dp else 76.dp, if (forecastShown) 116.dp else 136.dp)
+                        )
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(if (forecastShown) 6.dp else 8.dp))
                     Text(
                         text = state.temperatureDisplay(metric),
                         color = contentColor,
-                        fontSize = 36.sp,
+                        fontSize = if (forecastShown) 36.sp else 46.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = (-1).sp,
                         maxLines = 1,
@@ -491,11 +553,11 @@ fun WeatherWidget(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            Icon(Icons.Default.LocationOn, null, tint = effectiveAccent, modifier = Modifier.size(11.dp))
+                            Icon(Icons.Default.LocationOn, null, tint = effectiveAccent, modifier = Modifier.size(if (forecastShown) 11.dp else 13.dp))
                             Text(
                                 text = state.locationName.uppercase(),
                                 color = subColor,
-                                fontSize = 9.5.sp,
+                                fontSize = if (forecastShown) 9.5.sp else 11.5.sp,
                                 fontWeight = FontWeight.Medium,
                                 letterSpacing = 0.5.sp,
                                 maxLines = 1,
@@ -507,7 +569,7 @@ fun WeatherWidget(
                     Text(
                         text = state.conditionLabel.uppercase(),
                         color = effectiveAccent,
-                        fontSize = 9.5.sp,
+                        fontSize = if (forecastShown) 9.5.sp else 11.5.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
                         maxLines = 1,
@@ -515,9 +577,12 @@ fun WeatherWidget(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    StatsRow(today, state, metric, contentColor, subColor, effectiveAccent, iconSize = 10.dp, fontSize = 9.sp)
-                    if (state.dailyForecast.isNotEmpty()) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    StatsRow(today, state, metric, contentColor, subColor, effectiveAccent, iconSize = if (forecastShown) 10.dp else 12.dp, fontSize = if (forecastShown) 9.sp else 10.5.sp)
+                    if (forecastShown) {
                         val days = state.dailyForecast.take(forecastDaysCount.coerceIn(2, 5))
                         Column(
                             modifier = Modifier
@@ -561,10 +626,11 @@ fun WeatherWidget(
         } else {
             // ── MEDIUM / LARGE (2x2, 3x2, 4x2, etc.) ──
             // Huge Hero Animated Icon and balanced vertical flow without bottom-snapping
+            val forecastShown = showForecast && state.dailyForecast.isNotEmpty()
             val heroIconSize = when {
-                isLarge  -> (h * 0.62f).coerceIn(110.dp, 190.dp)
-                isMedium -> (minOf(w, h) * 0.55f).coerceIn(78.dp, 132.dp)
-                else     -> (minOf(w, h) * 0.55f).coerceIn(78.dp, 132.dp)
+                isLarge  -> if (forecastShown) (h * 0.62f).coerceIn(110.dp, 190.dp) else (h * 0.74f).coerceIn(130.dp, 220.dp)
+                isMedium -> if (forecastShown) (minOf(w, h) * 0.55f).coerceIn(78.dp, 132.dp) else (minOf(w, h) * 0.70f).coerceIn(96.dp, 160.dp)
+                else     -> if (forecastShown) (minOf(w, h) * 0.55f).coerceIn(78.dp, 132.dp) else (minOf(w, h) * 0.70f).coerceIn(96.dp, 160.dp)
             }
 
             Column(
@@ -589,7 +655,7 @@ fun WeatherWidget(
                         Text(
                             text = state.temperatureDisplay(metric),
                             color = contentColor,
-                            fontSize = if (isLarge) 50.sp else 36.sp,
+                            fontSize = if (isLarge) (if (forecastShown) 50.sp else 58.sp) else (if (forecastShown) 36.sp else 44.sp),
                             fontWeight = FontWeight.Bold,
                             letterSpacing = (-1.5).sp,
                             maxLines = 1,
@@ -609,7 +675,7 @@ fun WeatherWidget(
                                 Text(
                                     text = state.locationName.uppercase(),
                                     color = subColor,
-                                    fontSize = if (isLarge) 11.sp else 9.sp,
+                                    fontSize = if (isLarge) (if (forecastShown) 11.sp else 12.sp) else (if (forecastShown) 9.sp else 10.5.sp),
                                     fontWeight = FontWeight.Medium,
                                     letterSpacing = 0.8.sp,
                                     maxLines = 1,
@@ -621,19 +687,19 @@ fun WeatherWidget(
                         Text(
                             text = state.conditionLabel.uppercase(),
                             color = effectiveAccent,
-                            fontSize = if (isLarge) 13.sp else 10.5.sp,
+                            fontSize = if (isLarge) (if (forecastShown) 13.sp else 14.sp) else (if (forecastShown) 10.5.sp else 12.sp),
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp,
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis
                         )
-                        StatsRow(today, state, metric, contentColor, subColor, effectiveAccent, iconSize = if (isLarge) 12.dp else 10.dp, fontSize = if (isLarge) 10.5.sp else 9.sp)
+                        StatsRow(today, state, metric, contentColor, subColor, effectiveAccent, iconSize = if (isLarge) 12.dp else 10.dp, fontSize = if (isLarge) (if (forecastShown) 10.5.sp else 12.sp) else (if (forecastShown) 9.sp else 10.5.sp))
                     }
                 }
 
                 // Lower Section: Multi-Day Forecast (3 to 7 Days)
-                if (state.dailyForecast.isNotEmpty()) {
+                if (forecastShown) {
                     val days = state.dailyForecast.take(forecastDaysCount.coerceIn(3, 7))
                     Row(
                         modifier = Modifier
@@ -859,14 +925,147 @@ fun MeteoconAnimatedIcon(
         else LottieCompositionSpec.Asset(assetPath)
     )
     val composition = compositionResult.value ?: fallbackResult.value
-    val progress by animateLottieCompositionAsState(
-        composition = composition,
-        iterations = LottieConstants.IterateForever
-    )
+
+    // Pause the endless animation when the app isn't in the foreground (screen
+    // off / another app on top) to cut idle CPU; resumes automatically when the
+    // widget becomes visible again.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val isResumed = remember {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> isResumed.value = true
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> isResumed.value = false
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val animatable = rememberLottieAnimatable()
+    LaunchedEffect(composition, isResumed.value) {
+        if (composition == null) return@LaunchedEffect
+        if (isResumed.value) {
+            animatable.animate(composition, iterations = LottieConstants.IterateForever)
+        }
+    }
 
     LottieAnimation(
         composition = composition,
-        progress = { progress },
+        progress = { animatable.progress },
         modifier = modifier
     )
+}
+
+private val GALLERY_IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp")
+
+/**
+ * Lists image files (by content URI) inside a SAF tree directory using the
+ * framework DocumentsContract API (no androidx.documentfile dependency).
+ * Empty on any failure.
+ */
+private fun loadGalleryImages(context: Context, directoryUri: String): List<Uri> =
+    runCatching {
+        val treeUri = Uri.parse(directoryUri)
+        val treeDocId = DocumentsContract.getTreeDocumentId(treeUri)
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, treeDocId)
+        val result = mutableListOf<Uri>()
+        context.contentResolver.query(
+            childrenUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME
+            ),
+            null, null, null
+        )?.use { cursor ->
+            val idIdx   = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val mimeIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val nameIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            while (cursor.moveToNext()) {
+                val docId = if (idIdx >= 0) cursor.getString(idIdx) else null ?: continue
+                val mime  = if (mimeIdx >= 0) cursor.getString(mimeIdx) else null
+                val name  = if (nameIdx >= 0) cursor.getString(nameIdx) else null
+                if (mime != DocumentsContract.Document.MIME_TYPE_DIR &&
+                    name?.substringAfterLast('.')?.lowercase() in GALLERY_IMAGE_EXTENSIONS
+                ) {
+                    result.add(DocumentsContract.buildDocumentUriUsingTree(treeUri, docId))
+                }
+            }
+        }
+        result
+    }.getOrDefault(emptyList())
+
+/**
+ * Timed image slideshow shown while weather is offline. Each image fills the
+ * widget (cropped) under a subtle dark scrim; the cross-image transition is
+ * driven by [effect] and [transitionMs].
+ */
+@Composable
+private fun WeatherFallbackGallery(
+    images: List<Uri>,
+    intervalMs: Long,
+    transitionMs: Long,
+    effect: GalleryEffect,
+    modifier: Modifier = Modifier
+) {
+    if (images.isEmpty()) return
+
+    var index by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(images, intervalMs) {
+        if (index >= images.size) index = 0
+        if (images.size <= 1) return@LaunchedEffect
+        while (true) {
+            delay(intervalMs.coerceAtLeast(500L))
+            index = (index + 1) % images.size
+        }
+    }
+
+    Box(modifier = modifier.clip(RoundedCornerShape(8.dp))) {
+        AnimatedContent(
+            targetState = index,
+            transitionSpec = {
+                when (effect) {
+                    GalleryEffect.CROSSFADE ->
+                        fadeIn(tween(transitionMs.toInt())) togetherWith
+                            fadeOut(tween(transitionMs.toInt()))
+                    GalleryEffect.SLIDE ->
+                        slideInHorizontally(
+                            animationSpec = tween(transitionMs.toInt()),
+                            initialOffsetX = { it }
+                        ) togetherWith slideOutHorizontally(
+                            animationSpec = tween(transitionMs.toInt()),
+                            targetOffsetX = { -it }
+                        )
+                    GalleryEffect.ZOOM ->
+                        (scaleIn(tween(transitionMs.toInt()), initialScale = 0.7f) +
+                            fadeIn(tween(transitionMs.toInt()))) togetherWith
+                            (scaleOut(tween(transitionMs.toInt()), targetScale = 1.1f) +
+                                fadeOut(tween(transitionMs.toInt())))
+                    GalleryEffect.FADE_THROUGH ->
+                        fadeIn(tween((transitionMs * 2).toInt())) togetherWith
+                            fadeOut(tween(transitionMs.toInt()))
+                }
+            },
+            label = "gallery_slide"
+        ) { idx ->
+            AsyncImage(
+                model = images.getOrNull(idx) ?: images.first(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // Subtle dark scrim so the image reads as a widget background.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.2f))
+        )
+    }
 }

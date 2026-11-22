@@ -12,8 +12,11 @@ import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -29,7 +32,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.platform.LocalTextInputService
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,6 +45,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.openlauncher.app.data.AppDrawerFilter
 import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.ui.theme.LocalDayMode
+import com.openlauncher.app.ui.theme.LocalUiScales
 import com.openlauncher.app.ui.theme.accentOnSurface
 import com.openlauncher.app.ui.theme.contentColorOn
 import com.openlauncher.app.util.TapSound
@@ -76,6 +82,7 @@ fun AppLibraryScreen(
     val emptyColor    = if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
     val fieldTextC    = MaterialTheme.colorScheme.onBackground
     val fieldBorderU  = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f)
+    val keyboard      = LocalSoftwareKeyboardController.current
 
     var query         by remember { mutableStateOf("") }
     var appFilter     by remember(currentFilter) { mutableStateOf(currentFilter) }
@@ -163,6 +170,8 @@ fun AppLibraryScreen(
                         value         = query,
                         onValueChange = { query = it },
                         singleLine    = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
                         textStyle     = TextStyle(color = fieldTextC, fontSize = 13.sp),
                         cursorBrush   = SolidColor(accent),
                         modifier      = Modifier
@@ -175,6 +184,15 @@ fun AppLibraryScreen(
                             }
                         }
                     )
+                    if (query.isNotEmpty()) {
+                        Icon(
+                            Icons.Default.Close, "Clear search",
+                            tint = placeholderC,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clickable { TapSound.play(); query = ""; keyboard?.hide() }
+                        )
+                    }
                 }
             }
         }
@@ -357,14 +375,18 @@ private fun AppManagementDialog(
     val activeRowBg = if (isDayMode) Color(0xFFF1F3F5) else effectiveAccent.copy(alpha = 0.15f)
     val activeRowBorder = if (isDayMode) Color(0xFFCED4DA) else effectiveAccent.copy(alpha = 0.45f)
 
+    val scales = LocalUiScales.current
+    val ts = scales.ts()
+    val us = scales.us()
+
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .width(320.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .width((320 * us).dp)
+                .clip(RoundedCornerShape((12 * us).dp))
                 .background(dialogBg)
-                .border(1.dp, cardBorder, RoundedCornerShape(12.dp))
-                .padding(20.dp),
+                .border(1.dp, cardBorder, RoundedCornerShape((12 * us).dp))
+                .padding((20 * us).dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val bmp = remember(app.packageName) {
@@ -374,19 +396,19 @@ private fun AppManagementDialog(
                 androidx.compose.foundation.Image(
                     painter = BitmapPainter(bmp.asImageBitmap()),
                     contentDescription = app.appName,
-                    modifier = Modifier.size(52.dp)
+                    modifier = Modifier.size((52 * us).dp)
                 )
             } else {
-                Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
-                    Text(app.appName.take(1).uppercase(), color = effectiveAccent, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Box(Modifier.size((52 * us).dp), contentAlignment = Alignment.Center) {
+                    Text(app.appName.take(1).uppercase(), color = effectiveAccent, fontSize = (24 * ts).sp, fontWeight = FontWeight.Bold)
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height((8 * us).dp))
             Text(
                 text = app.appName,
                 color = textPrimary,
                 fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
+                fontSize = (15 * ts).sp,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -394,42 +416,42 @@ private fun AppManagementDialog(
             Text(
                 text = app.packageName,
                 color = textSecondary,
-                fontSize = 10.sp,
+                fontSize = (10 * ts).sp,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height((14 * us).dp))
             HorizontalDivider(color = cardBorder)
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height((10 * us).dp))
 
             // Option 1: Toggle Selected
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape((6 * us).dp))
                     .background(if (isSelected) activeRowBg else Color.Transparent)
-                    .border(1.dp, if (isSelected) activeRowBorder else Color.Transparent, RoundedCornerShape(6.dp))
+                    .border(1.dp, if (isSelected) activeRowBorder else Color.Transparent, RoundedCornerShape((6 * us).dp))
                     .clickable {
                         TapSound.play()
                         onToggleSelected()
                         onDismiss()
                     }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = (12 * us).dp, vertical = (10 * us).dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy((10 * us).dp)
             ) {
                 Icon(
                     imageVector = if (isSelected) Icons.Default.Star else Icons.Default.StarBorder,
                     contentDescription = null,
                     tint = if (isSelected) effectiveAccent else textSecondary,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size((18 * us).dp)
                 )
                 Text(
                     text = if (isSelected) "Remove from Selected" else "Add to Selected",
                     color = if (isSelected) effectiveAccent else textPrimary,
-                    fontSize = 13.sp,
+                    fontSize = (13 * ts).sp,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
                 )
             }
@@ -438,28 +460,28 @@ private fun AppManagementDialog(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape((6 * us).dp))
                     .background(if (isTool) activeRowBg else Color.Transparent)
-                    .border(1.dp, if (isTool) activeRowBorder else Color.Transparent, RoundedCornerShape(6.dp))
+                    .border(1.dp, if (isTool) activeRowBorder else Color.Transparent, RoundedCornerShape((6 * us).dp))
                     .clickable {
                         TapSound.play()
                         onToggleTools()
                         onDismiss()
                     }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = (12 * us).dp, vertical = (10 * us).dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy((10 * us).dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Build,
                     contentDescription = null,
                     tint = if (isTool) effectiveAccent else textSecondary,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size((18 * us).dp)
                 )
                 Text(
                     text = if (isTool) "Remove from Tools" else "Add to Tools",
                     color = if (isTool) effectiveAccent else textPrimary,
-                    fontSize = 13.sp,
+                    fontSize = (13 * ts).sp,
                     fontWeight = if (isTool) FontWeight.SemiBold else FontWeight.Normal
                 )
             }
@@ -470,33 +492,33 @@ private fun AppManagementDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape((6 * us).dp))
                         .clickable {
                             TapSound.play()
                             onUninstall()
                             onDismiss()
                         }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = (12 * us).dp, vertical = (10 * us).dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy((10 * us).dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.DeleteOutline,
                         contentDescription = null,
                         tint = deleteTint,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size((18 * us).dp)
                     )
                     Text(
                         text = "Uninstall App",
                         color = deleteTint,
-                        fontSize = 13.sp
+                        fontSize = (13 * ts).sp
                     )
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height((8 * us).dp))
             HorizontalDivider(color = cardBorder)
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height((6 * us).dp))
 
             TextButton(
                 onClick = onDismiss,
@@ -506,8 +528,8 @@ private fun AppManagementDialog(
                     "CLOSE",
                     color = effectiveAccent,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    letterSpacing = 1.sp
+                    fontSize = (12 * ts).sp,
+                    letterSpacing = (1 * ts).sp
                 )
             }
         }

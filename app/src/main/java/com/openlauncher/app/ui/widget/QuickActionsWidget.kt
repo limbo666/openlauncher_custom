@@ -388,26 +388,6 @@ fun QuickActionsWidget(
                 }
             }
         }
-
-        // Mini configure button in widget header
-        if (onOpenConfig != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 4.dp, top = 2.dp)
-                    .size(20.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .clickable(onClick = { TapSound.play(); onOpenConfig() }),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Tune,
-                    contentDescription = "Configure Actions",
-                    tint = subColor,
-                    modifier = Modifier.size(12.dp)
-                )
-            }
-        }
     }
 }
 

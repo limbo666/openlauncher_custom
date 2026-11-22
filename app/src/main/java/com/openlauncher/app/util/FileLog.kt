@@ -10,6 +10,8 @@ import java.io.File
  */
 object FileLog {
     @Volatile private var dir: File? = null
+    /** Collector is opt-in: off by default so file I/O never slows the launcher. */
+    @Volatile var enabled: Boolean = false
     private val timeFmt = java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US)
 
     fun init(context: Context) {
@@ -21,6 +23,7 @@ object FileLog {
 
     @Synchronized
     fun log(tag: String, message: String) {
+        if (!enabled) return   // no-op unless the user enabled the collector
         val d = dir ?: return
         try {
             val f = File(d, "openlauncher.log")

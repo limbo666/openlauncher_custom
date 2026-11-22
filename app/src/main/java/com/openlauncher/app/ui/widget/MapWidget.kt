@@ -21,11 +21,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,7 +52,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -132,6 +137,7 @@ fun MapWidget(
     controlScale: Float = 1f,
     onSetMapType: (MapType) -> Unit = {},
     onToggleTraffic: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -139,6 +145,7 @@ fun MapWidget(
     val baseDensity = LocalDensity.current
     val scaledDensity = Density(baseDensity.density * controlScale, baseDensity.fontScale * controlScale)
     var autoFollow by remember { mutableStateOf(true) }
+    val keyboard = LocalSoftwareKeyboardController.current
 
     // Handlers the shared overlay buttons call, set by whichever engine renders
     var engineZoomIn by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -449,6 +456,19 @@ fun MapWidget(
             ) {
                 Icon(Icons.Default.Remove, "Zoom out", tint = Color.White, modifier = Modifier.size(16.dp))
             }
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .clickable {
+                        TapSound.play()
+                        onOpenSettings()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Settings, "Map settings", tint = Color.White, modifier = Modifier.size(16.dp))
+            }
         }
 
         // Bottom-right: recenter / resume follow
@@ -483,6 +503,8 @@ fun MapWidget(
                         value = searchQuery,
                         onValueChange = { searchQuery = it.take(80) },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
                         textStyle = TextStyle(color = Color.White, fontSize = 11.sp),
                         cursorBrush = SolidColor(accent),
                         modifier = Modifier
@@ -679,6 +701,7 @@ private fun GoogleMapContent(
     val mapView = remember { MapView(context) }
     var googleMap by remember { mutableStateOf<GoogleMap?>(null) }
     var firstFix by remember { mutableStateOf(false) }
+    var lastFixPos by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var positionMarker by remember { mutableStateOf<Marker?>(null) }
     var placeMarker by remember { mutableStateOf<Marker?>(null) }
     var routePolyline by remember { mutableStateOf<Polyline?>(null) }
@@ -769,6 +792,14 @@ private fun GoogleMapContent(
         runCatching {
             val pos = LatLng(loc.latitude, loc.longitude)
 
+            // Jump guard: a bad GPS fix (glitch) can be hundreds of metres away and
+            // would fling the camera across the map. Skip the re-centre when the fix
+            // is both far from the last accepted one AND has poor accuracy.
+            val prev = lastFixPos
+            val jumpedFar = prev != null &&
+                distMeters(prev.first, prev.second, pos.latitude, pos.longitude) > 350f
+            val isGlitch = jumpedFar && loc.accuracy > 100f
+
             if (positionMarker == null) {
                 positionMarker = g.addMarker(
                     MarkerOptions()
@@ -782,7 +813,7 @@ private fun GoogleMapContent(
             }
             positionMarker?.rotation = bearing
 
-            if (autoFollow) {
+            if (autoFollow && !isGlitch) {
                 if (!firstFix) {
                     firstFix = true
                     g.moveCamera(CameraUpdateFactory.newLatLngZoom(pos, zoomByAccuracy(loc.accuracy)))
@@ -799,6 +830,7 @@ private fun GoogleMapContent(
                             .build()
                     )
                 )
+                lastFixPos = pos.latitude to pos.longitude
             }
         }
     }
@@ -860,6 +892,7 @@ private fun OsmMapContent(
     }
 
     var firstFix by remember { mutableStateOf(false) }
+    var lastFixPos by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     val marker = remember(accent) {
         org.osmdroid.views.overlay.Marker(mapView).apply {
             icon = BitmapDrawable(context.resources, arrowBitmap(context, accent))
@@ -935,22 +968,33 @@ private fun OsmMapContent(
         val loc = location ?: return@LaunchedEffect
         runCatching {
             val geoPoint = org.osmdroid.util.GeoPoint(loc.latitude, loc.longitude)
+
+            // Jump guard: ignore a bad GPS fix that is far from the last accepted
+            // one and has poor accuracy, so the map doesn't fly across the screen.
+            val prev = lastFixPos
+            val jumpedFar = prev != null &&
+                distMeters(prev.first, prev.second, loc.latitude, loc.longitude) > 350f
+            val isGlitch = jumpedFar && loc.accuracy > 100f
+
             marker.position = geoPoint
             if (!mapView.overlays.contains(marker)) mapView.overlays.add(marker)
 
-            if (autoFollow) {
+            if (autoFollow && !isGlitch) {
                 mapView.mapOrientation = -bearing
                 marker.rotation = 0f
                 mapView.controller.animateTo(geoPoint)
+            } else if (autoFollow) {
+                marker.rotation = 0f
             } else {
                 marker.rotation = bearing
             }
 
-            if (!firstFix) {
+            if (!firstFix && !isGlitch) {
                 firstFix = true
                 mapView.controller.setZoom(zoomByAccuracy(loc.accuracy).toDouble())
                 mapView.controller.setCenter(geoPoint)
             }
+            if (!isGlitch) lastFixPos = loc.latitude to loc.longitude
             mapView.invalidate()
         }
     }
@@ -973,6 +1017,13 @@ private fun zoomByAccuracy(accuracyMeters: Float): Float = when {
     accuracyMeters < 50f  -> 16.5f
     accuracyMeters < 150f -> 15.5f
     else                  -> 15f
+}
+
+/** Straight-line distance in metres between two coordinates. */
+private fun distMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+    val d = FloatArray(1)
+    android.location.Location.distanceBetween(lat1, lon1, lat2, lon2, d)
+    return d[0]
 }
 
 /** Direction arrow marker bitmap — white disc with an accent arrow. */

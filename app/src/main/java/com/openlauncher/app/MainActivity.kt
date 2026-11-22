@@ -22,8 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -32,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,6 +45,7 @@ import com.openlauncher.app.data.SidebarPosition
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.AppFont
 import com.openlauncher.app.data.ParticleEffect
+import com.openlauncher.app.data.widgetLayoutFor
 import com.openlauncher.app.data.telegram.IncomingTelegramMessage
 import com.openlauncher.app.data.telegram.TelegramBot
 import com.openlauncher.app.model.NavDestination
@@ -57,15 +58,22 @@ import com.openlauncher.app.ui.components.RetroDisplayOverlay
 import com.openlauncher.app.ui.components.Sidebar
 import com.openlauncher.app.ui.components.VideoWallpaperLayer
 import com.openlauncher.app.ui.screen.*
+import com.openlauncher.app.ui.theme.LocalUiScales
 import com.openlauncher.app.ui.theme.OpenLauncherTheme
 import com.openlauncher.app.ui.theme.RetroBackground
 import com.openlauncher.app.ui.theme.RetroPrimary
+import com.openlauncher.app.ui.theme.UiScales
+import com.openlauncher.app.util.AlertSound
 import com.openlauncher.app.util.TapSound
 import com.openlauncher.app.util.VolumeController
 import com.openlauncher.app.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+
+/** Swipe direction for home-page navigation (2×2 grid — no diagonals). */
+private enum class SwipeDir { NONE, LEFT, RIGHT, UP, DOWN }
 
 class MainActivity : ComponentActivity() {
 
@@ -165,13 +173,17 @@ class MainActivity : ComponentActivity() {
             val profileSwitchedAt by vm.profileSwitchedAt.collectAsStateWithLifecycle()
 
             // ── Telegram remote messages ──────────────────────────────────────
-            var telegramBanner by remember { mutableStateOf<TgBanner?>(null) }
+            // FIFO queue so every message is shown and acknowledged in order
+            // (a single slot would silently drop + never-ack earlier messages).
+            val telegramQueue = remember { mutableStateListOf<TgBanner>() }
             var telegramWarn by remember { mutableStateOf<TgWarn?>(null) }
             var telegramTrackJob by remember { mutableStateOf<Job?>(null) }
             val tgScope = rememberCoroutineScope()
             val tgSettings by rememberUpdatedState(settings)
             val tgLocation by rememberUpdatedState(location)
             val tgBearing by rememberUpdatedState(bearing)
+            val tgIsWifi by rememberUpdatedState(isWifi)
+            val tgIsData by rememberUpdatedState(isData)
 
             fun tgSend(chatId: Long, text: String) {
                 val token = tgSettings.telegramBotToken
@@ -228,15 +240,31 @@ class MainActivity : ComponentActivity() {
                     return
                 }
                 TelegramBot.log("← ${m.fromName}: ${m.text.take(48)}")
-                val cmd = m.text.trim()
+                // Priority markers ($1 / $2 / $3) — stripped from the text, then
+                // trigger one of three distinct alert sounds on the unit.
+                val raw = m.text
+                val priority = listOf(3, 2, 1).firstOrNull { p -> raw.contains("$$p") } ?: 0
+                val clean = raw.replace(Regex("\\$[123]"), "").trim()
+                if (priority > 0) AlertSound.play(priority)
+                val cmd = clean
                 when {
+                    cmd.equals("?", ignoreCase = true) || cmd.equals("help", ignoreCase = true) -> {
+                        val cmds = buildList {
+                            if (s.telegramCommandGps) add("GPS")
+                            if (s.telegramCommandTrack) add("TRACK [minutes]")
+                            if (s.telegramCommandStatus) add("STATUS")
+                            if (s.telegramCommandWarn) add("WARN <text>")
+                            if (s.telegramCommandClear) add("CLEAR")
+                        }.joinToString(", ")
+                        tgSend(m.chatId, "🤖 Remote commands: $cmds\n\nAdd \$1, \$2 or \$3 to any message for an alert tone on the unit.")
+                    }
                     s.telegramCommandWarn && cmd.startsWith("WARN", ignoreCase = true) -> {
                         val t = cmd.substringAfter(" ", "").ifBlank { cmd }
                         telegramWarn = TgWarn(m.chatId, t, SystemClock.elapsedRealtime())
                     }
                     s.telegramCommandClear && cmd.equals("CLEAR", ignoreCase = true) -> {
                         telegramTrackJob?.cancel(); telegramTrackJob = null
-                        telegramBanner = null; telegramWarn = null
+                        telegramQueue.clear(); telegramWarn = null
                         tgSend(m.chatId, "✅ Cleared")
                     }
                     s.telegramCommandGps && cmd.equals("GPS", ignoreCase = true) -> {
@@ -256,10 +284,16 @@ class MainActivity : ComponentActivity() {
                         val batt = batteryLevel(this@MainActivity)
                         val uptime = SystemClock.elapsedRealtime() / 60_000L
                         val locStr = loc?.let { "%.5f, %.5f".format(it.latitude, it.longitude) } ?: "no fix"
-                        tgSend(m.chatId, "🚗 Status\nSpeed: %.0f km/h\nGPS: %s\nProfile: %s\nBattery: %d%%\nUptime: %d min"
-                            .format(spd, locStr, profile, batt, uptime))
+                        val network = when {
+                            tgIsWifi -> "Wi-Fi"
+                            tgIsData -> "Mobile data"
+                            else -> "Offline"
+                        }
+                        val senders = s.telegramAllowedSenders.ifBlank { "none" }
+                        tgSend(m.chatId, "🚗 Status\nSpeed: %.0f km/h\nGPS: %s\nProfile: %s\nBattery: %d%%\nUptime: %d min\nNetwork: %s\nAllowed senders: %s"
+                            .format(spd, locStr, profile, batt, uptime, network, senders))
                     }
-                    else -> telegramBanner = TgBanner(m.chatId, m.fromName, m.text, SystemClock.elapsedRealtime())
+                    else -> telegramQueue.add(TgBanner(m.chatId, m.fromName, clean, SystemClock.elapsedRealtime()))
                 }
             }
 
@@ -272,12 +306,19 @@ class MainActivity : ComponentActivity() {
                     TelegramBot.stop()
                 }
             }
-            // Auto-dismiss the transient banner (read receipt on timeout)
-            LaunchedEffect(telegramBanner, settings.telegramAutoDismiss, settings.telegramDismissSeconds) {
-                val b = telegramBanner ?: return@LaunchedEffect
-                if (settings.telegramAutoDismiss) {
-                    delay(settings.telegramDismissSeconds * 1000L)
-                    if (telegramBanner == b) { telegramBanner = null; tgAck(b.chatId) }
+            // Auto-dismiss the head of the queue (read receipt on timeout), then
+            // the next message becomes the head and gets its own timer.
+            LaunchedEffect(
+                telegramQueue.firstOrNull(), telegramWarn,
+                settings.telegramAutoDismiss, settings.telegramDismissSeconds
+            ) {
+                val b = telegramQueue.firstOrNull() ?: return@LaunchedEffect
+                if (!settings.telegramAutoDismiss) return@LaunchedEffect
+                if (telegramWarn != null) return@LaunchedEffect  // pause while a WARN is pinned
+                delay(settings.telegramDismissSeconds * 1000L)
+                if (telegramQueue.firstOrNull() == b) {
+                    telegramQueue.removeAt(0)
+                    tgAck(b.chatId)
                 }
             }
 
@@ -364,7 +405,8 @@ class MainActivity : ComponentActivity() {
                 LocalDensity provides Density(
                     density   = baseDensity.density * settings.uiScale,
                     fontScale = baseDensity.fontScale
-                )
+                ),
+                LocalUiScales provides UiScales(settings.textScale, settings.uiScale)
             ) {
                 if (!settingsLoaded) {
                     Box(modifier = Modifier.fillMaxSize().background(Color.Black))
@@ -484,24 +526,74 @@ class MainActivity : ComponentActivity() {
                                     )
 
                                     NavDestination.HOME -> {
-                                        val pagerState = rememberPagerState(initialPage = settings.homePage, pageCount = { 2 })
-                                        LaunchedEffect(settings.homePage) {
-                                            if (pagerState.currentPage != settings.homePage) {
-                                                pagerState.animateScrollToPage(settings.homePage)
-                                            }
-                                        }
-                                        LaunchedEffect(pagerState) {
-                                            snapshotFlow { pagerState.currentPage }.collect { page ->
-                                                if (page != settings.homePage) vm.setHomePage(page)
-                                            }
+                                        val currentPage = settings.homePage.coerceIn(0, 3)
+                                        var swipeDirection by remember { mutableStateOf(SwipeDir.NONE) }
+                                        LaunchedEffect(currentPage) {
+                                            delay(400)
+                                            swipeDirection = SwipeDir.NONE
                                         }
                                         Box(modifier = Modifier.fillMaxSize()) {
                                         Column(modifier = Modifier.fillMaxSize()) {
-                                            HorizontalPager(
-                                                state = pagerState,
-                                                userScrollEnabled = !rearrangeMode,
-                                                modifier = Modifier.weight(1f).fillMaxWidth()
-                                            ) { page ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .fillMaxWidth()
+                                                    .then(
+                                                        if (!rearrangeMode) Modifier.pointerInput(currentPage) {
+                                                            var startY = 0f
+                                                            var totalX = 0f
+                                                            var totalY = 0f
+                                                            // Reserve the top strip for the Android notification-shade /
+                                                            // taskbar pull-down so reaching for it never flips pages.
+                                                            val topEdgeZone = size.height * 0.15f
+                                                            detectDragGestures(
+                                                                onDragStart = { offset ->
+                                                                    startY = offset.y
+                                                                    totalX = 0f
+                                                                    totalY = 0f
+                                                                },
+                                                                onDragEnd = {
+                                                                    val adx = abs(totalX)
+                                                                    val ady = abs(totalY)
+                                                                    val threshold = 40.dp.toPx()
+                                                                    if (adx > threshold || ady > threshold) {
+                                                                        if (adx > ady) {
+                                                                            swipeDirection = if (totalX < 0) SwipeDir.LEFT else SwipeDir.RIGHT
+                                                                            vm.setHomePage(currentPage xor 1)
+                                                                        } else {
+                                                                            val goingDown = totalY > 0
+                                                                            if (goingDown && startY < topEdgeZone) {
+                                                                                // top-edge pull — leave it for the system shade
+                                                                            } else {
+                                                                                swipeDirection = if (totalY < 0) SwipeDir.UP else SwipeDir.DOWN
+                                                                                vm.setHomePage(currentPage xor 2)
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    totalX = 0f; totalY = 0f
+                                                                },
+                                                                onDragCancel = { totalX = 0f; totalY = 0f }
+                                                            ) { _, dragAmount ->
+                                                                totalX += dragAmount.x
+                                                                totalY += dragAmount.y
+                                                            }
+                                                        } else Modifier
+                                                    )
+                                            ) {
+                                                AnimatedContent(
+                                                    targetState   = currentPage,
+                                                    transitionSpec = {
+                                                        when (swipeDirection) {
+                                                            SwipeDir.LEFT  -> (slideInHorizontally { it } + fadeIn()) togetherWith (slideOutHorizontally { -it } + fadeOut())
+                                                            SwipeDir.RIGHT -> (slideInHorizontally { -it } + fadeIn()) togetherWith (slideOutHorizontally { it } + fadeOut())
+                                                            SwipeDir.UP    -> (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut())
+                                                            SwipeDir.DOWN  -> (slideInVertically { -it } + fadeIn()) togetherWith (slideOutVertically { it } + fadeOut())
+                                                            else           -> fadeIn() togetherWith fadeOut()
+                                                        }
+                                                    },
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    label = "home_page_transition"
+                                                ) { page ->
                                         HomeScreen(
                                         settings            = settings,
                                         weather             = weather,
@@ -532,8 +624,8 @@ class MainActivity : ComponentActivity() {
                                             val pkg = nowPlaying?.controller?.packageName
                                             if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)
                                         },
-                                        widgetLayoutOverride = if (page == 0) settings.widgetLayout else settings.homePageAltLayout,
-                                        isAltPage          = page == 1,
+                                        widgetLayoutOverride = settings.widgetLayoutFor(page),
+                                        page                = page,
                                         onUpdateWidget      = { id, sx, sy -> vm.updateWidgetConfig(page, id, sx, sy) },
                                         onMoveWidget        = { id, gx, gy -> vm.moveWidgetConfig(page, id, gx, gy) },
                                         onAddWidget         = { id -> vm.addWidget(page, id) },
@@ -543,6 +635,7 @@ class MainActivity : ComponentActivity() {
                                         onSetSpeedometerDigitalOnly = { digital -> vm.setSpeedometerDigitalOnly(page, digital) },
                                         onSetSpeedometerAnimals = { animals -> vm.setSpeedometerAnimals(page, animals) },
                                          onSetAppShortcutCount = { count -> vm.setAppShortcutCount(page, count) },
+                                         onSetAppShortcutIconScale = { scale -> vm.setAppShortcutIconScale(page, scale) },
                                          onSetSoundboardButtonCount = { count -> vm.setSoundboardButtonCount(page, count) },
                                         onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(page, idx, pad) },
                                         hardwareRadio         = hardwareRadio,
@@ -564,16 +657,30 @@ class MainActivity : ComponentActivity() {
                                         onSetAllWidgetsBgMode  = { mode -> vm.setAllWidgetsBgMode(mode) },
                                         onSetMapType      = { type -> vm.updateSettings { copy(mapWidgetType = type) } },
                                         onToggleMapTraffic = { vm.updateSettings { copy(mapShowTraffic = !mapShowTraffic) } },
+                                        onSetMapProvider  = { provider -> vm.updateSettings { copy(mapProvider = provider) } },
+                                        onSetMapControlScale = { scale -> vm.updateSettings { copy(mapControlScale = scale) } },
+                                        onUpdateSettings  = { block -> vm.updateSettings(block) },
                                         onSetAppShortcutPackage = { slot, pkg -> vm.setAppShortcutPackage(page, slot, pkg) },
                                         onToggleDayNight      = { vm.toggleDayNightMode() },
                                         onToggleQuickActionButton = { id -> vm.toggleQuickActionButton(page, id) },
                                         onResetQuickActionButtons = { vm.resetQuickActionButtons(page) },
                                         onToggleVitalsElement = { id -> vm.toggleVitalsElement(page, id) },
                                         onResetVitalsElements = { vm.resetVitalsElements(page) },
+                                        onToggleObdMetric = { id -> vm.toggleObdMetric(page, id) },
+                                        onResetObdMetrics = { vm.resetObdMetrics(page) },
                                         onToggleWidgetTitle   = { id -> vm.toggleWidgetTitle(page, id) },
                                         onZeroAltimeter       = { roll, pitch -> vm.zeroAltimeter(roll, pitch) },
                                         onResetAltimeterZero  = { vm.resetAltimeterZero() },
                                         onSetAdvancedWeatherIcons = { advanced -> vm.setAdvancedWeatherIcons(advanced) },
+                                        onSetShowWeatherForecast = { enabled -> vm.setShowWeatherForecast(page, enabled) },
+                                        weatherProvider       = settings.weatherProvider,
+                                        weatherUseGps         = settings.weatherUseGps,
+                                        weatherCustomLocation = settings.weatherCustomLocation,
+                                        weatherForecastDays   = settings.weatherForecastDays,
+                                        onSetWeatherProvider  = { provider -> vm.setWeatherProvider(provider) },
+                                        onSetWeatherUseGps    = { enabled -> vm.setWeatherUseGps(enabled) },
+                                        onSetWeatherCustomLocation = { location -> vm.setWeatherCustomLocation(location) },
+                                        onSetWeatherForecastDays   = { days -> vm.setWeatherForecastDays(days) },
                                         onSelectObdAdapter    = { address, name ->
                                             vm.updateSettings { copy(obdDeviceAddress = address, obdDeviceName = name) }
                                         },
@@ -587,22 +694,27 @@ class MainActivity : ComponentActivity() {
                                         profileSwitchedAt    = profileSwitchedAt
                                     )
                                             }
-                                            // Page indicator dots (tap to switch — safer while driving than swiping)
-                                            Row(
+                                            }
+                                            // Page indicator dots (2×2 grid — tap to switch, safer while driving than swiping)
+                                            Column(
                                                 modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-                                                horizontalArrangement = Arrangement.Center,
-                                                verticalAlignment = Alignment.CenterVertically
+                                                horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
-                                                repeat(2) { page ->
-                                                    val activeDot = pagerState.currentPage == page
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .padding(horizontal = 4.dp)
-                                                            .size(if (activeDot) 9.dp else 7.dp)
-                                                            .clip(CircleShape)
-                                                            .background(if (activeDot) accent else textColor.copy(alpha = 0.3f))
-                                                            .clickable { vm.setHomePage(page) }
-                                                    )
+                                                repeat(2) { row ->
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        repeat(2) { col ->
+                                                            val page = row * 2 + col
+                                                            val activeDot = currentPage == page
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                                    .size(if (activeDot) 9.dp else 7.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(if (activeDot) accent else textColor.copy(alpha = 0.3f))
+                                                                    .clickable { vm.setHomePage(page) }
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -654,6 +766,8 @@ class MainActivity : ComponentActivity() {
                                         onOpenVolumeCalibration = { vm.navigate(NavDestination.VOLUME_CALIBRATION) },
                                         onOpenTelegram = { vm.navigate(NavDestination.TELEGRAM) },
                                         onSwitchProfile = { id -> vm.switchProfile(id) },
+                                        onExportProfile = { slot, cb -> vm.exportProfile(slot, cb) },
+                                        onImportProfile = { slot, json, cb -> vm.importProfile(slot, json, cb) },
                                         apps = apps
                                     )
 
@@ -785,8 +899,9 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        if (telegramBanner != null && telegramWarn == null) {
-                            val b = telegramBanner!!
+                        val headBanner = telegramQueue.firstOrNull()
+                        if (headBanner != null && telegramWarn == null) {
+                            val b = headBanner
                             Column(
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
@@ -807,13 +922,22 @@ class MainActivity : ComponentActivity() {
                                         letterSpacing = 1.sp,
                                         modifier = Modifier.weight(1f)
                                     )
+                                    if (telegramQueue.size > 1) {
+                                        Text(
+                                            "+${telegramQueue.size - 1}",
+                                            color = accent.copy(alpha = 0.8f),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(end = 6.dp)
+                                        )
+                                    }
                                     Text(
                                         "✕",
                                         color = Color.White,
                                         fontSize = 12.sp,
                                         modifier = Modifier
                                             .clip(CircleShape)
-                                            .clickable { telegramBanner = null; tgAck(b.chatId) }
+                                            .clickable { telegramQueue.removeAt(0); tgAck(b.chatId) }
                                             .padding(6.dp)
                                     )
                                 }
@@ -821,7 +945,7 @@ class MainActivity : ComponentActivity() {
                                 if (tgSettings.telegramQuickReplies.isNotEmpty()) {
                                     Spacer(Modifier.height(8.dp))
                                     QuickRepliesRow(tgSettings.telegramQuickReplies, accent) { r ->
-                                        telegramBanner = null
+                                        telegramQueue.removeAt(0)
                                         tgSend(b.chatId, r)
                                     }
                                 }

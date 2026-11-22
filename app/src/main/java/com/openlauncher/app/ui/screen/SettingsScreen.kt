@@ -53,24 +53,24 @@ import com.openlauncher.app.data.telegram.TelegramBot
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.ParticleEffect
 import com.openlauncher.app.data.SidebarPosition
-import com.openlauncher.app.data.SpectrumStyle
 import com.openlauncher.app.data.TapSoundType
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.UnitSystem
-import com.openlauncher.app.data.WeatherProvider
 import com.openlauncher.app.data.FloatingActionType
 import com.openlauncher.app.data.FloatingPanelAction
-import com.openlauncher.app.data.defaultFloatingActions
-import com.openlauncher.app.data.withWidgetContent
-import com.openlauncher.app.data.widgetContentFor
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.ui.theme.LocalIsCustomMode
+import com.openlauncher.app.ui.theme.LocalUiScales
 import com.openlauncher.app.ui.theme.LocalHelpTextColor
 import com.openlauncher.app.ui.theme.accentOnSurface
 import com.openlauncher.app.ui.theme.contentColorOn
@@ -116,12 +116,8 @@ private val SECTION_COLORS = mapOf(
     "Tiles"             to Color(0xFF5C6BC0),
     "Vehicle & OBD"     to Color(0xFF66BB6A),
     "Sidebar"           to Color(0xFF8D6E63),
-    "Widget Content"    to Color(0xFF26A69A),
-    "Spectrum"          to Color(0xFFAB47BC),
-    "Now Playing"       to Color(0xFFEF5350),
     "Home Pages"        to Color(0xFF9CCC65),
     "Display Animation" to Color(0xFFFF7043),
-    "Weather"           to Color(0xFF42A5F5),
     "GPS & Calibration" to Color(0xFFFFA726),
     "Profiles"          to Color(0xFF26C6DA),
     "Gestures"          to Color(0xFF78909C),
@@ -129,10 +125,9 @@ private val SECTION_COLORS = mapOf(
     "Sound on Tap"      to Color(0xFF9E9D24),
     "Recovery"          to Color(0xFFD81B60),
     "Backup & Restore"  to Color(0xFF5E35B1),
-    "Maps"              to Color(0xFFFB8C00),
     "Floating Panel"    to Color(0xFF00ACC1),
     "Permissions"       to Color(0xFFCDDC39),
-    "Updates"           to Color(0xFF4DB6AC),
+    "About"             to Color(0xFF4DB6AC),
     "Maintenance"       to Color(0xFF64B5F6),
     "Telegram Messages" to Color(0xFF2AABEE)
 )
@@ -143,30 +138,29 @@ private fun sectionColorFor(title: String): Color =
 
 // Searchable terms per section so a query like "color" can highlight the sections
 // that actually contain color settings (Appearance, Tiles) without filtering others out.
+// Matching is substring-based: a section matches when its title OR any keyword here
+// contains the user's query (case-insensitive), so multi-word keywords also catch
+// shorter queries ("network speed" matches "speed", "two finger" matches "finger").
 private val SECTION_KEYWORDS = mapOf(
-    "Appearance" to listOf("accent", "color", "background", "font color", "help text", "gradient", "wallpaper", "status bar", "network speed", "dim"),
-    "Typography" to listOf("font", "bold", "text scale", "ui scale", "scale"),
-    "Tiles" to listOf("tile", "color", "transparency", "opacity"),
-    "Sidebar" to listOf("sidebar", "menubar", "shortcuts", "slot", "icon size", "width", "position"),
-    "Vehicle & OBD" to listOf("vehicle", "name", "unit", "metric", "imperial", "obd", "adapter", "bluetooth", "fallback", "image"),
-    "Sound on Tap" to listOf("sound", "tap", "tick", "beep", "click", "feedback", "audio"),
-    "Widget Content" to listOf("widget", "shortcuts", "soundboard", "buttons", "page", "count"),
-    "Now Playing" to listOf("player", "radio", "fm", "am", "band", "artwork", "logo", "album", "dim", "size", "media", "popup", "station", "frequency"),
-    "Spectrum" to listOf("spectrum", "visualizer", "bars", "rise", "fall", "falloff", "attack", "decay", "response", "curve", "sensitivity", "peaking", "motion", "gain", "fallback", "logo", "image", "audio", "color", "style", "mirror"),
-    "Home Pages" to listOf("auto-switch", "driving", "page", "speed", "idle", "switch"),
-    "Display Animation" to listOf("animation", "car", "image"),
-    "Weather" to listOf("weather", "gps", "location", "provider", "icons", "forecast", "days"),
-    "GPS & Calibration" to listOf("gps", "a-gps", "magnetometer", "compass", "calibration", "offset"),
-    "Floating Panel" to listOf("floating", "panel", "overlay", "quick controls", "buttons", "opacity", "size", "draw over", "vertical", "horizontal", "orientation"),
-    "Backup & Restore" to listOf("backup", "export", "restore", "json"),
-    "Permissions" to listOf("permission", "launcher", "notification", "location", "draw over", "access", "microphone", "mic", "record", "usage", "accessibility", "back"),
-    "Gestures" to listOf("gesture", "two finger", "three finger", "tap", "multi", "touch"),
-    "Profiles" to listOf("profile", "driver", "user", "switch", "person", "account", "wifi", "hotspot", "ssid"),
-    "Startup" to listOf("startup", "auto-launch", "auto launch", "boot", "delay", "launch", "open app"),
-    "Recovery" to listOf("restart", "recovery", "reload", "reboot", "crash", "fix", "defence"),
-    "Updates" to listOf("update", "github", "version"),
-    "Maintenance" to listOf("diagnostics", "status", "volume", "calibration", "debug", "log", "setup", "wizard", "reset", "defaults"),
-    "Telegram Messages" to listOf("telegram", "bot", "message", "driver inbox", "inbox", "remote", "notify", "notification")
+    "Appearance" to listOf("accent", "color", "colour", "background", "font color", "help text", "gradient", "wallpaper", "status bar", "network speed", "dim", "theme", "day", "night", "light", "dark", "mode", "particle", "snow", "rain", "stars", "video", "indicator", "upload", "download", "display mode"),
+    "Typography" to listOf("font", "bold", "text scale", "ui scale", "scale", "size", "text", "weight", "zoom", "enlarge", "bigger", "smaller", "letter", "spacing"),
+    "Tiles" to listOf("tile", "color", "colour", "transparency", "opacity", "alpha", "widget background", "glass", "dark", "light"),
+    "Sidebar" to listOf("sidebar", "menubar", "menu bar", "shortcuts", "slot", "icon size", "width", "position", "bar", "left", "right", "bottom", "horizontal", "vertical", "dock", "nav", "navigation", "add shortcut", "thickness", "height", "launcher bar"),
+    "Vehicle & OBD" to listOf("vehicle", "name", "unit", "metric", "imperial", "obd", "obd2", "elm327", "adapter", "bluetooth", "fallback", "image", "km", "miles", "mph", "kmh", "speed unit", "temperature", "diagnostic", "can bus", "car name"),
+    "Sound on Tap" to listOf("sound", "tap", "tick", "beep", "click", "feedback", "audio", "click sound", "press sound", "haptic"),
+    "Home Pages" to listOf("auto-switch", "auto switch", "driving", "page", "speed", "idle", "switch", "parked", "park", "gps speed", "threshold", "stop", "driving page", "auto page"),
+    "Display Animation" to listOf("animation", "car", "image", "vehicle", "picture", "logo", "moving car", "drive", "rest"),
+    "GPS & Calibration" to listOf("gps", "a-gps", "agps", "magnetometer", "compass", "calibration", "offset", "heading", "north", "reset gps", "assist", "parking lot", "sweep", "alignment", "heading offset"),
+    "Floating Panel" to listOf("floating", "panel", "overlay", "quick controls", "buttons", "opacity", "size", "draw over", "vertical", "horizontal", "orientation", "floating panel", "draw over other apps", "panel size", "panel opacity", "layout", "dock"),
+    "Backup & Restore" to listOf("backup", "export", "restore", "json", "import", "save settings", "load settings", "transfer", "file", "migrate"),
+    "Permissions" to listOf("permission", "launcher", "notification", "location", "draw over", "access", "microphone", "mic", "record", "usage", "accessibility", "back", "default launcher", "home app", "grant", "allow", "deny", "default home", "back key"),
+    "Gestures" to listOf("gesture", "two finger", "three finger", "2 finger", "3 finger", "tap", "multi", "touch", "swipe", "pinch", "double tap", "finger", "assign app", "shortcut"),
+    "Profiles" to listOf("profile", "driver", "user", "switch", "person", "account", "wifi", "hotspot", "ssid", "driver profile", "rename", "export", "import", "json", "backup profile", "multiple drivers", "preset"),
+    "Startup" to listOf("startup", "auto-launch", "auto launch", "boot", "delay", "launch", "open app", "start", "auto open", "on boot", "autostart", "wait"),
+    "Recovery" to listOf("restart", "recovery", "reload", "reboot", "crash", "fix", "defence", "defense", "restart launcher", "force restart", "stuck", "freeze", "unresponsive"),
+    "About" to listOf("update", "github", "version", "fork", "repo", "source", "download", "latest", "check updates"),
+    "Maintenance" to listOf("diagnostics", "status", "volume", "calibration", "debug", "log", "setup", "wizard", "reset", "defaults", "system status", "volume calibration", "mute probe", "debug log", "export log", "setup wizard", "onboarding", "reset settings", "factory reset", "troubleshoot", "repair", "health"),
+    "Telegram Messages" to listOf("telegram", "bot", "message", "driver inbox", "inbox", "remote", "notify", "notification", "telegram bot", "botfather", "remote message", "sms", "message driver", "notify driver")
 )
 
 // Resolved at call site via LocalDayMode — see SettingsDivider / SettingsSection
@@ -181,10 +175,13 @@ fun SettingsScreen(
     onOpenVolumeCalibration: () -> Unit = {},
     onOpenTelegram: () -> Unit = {},
     onSwitchProfile: (Int) -> Unit = {},
+    onExportProfile: (Int, (String?) -> Unit) -> Unit = { _, _ -> },
+    onImportProfile: (Int, String, (String?) -> Unit) -> Unit = { _, _, _ -> },
     apps: List<com.openlauncher.app.model.AppInfo> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val keyboard = LocalSoftwareKeyboardController.current
     // Sliders emit dozens of values per second while dragging — debounce them so
     // DataStore writes are batched (one write per ~250 ms of inactivity) instead
     // of hammering the disk on slow head-unit flash. The final value is always
@@ -198,11 +195,14 @@ fun SettingsScreen(
     var showHelpTextPicker    by remember { mutableStateOf(false) }
     var showTileDarkPicker    by remember { mutableStateOf(false) }
     var showTileLightPicker   by remember { mutableStateOf(false) }
-    var widgetContentPage     by remember { mutableStateOf(0) }
     var floatingSlotEditor    by remember { mutableStateOf<Int?>(null) }
-    var showRadioAppPicker    by remember { mutableStateOf(false) }
-    var showSpectrumColorPicker by remember { mutableStateOf(false) }
     var showFontPicker        by remember { mutableStateOf(false) }
+    // Hidden glare options — revealed as an easter egg by tapping "Tiles" 5×.
+    var glareRevealed by rememberSaveable { mutableStateOf(false) }
+    var glareTaps     by remember { mutableIntStateOf(0) }
+    // Hidden Gestures section — revealed as an easter egg by tapping "Sound on Tap" 5×.
+    var gesturesRevealed by rememberSaveable { mutableStateOf(false) }
+    var gesturesTaps     by remember { mutableIntStateOf(0) }
     // 0 = auto-launch app, 1 = two-finger gesture, 2 = three-finger gesture
     var pendingAppPick        by remember { mutableStateOf<Int?>(null) }
 
@@ -254,34 +254,6 @@ fun SettingsScreen(
         }
     }
 
-    // Spectrum fallback image (shown when there's no audio signal) — per-page.
-    val spectrumImagePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
-            onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumFallbackImageUri = uri.toString()) } }
-        }
-    }
-
-    // OBD2 widget fallback image (shown when there's no adapter connection).
-    val obdImagePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
-            onUpdate { copy(obdFallbackImageUri = uri.toString()) }
-        }
-    }
-
     val isDayMode = LocalDayMode.current
     val screenBg  = MaterialTheme.colorScheme.background
     val swatchBorderColor = if (isDayMode) Color(0xFFCCCCCC) else Color.White.copy(alpha = 0.35f)
@@ -295,7 +267,6 @@ fun SettingsScreen(
         CategoryItem("All", "All", Icons.Default.Apps),
         CategoryItem("Display", "Display", Icons.Default.Palette),
         CategoryItem("Dashboard", "Dashboard", Icons.Default.Dashboard),
-        CategoryItem("Widgets", "Widgets", Icons.Default.Widgets),
         CategoryItem("Vehicle & OBD", "Vehicle", Icons.Default.DirectionsCar),
         CategoryItem("Launcher", "Launcher", Icons.Default.Settings)
     )
@@ -366,73 +337,65 @@ fun SettingsScreen(
                         onClick   = { selectedCategory = cat.id }
                     )
                 }
+                SearchField(
+                    query         = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    accent        = accent,
+                    isDayMode     = isDayMode,
+                    modifier      = Modifier.weight(1f).height(48.dp)
+                )
             }
         }
 
-        // ── Open System Settings + Search (one row) ────────────────────────────
-        // Same height as the category tiles above (48 dp) so the top block reads
-        // as one consistent strip.
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.height(48.dp)
-        ) {
-            Surface(
-                onClick = {
-                    runCatching {
-                        context.startActivity(
-                            Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                    }
-                },
-                shape = RoundedCornerShape(8.dp),
-                color = specialCardColor,
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    specialBorderColor
-                ),
-                modifier = Modifier.weight(1f).fillMaxHeight()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Settings,
-                        contentDescription = null,
-                        tint = specialIconTint,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Open System Settings",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD),
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = "Access Android system settings, Wi-Fi, Bluetooth & display",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isDayMode) Color(0xFF888888) else Color(0xFF666666),
-                            fontSize = 11.sp
-                        )
-                    }
-                    Icon(
-                        Icons.Default.OpenInNew,
-                        contentDescription = null,
-                        tint = if (isDayMode) Color(0xFF888888) else Color(0xFF555555),
-                        modifier = Modifier.size(16.dp)
+        // ── Open System Settings (own row, half width) ─────────────────────────
+        Surface(
+            onClick = {
+                runCatching {
+                    context.startActivity(
+                        Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     )
                 }
+            },
+            shape = RoundedCornerShape(8.dp),
+            color = specialCardColor,
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                specialBorderColor
+            ),
+            modifier = Modifier.fillMaxWidth(0.5f).height(48.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp).fillMaxHeight(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = null,
+                    tint = specialIconTint,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Open System Settings",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD),
+                        fontSize = 13.sp
+                    )
+                    Text(
+                        text = "Access Android system settings, Wi-Fi, Bluetooth & display",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isDayMode) Color(0xFF888888) else Color(0xFF666666),
+                        fontSize = 11.sp
+                    )
+                }
+                Icon(
+                    Icons.Default.OpenInNew,
+                    contentDescription = null,
+                    tint = if (isDayMode) Color(0xFF888888) else Color(0xFF555555),
+                    modifier = Modifier.size(16.dp)
+                )
             }
-
-            SearchField(
-                query         = searchQuery,
-                onQueryChange = { searchQuery = it },
-                accent        = accent,
-                isDayMode     = isDayMode,
-                modifier      = Modifier.weight(1f).fillMaxHeight()
-            )
         }
 
         // ── Appearance ───────────────────────────────────────────────────────
@@ -864,8 +827,8 @@ fun SettingsScreen(
                 Slider(
                     value         = settings.textScale,
                     onValueChange = { debouncedUpdate { copy(textScale = it) } },
-                    valueRange    = 0.8f..1.8f,
-                    steps         = 10,
+                    valueRange    = 0.8f..2.0f,
+                    steps         = 12,
                     colors        = sliderColors(accent),
                     modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
@@ -882,8 +845,8 @@ fun SettingsScreen(
                 Slider(
                     value         = settings.uiScale,
                     onValueChange = { debouncedUpdate { copy(uiScale = it) } },
-                    valueRange    = 0.7f..1.8f,
-                    steps         = 11,
+                    valueRange    = 0.7f..2.0f,
+                    steps         = 13,
                     colors        = sliderColors(accent),
                     modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
@@ -893,7 +856,15 @@ fun SettingsScreen(
 
         // ── Tiles ─────────────────────────────────────────────────────────────
         if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Display") {
-        SettingsSection("Tiles") {
+        SettingsSection(
+            title       = "Tiles",
+            onHeaderTap = {
+                if (!glareRevealed) {
+                    glareTaps++
+                    if (glareTaps >= 5) { glareRevealed = true; glareTaps = 0; TapSound.play() }
+                }
+            }
+        ) {
             SettingsRow(
                 label    = "Tile Color (Dark)",
                 sublabel = "Widget background in dark / custom mode",
@@ -943,6 +914,41 @@ fun SettingsScreen(
                     modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
             }
+
+            // Hidden — only shown after the "Tiles" header easter-egg tap.
+            if (glareRevealed) {
+                SettingsDivider()
+
+                SettingsRow(
+                    label    = "Light Glare",
+                    sublabel = "A soft light sweep passing across the widgets",
+                    icon     = Icons.Default.Flare
+                ) {
+                    TapSwitch(
+                        checked         = settings.glareEnabled,
+                        onCheckedChange = { onUpdate { copy(glareEnabled = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+
+                if (settings.glareEnabled) {
+                    Column {
+                        SettingsRow(
+                            label    = "Glare Strength",
+                            sublabel = "${"%.0f".format(settings.glareIntensity * 100)}%",
+                            icon     = Icons.Default.BrightnessHigh
+                        ) {}
+                        Slider(
+                            value         = settings.glareIntensity,
+                            onValueChange = { debouncedUpdate { copy(glareIntensity = it) } },
+                            valueRange    = 0.15f..1f,
+                            steps         = 8,
+                            colors        = sliderColors(accent),
+                            modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                        )
+                    }
+                }
+            }
         }
         }
 
@@ -963,6 +969,8 @@ fun SettingsScreen(
                         singleLine    = true,
                         textStyle     = LocalTextStyle.current.copy(fontSize = 12.sp, color = if (isDayMode) Color(0xFF111111) else Color.White),
                         colors        = outlinedFieldColors(accent),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
                         modifier      = Modifier.width(140.dp)
                     )
                     if (nameInput != settings.vehicleName) {
@@ -1039,32 +1047,6 @@ fun SettingsScreen(
                     }
                     if (settings.obdDeviceAddress.isNotBlank()) {
                         TextButton(onClick = { onUpdate { copy(obdDeviceAddress = "", obdDeviceName = "") } }) {
-                            Text("Clear", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-
-            SettingsDivider()
-
-            // OBD2 widget fallback image when there's no connection
-            SettingsRow(
-                label    = "Fallback Image",
-                sublabel = if (settings.obdFallbackImageUri.isNotEmpty())
-                    "Shown in the OBD2 widget when there's no adapter connection"
-                else
-                    "Optional — shown in the OBD2 widget when there's no adapter connection",
-                icon     = Icons.Default.Image
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { obdImagePicker.launch(arrayOf("image/*")) }) {
-                        Text(
-                            if (settings.obdFallbackImageUri.isEmpty()) "Choose" else "Change",
-                            color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold
-                        )
-                    }
-                    if (settings.obdFallbackImageUri.isNotEmpty()) {
-                        TextButton(onClick = { onUpdate { copy(obdFallbackImageUri = "") } }) {
                             Text("Clear", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 11.sp)
                         }
                     }
@@ -1201,422 +1183,6 @@ fun SettingsScreen(
         }
         }
 
-        // ── Widgets ───────────────────────────────────────────────────────────
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
-        SettingsSection("Widget Content") {
-            // Page selector — widget content is configured independently per page
-            SettingsRow(
-                label    = "Editing Page",
-                sublabel = "App shortcuts & soundboard counts below are stored per page — pick which page to edit",
-                icon     = Icons.Default.SwapHoriz
-            ) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
-                        .padding(2.dp)
-                ) {
-                    listOf(0 to "PAGE 1", 1 to "PAGE 2").forEach { (page, label) ->
-                        val selected = widgetContentPage == page
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (selected) accent else Color.Transparent)
-                                .clickable { widgetContentPage = page }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
-                                fontSize = 10.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                letterSpacing = 1.sp
-                            )
-                        }
-                    }
-                }
-            }
-            SettingsDivider()
-
-            // App Shortcuts Count (1..4)
-            SettingsRow(
-                label    = "App Shortcuts Count",
-                sublabel = "${settings.widgetContentFor(widgetContentPage).appShortcutCount} ${if (settings.widgetContentFor(widgetContentPage).appShortcutCount == 1) "shortcut" else "shortcuts"} — icons expand to fill widget space",
-                icon     = Icons.Default.Apps
-            ) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
-                        .padding(2.dp)
-                ) {
-                    (1..4).forEach { count ->
-                        val selected = settings.widgetContentFor(widgetContentPage).appShortcutCount == count
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (selected) accent else Color.Transparent)
-                                .clickable { onUpdate { withWidgetContent(widgetContentPage) { it.copy(appShortcutCount = count) } } }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "$count",
-                                color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
-                                fontSize = 11.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-            }
-
-            SettingsDivider()
-
-            // Soundboard Button Count (1, 2, 3, 4, 6)
-            SettingsRow(
-                label    = "Soundboard Buttons",
-                sublabel = "${settings.widgetContentFor(widgetContentPage).soundboardButtonCount} sound pads — active buttons expand to take empty space",
-                icon     = Icons.Default.Piano
-            ) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
-                        .padding(2.dp)
-                ) {
-                    listOf(1, 2, 3, 4, 6).forEach { count ->
-                        val selected = settings.widgetContentFor(widgetContentPage).soundboardButtonCount == count
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (selected) accent else Color.Transparent)
-                                .clickable { onUpdate { withWidgetContent(widgetContentPage) { it.copy(soundboardButtonCount = count) } } }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "$count",
-                                color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
-                                fontSize = 11.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-            }
-
-        }
-        }
-
-        // ── Spectrum Visualizer behaviour (global — affects the sound motion) ──
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
-        SettingsSection("Spectrum") {
-            SettingsRow(
-                label    = "Rise Speed",
-                sublabel = "${"%.0f".format(settings.spectrumAttackMs)}ms — how fast bars rise (lower = snappier)",
-                icon     = Icons.Default.GraphicEq
-            ) {}
-            Slider(
-                value         = settings.spectrumAttackMs,
-                onValueChange = { v -> debouncedUpdate { copy(spectrumAttackMs = v) } },
-                valueRange    = 5f..200f,
-                steps         = 19,
-                colors        = sliderColors(accent),
-                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            )
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Fall-off Speed",
-                sublabel = "${"%.0f".format(settings.spectrumDecayMs)}ms — how fast bars fall (lower = faster fall)",
-                icon     = Icons.Default.GraphicEq
-            ) {}
-            Slider(
-                value         = settings.spectrumDecayMs,
-                onValueChange = { v -> debouncedUpdate { copy(spectrumDecayMs = v) } },
-                valueRange    = 50f..1500f,
-                steps         = 28,
-                colors        = sliderColors(accent),
-                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            )
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Response Curve",
-                sublabel = "${"%.2f".format(settings.spectrumResponse)} — higher = more spread between bars (less all-peaking)",
-                icon     = Icons.Default.GraphicEq
-            ) {}
-            Slider(
-                value         = settings.spectrumResponse,
-                onValueChange = { v -> debouncedUpdate { copy(spectrumResponse = v) } },
-                valueRange    = 0.4f..2.5f,
-                steps         = 20,
-                colors        = sliderColors(accent),
-                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            )
-
-            SettingsDivider()
-
-            // Per-page appearance (bar count, style, mirror, color, gain, fallback)
-            SettingsRow(
-                label    = "Editing Page",
-                sublabel = "Appearance below is stored per page — pick which page to edit",
-                icon     = Icons.Default.SwapHoriz
-            ) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
-                        .padding(2.dp)
-                ) {
-                    listOf(0 to "PAGE 1", 1 to "PAGE 2").forEach { (page, label) ->
-                        val selected = widgetContentPage == page
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (selected) accent else Color.Transparent)
-                                .clickable { widgetContentPage = page }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
-                                fontSize = 10.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                letterSpacing = 1.sp
-                            )
-                        }
-                    }
-                }
-            }
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Spectrum Bars",
-                sublabel = "${settings.widgetContentFor(widgetContentPage).spectrumBarCount} bars — the audio spectrum resolution",
-                icon     = Icons.Default.GraphicEq
-            ) {}
-            Slider(
-                value         = settings.widgetContentFor(widgetContentPage).spectrumBarCount.toFloat(),
-                onValueChange = { v -> debouncedUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumBarCount = v.toInt().coerceIn(8, 64)) } } },
-                valueRange    = 8f..64f,
-                steps         = 13,
-                colors        = sliderColors(accent),
-                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            )
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Spectrum Style",
-                sublabel = "Bars, rounded bars, or dots",
-                icon     = Icons.Default.GraphicEq
-            ) {}
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
-                    .padding(2.dp)
-            ) {
-                listOf(
-                    "BARS" to SpectrumStyle.BARS,
-                    "ROUND" to SpectrumStyle.ROUNDED,
-                    "DOTS" to SpectrumStyle.DOTS
-                ).forEach { (label, st) ->
-                    val selected = settings.widgetContentFor(widgetContentPage).spectrumStyle == st
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(if (selected) accent else Color.Transparent)
-                            .clickable { onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumStyle = st) } } }
-                            .padding(vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = label,
-                            color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
-                            fontSize = 10.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            letterSpacing = 1.sp
-                        )
-                    }
-                }
-            }
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Mirror Spectrum",
-                sublabel = "Reflect the bars around the vertical center",
-                icon     = Icons.Default.Flip
-            ) {
-                TapSwitch(
-                    checked         = settings.widgetContentFor(widgetContentPage).spectrumMirror,
-                    onCheckedChange = { mirror -> onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumMirror = mirror) } } },
-                    colors          = switchColors(accent)
-                )
-            }
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Spectrum Color",
-                sublabel = if (settings.widgetContentFor(widgetContentPage).spectrumColor == null) "Follows the accent color" else "Custom color",
-                icon     = Icons.Default.Palette
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Accent", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 10.sp)
-                    TapSwitch(
-                        checked         = settings.widgetContentFor(widgetContentPage).spectrumColor == null,
-                        onCheckedChange = { follow ->
-                            onUpdate {
-                                withWidgetContent(widgetContentPage) {
-                                    it.copy(spectrumColor = if (follow) null else (it.spectrumColor ?: accent.toArgb()))
-                                }
-                            }
-                        },
-                        colors          = switchColors(accent)
-                    )
-                    TextButton(onClick = { showSpectrumColorPicker = true }) {
-                        Text("Pick", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Spectrum Gain",
-                sublabel = "${"%.0f".format(settings.widgetContentFor(widgetContentPage).spectrumGain * 100)}% — bar sensitivity",
-                icon     = Icons.Default.GraphicEq
-            ) {}
-            Slider(
-                value         = settings.widgetContentFor(widgetContentPage).spectrumGain,
-                onValueChange = { v -> debouncedUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumGain = v) } } },
-                valueRange    = 0.3f..3f,
-                steps         = 13,
-                colors        = sliderColors(accent),
-                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            )
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Fallback Image",
-                sublabel = if (settings.widgetContentFor(widgetContentPage).spectrumFallbackImageUri.isNotEmpty())
-                    "Shown when there's no audio signal"
-                else
-                    "Optional — e.g. a car logo shown when there's no audio signal",
-                icon     = Icons.Default.Image
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { spectrumImagePicker.launch(arrayOf("image/*")) }) {
-                        Text(
-                            if (settings.widgetContentFor(widgetContentPage).spectrumFallbackImageUri.isEmpty()) "Choose" else "Change",
-                            color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold
-                        )
-                    }
-                    if (settings.widgetContentFor(widgetContentPage).spectrumFallbackImageUri.isNotEmpty()) {
-                        TextButton(onClick = { onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumFallbackImageUri = "") } } }) {
-                            Text("Clear", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-        }
-        }
-
-        // ── Now Playing / Radio widget ─────────────────────────────────────────
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
-        SettingsSection("Now Playing") {
-            SettingsRow(
-                label    = "Radio App",
-                sublabel = if (settings.radioPackage.isNotEmpty()) settings.radioPackage else "Auto-detect — or pick your head unit's radio app",
-                icon     = Icons.Default.Radio
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { showRadioAppPicker = true }) {
-                        Text(if (settings.radioPackage.isEmpty()) "Choose" else "Change", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                    if (settings.radioPackage.isNotEmpty()) {
-                        TextButton(onClick = { onUpdate { copy(radioPackage = "") } }) {
-                            Text("Auto", color = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA), fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Show FM/AM Band Chips",
-                sublabel = "Band switch chips in the radio deck (FM1/FM2/FM3/AM)",
-                icon     = Icons.Default.Radio
-            ) {
-                TapSwitch(
-                    checked         = settings.showRadioBands,
-                    onCheckedChange = { onUpdate { copy(showRadioBands = it) } },
-                    colors          = switchColors(accent)
-                )
-            }
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Station Change Popup",
-                sublabel = "Fade in a glass panel with station name, frequency and logo on seek/preset change",
-                icon     = Icons.Default.Notifications
-            ) {
-                TapSwitch(
-                    checked         = settings.showRadioPopup,
-                    onCheckedChange = { onUpdate { copy(showRadioPopup = it) } },
-                    colors          = switchColors(accent)
-                )
-            }
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Artwork Size",
-                sublabel = "${"%.0f".format(settings.nowPlayingLogoScale * 100)}% — player card logo/album art",
-                icon     = Icons.Default.AspectRatio
-            ) {}
-            Slider(
-                value         = settings.nowPlayingLogoScale,
-                onValueChange = { debouncedUpdate { copy(nowPlayingLogoScale = it) } },
-                valueRange    = 0.5f..1f,
-                steps         = 4,
-                colors        = sliderColors(accent),
-                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            )
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Artwork Dim",
-                sublabel = "${"%.0f".format(settings.nowPlayingLogoDim * 100)}% dark veil — improves control/text contrast",
-                icon     = Icons.Default.BrightnessLow
-            ) {}
-            Slider(
-                value         = settings.nowPlayingLogoDim,
-                onValueChange = { debouncedUpdate { copy(nowPlayingLogoDim = it) } },
-                valueRange    = 0f..0.8f,
-                steps         = 7,
-                colors        = sliderColors(accent),
-                modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            )
-        }
-        }
-
         // ── Home Pages (swipe left/right) ─────────────────────────────────────
         if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
         SettingsSection("Home Pages") {
@@ -1633,8 +1199,8 @@ fun SettingsScreen(
             }
             SettingsDivider()
             SettingsRow(
-                label    = "Driving Page",
-                sublabel = if (settings.autoSwitchPages) "Shown while moving — the other page shows while parked" else "Enable auto-switch to select",
+                label    = "Driving Column",
+                sublabel = if (settings.autoSwitchPages) "RIGHT = pages 2 & 4 while driving, LEFT = pages 1 & 3 while parked" else "Enable auto-switch to select",
                 icon     = Icons.Default.DirectionsCar
             ) {
                 Row(
@@ -1643,7 +1209,7 @@ fun SettingsScreen(
                         .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
                         .padding(2.dp)
                 ) {
-                    listOf(0 to "PAGE 1", 1 to "PAGE 2").forEach { (page, label) ->
+                    listOf(0 to "LEFT", 1 to "RIGHT").forEach { (page, label) ->
                         val selected = settings.drivingPage == page
                         Box(
                             modifier = Modifier
@@ -1726,153 +1292,6 @@ fun SettingsScreen(
                         modifier = Modifier.align(Alignment.End)
                     ) {
                         Text("REMOVE CAR IMAGE", color = Color(0xFF993333), fontSize = 9.sp, letterSpacing = 1.sp)
-                    }
-                }
-            }
-        }
-        }
-
-        // ── Weather Service & Location ───────────────────────────────────────
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
-        SettingsSection("Weather") {
-            // 1. Dynamic GPS vs Manual Location Toggle
-            SettingsRow(
-                label    = "Use Dynamic GPS Location",
-                sublabel = if (settings.weatherUseGps) "Weather automatically tracks vehicle GPS coordinates" else "Using custom location specified below",
-                icon     = Icons.Default.MyLocation
-            ) {
-                TapSwitch(
-                    checked         = settings.weatherUseGps,
-                    onCheckedChange = { onUpdate { copy(weatherUseGps = it) } },
-                    colors          = switchColors(accent)
-                )
-            }
-
-            // 2. Custom Location Input (when GPS is false, or fallback)
-            SettingsDivider()
-            var customLocInput by remember(settings.weatherCustomLocation) { mutableStateOf(settings.weatherCustomLocation) }
-            SettingsRow(
-                label    = "Custom Location / Fallback City",
-                sublabel = "City name (e.g. Athens, London, New York) or coordinates",
-                icon     = Icons.Default.LocationCity
-            ) {
-                BasicTextField(
-                    value = customLocInput,
-                    onValueChange = {
-                        customLocInput = it
-                        onUpdate { copy(weatherCustomLocation = it) }
-                    },
-                    textStyle = TextStyle(
-                        color = if (isDayMode) Color(0xFF111111) else Color(0xFFEEEEEE),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    ),
-                    singleLine = true,
-                    modifier = Modifier
-                        .widthIn(min = 120.dp, max = 180.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
-                )
-            }
-
-            // 3. Weather Service Provider
-            SettingsDivider()
-            SettingsRow(
-                label    = "Weather Service Provider",
-                sublabel = if (settings.weatherProvider == WeatherProvider.WTTR_IN) "wttr.in — Free one-liner & curl service" else "Open-Meteo — Free high-precision 7-day forecast",
-                icon     = Icons.Default.Cloud
-            ) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
-                        .padding(2.dp)
-                ) {
-                    WeatherProvider.entries.forEach { prov ->
-                        val selected = settings.weatherProvider == prov
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (selected) accent else Color.Transparent)
-                                .clickable { onUpdate { copy(weatherProvider = prov) } }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (prov == WeatherProvider.WTTR_IN) "wttr.in" else "Open-Meteo",
-                                color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
-                                fontSize = 11.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 4. Forecast Days Count (3, 5, 7)
-            SettingsDivider()
-            SettingsRow(
-                label    = "Weather Animated Icons",
-                sublabel = if (settings.advancedWeatherIcons) "Advanced (100+ dynamic condition-specific Meteocons)" else "Standard (simplified broad categories)",
-                icon     = Icons.Default.Cloud
-            ) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
-                        .padding(2.dp)
-                ) {
-                    listOf(false to "Standard", true to "Advanced").forEach { (advanced, label) ->
-                        val selected = settings.advancedWeatherIcons == advanced
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (selected) accent else Color.Transparent)
-                                .clickable { onUpdate { copy(advancedWeatherIcons = advanced) } }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
-                                fontSize = 11.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-            }
-
-            SettingsDivider()
-            SettingsRow(
-                label    = "Forecast Days",
-                sublabel = "Number of upcoming daily forecast cards to display in widget",
-                icon     = Icons.Default.CalendarToday
-            ) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
-                        .padding(2.dp)
-                ) {
-                    listOf(3, 5, 7).forEach { days ->
-                        val selected = settings.weatherForecastDays == days
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (selected) accent else Color.Transparent)
-                                .clickable { onUpdate { copy(weatherForecastDays = days) } }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "$days Days",
-                                color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
-                                fontSize = 11.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
                     }
                 }
             }
@@ -1975,32 +1394,35 @@ fun SettingsScreen(
                 sublabel = "Each driver keeps their own widgets, colors, layout & settings — hardware (Bluetooth OBD, radio app, volume channel) stays shared",
                 icon     = Icons.Default.Person
             ) {}
+            val scales = LocalUiScales.current
+            val ts = scales.ts()
+            val us = scales.us()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .padding(horizontal = (16 * us).dp)
+                    .clip(RoundedCornerShape((4 * us).dp))
                     .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
-                    .padding(2.dp)
+                    .padding((2 * us).dp)
             ) {
                 (0..3).forEach { id ->
                     val active = settings.activeProfile == id
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(3.dp))
+                            .clip(RoundedCornerShape((3 * us).dp))
                             .background(if (active) accent else Color.Transparent)
                             .clickable { TapSound.play(); if (!active) onSwitchProfile(id) }
-                            .padding(vertical = 8.dp),
+                            .padding(vertical = (8 * us).dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = settings.profileNames.getOrElse(id) { "DRIVER ${id + 1}" },
                                 color = if (active) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
-                                fontSize = 10.sp,
+                                fontSize = (10 * ts).sp,
                                 fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                                letterSpacing = 1.sp,
+                                letterSpacing = (1 * ts).sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -2027,6 +1449,8 @@ fun SettingsScreen(
                         singleLine    = true,
                         textStyle     = LocalTextStyle.current.copy(fontSize = 12.sp, color = if (isDayMode) Color(0xFF111111) else Color.White),
                         colors        = outlinedFieldColors(accent),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
                         modifier      = Modifier.width(140.dp)
                     )
                     if (profileNameInput.value.isNotBlank() &&
@@ -2089,6 +1513,8 @@ fun SettingsScreen(
                                 singleLine    = true,
                                 textStyle     = LocalTextStyle.current.copy(fontSize = 12.sp, color = if (isDayMode) Color(0xFF111111) else Color.White),
                                 colors        = outlinedFieldColors(accent),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
                                 modifier      = Modifier.width(180.dp)
                             )
                             if (ssidInput.value.trim() != settings.profileHotspotSsids.getOrElse(id) { "" }) {
@@ -2111,11 +1537,222 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            // ── Export / Import a single profile ──────────────────────────────
+            SettingsDivider()
+            var profileSlot by remember { mutableStateOf(settings.activeProfile) }
+            var profileMenuOpen by remember { mutableStateOf(false) }
+            var profileIoStatus by remember { mutableStateOf<String?>(null) }
+            var pendingImportJson by remember { mutableStateOf<String?>(null) }
+            val pioScope = rememberCoroutineScope()
+
+            val profileExportLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/json")
+            ) { uri ->
+                if (uri != null) {
+                    pioScope.launch {
+                        onExportProfile(profileSlot) { json ->
+                            if (json.isNullOrBlank()) {
+                                profileIoStatus = "Profile ${profileSlot + 1} is empty — nothing to export"
+                            } else {
+                                val err = SafeExport.write(context, uri, json, "profile_export")
+                                profileIoStatus = if (err == null)
+                                    "Profile ${profileSlot + 1} exported successfully"
+                                else "Export failed: $err"
+                            }
+                        }
+                    }
+                }
+            }
+
+            val profileImportLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri ->
+                if (uri != null) {
+                    pioScope.launch {
+                        val json = runCatching {
+                            context.contentResolver.openInputStream(uri)?.use {
+                                it.bufferedReader().use { r -> r.readText() }
+                            }
+                        }.getOrNull()
+                        if (json.isNullOrBlank()) {
+                            profileIoStatus = "Could not read the file"
+                        } else {
+                            pendingImportJson = json
+                        }
+                    }
+                }
+            }
+
+            SettingsRow(
+                label    = "Export / Import Profile",
+                sublabel = "Copy one profile's layout, colors & options to/from a JSON file — hardware stays shared",
+                icon     = Icons.Default.SwapHoriz
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy((6 * us).dp)
+                ) {
+                    // Profile slot dropdown (defaults to the active profile)
+                    Box {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape((6 * us).dp))
+                                .background(if (isDayMode) Color(0xFFE8E8E8) else Color(0xFF242424))
+                                .clickable { TapSound.play(); profileMenuOpen = true }
+                                .padding(horizontal = (10 * us).dp, vertical = (7 * us).dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy((4 * us).dp)
+                        ) {
+                            Text(
+                                text = settings.profileNames.getOrElse(profileSlot) { "DRIVER ${profileSlot + 1}" },
+                                color = if (isDayMode) Color(0xFF222222) else Color(0xFFDDDDDD),
+                                fontSize = (10 * ts).sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = (120 * us).dp)
+                            )
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                null,
+                                tint = if (isDayMode) Color(0xFF555555) else Color(0xFF999999),
+                                modifier = Modifier.size((14 * us).dp)
+                            )
+                        }
+                        DropdownMenu(expanded = profileMenuOpen, onDismissRequest = { profileMenuOpen = false }) {
+                            (0..3).forEach { id ->
+                                DropdownMenuItem(
+                                    text = { Text(settings.profileNames.getOrElse(id) { "DRIVER ${id + 1}" }, fontSize = (12 * ts).sp) },
+                                    onClick = { TapSound.play(); profileSlot = id; profileMenuOpen = false }
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        "EXPORT",
+                        color = accent,
+                        fontSize = (10 * ts).sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (1 * ts).sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape((6 * us).dp))
+                            .clickable {
+                                TapSound.play()
+                                profileIoStatus = null
+                                val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())
+                                profileExportLauncher.launch("openlauncher_profile_${profileSlot + 1}_$stamp.json")
+                            }
+                            .padding(horizontal = (10 * us).dp, vertical = (7 * us).dp)
+                    )
+                    Text(
+                        "IMPORT",
+                        color = accent,
+                        fontSize = (10 * ts).sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (1 * ts).sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape((6 * us).dp))
+                            .clickable {
+                                TapSound.play()
+                                profileIoStatus = null
+                                profileImportLauncher.launch(arrayOf("application/json", "*/*"))
+                            }
+                            .padding(horizontal = (10 * us).dp, vertical = (7 * us).dp)
+                    )
+                }
+            }
+
+            pendingImportJson?.let { json ->
+                ConfirmDialog(
+                    title        = "Import Profile?",
+                    message      = "This will overwrite profile ${profileSlot + 1} (${settings.profileNames.getOrElse(profileSlot) { "DRIVER ${profileSlot + 1}" }}) with the file's layout, colors and options. Hardware/shared settings stay untouched.",
+                    confirmLabel = "Import",
+                    onConfirm    = {
+                        pioScope.launch {
+                            onImportProfile(profileSlot, json) { err ->
+                                profileIoStatus = if (err == null)
+                                    "Profile ${profileSlot + 1} imported successfully"
+                                else "Import failed: $err"
+                            }
+                        }
+                        pendingImportJson = null
+                    },
+                    onDismiss = { pendingImportJson = null }
+                )
+            }
+
+            if (profileIoStatus != null) {
+                SettingsDivider()
+                Text(
+                    text = profileIoStatus!!,
+                    color = accent,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+            }
+        }
+        }
+
+        // ── Sound on Tap ──────────────────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
+        SettingsSection(title = "Sound on Tap", onHeaderTap = { if (!gesturesRevealed) { gesturesTaps++; if (gesturesTaps >= 5) { gesturesRevealed = true; gesturesTaps = 0; TapSound.play() } } }) {
+            SettingsRow(
+                label    = "Tap Sound",
+                sublabel = "Play a short sound when tapping home-screen widgets",
+                icon     = Icons.Default.VolumeUp
+            ) {
+                TapSwitch(
+                    checked         = settings.tapSoundEnabled,
+                    onCheckedChange = { onUpdate { copy(tapSoundEnabled = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            if (settings.tapSoundEnabled) {
+                SettingsDivider()
+                SettingsRow(
+                    label    = "Sound",
+                    sublabel = "Tick (short click) or a light beep",
+                    icon     = Icons.Default.GraphicEq
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
+                            .padding(2.dp)
+                    ) {
+                        listOf(
+                            "TICK" to TapSoundType.TICK,
+                            "BEEP" to TapSoundType.BEEP
+                        ).forEach { (label, st) ->
+                            val selected = settings.tapSoundType == st
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(if (selected) accent else Color.Transparent)
+                                    .clickable { onUpdate { copy(tapSoundType = st) } }
+                                    .padding(horizontal = 12.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
+                                    fontSize = 10.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
         }
 
         // ── Gestures ──────────────────────────────────────────────────────────
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
+        if (gesturesRevealed && (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher")) {
         SettingsSection("Gestures") {
             val twoFingerLabel = if (settings.gestureTwoFingerPackage.isNotEmpty())
                 apps.find { it.packageName == settings.gestureTwoFingerPackage }?.appName ?: settings.gestureTwoFingerPackage
@@ -2160,6 +1797,19 @@ fun SettingsScreen(
                     }
                 }
             }
+        }
+        }
+
+        // ── Telegram ─────────────────────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
+        SettingsSection("Telegram Messages") {
+            SettingsButton(
+                label    = "Driver Inbox",
+                sublabel = "Remote messages from a Telegram bot — setup, commands, quick replies & status",
+                icon     = Icons.Default.Forum,
+                accent   = accent,
+                onClick  = onOpenTelegram
+            )
         }
         }
 
@@ -2212,62 +1862,6 @@ fun SettingsScreen(
                     colors        = sliderColors(accent),
                     modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
-            }
-        }
-        }
-
-        // ── Sound on Tap ──────────────────────────────────────────────────────
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
-        SettingsSection("Sound on Tap") {
-            SettingsRow(
-                label    = "Tap Sound",
-                sublabel = "Play a short sound when tapping home-screen widgets",
-                icon     = Icons.Default.VolumeUp
-            ) {
-                TapSwitch(
-                    checked         = settings.tapSoundEnabled,
-                    onCheckedChange = { onUpdate { copy(tapSoundEnabled = it) } },
-                    colors          = switchColors(accent)
-                )
-            }
-
-            if (settings.tapSoundEnabled) {
-                SettingsDivider()
-                SettingsRow(
-                    label    = "Sound",
-                    sublabel = "Tick (short click) or a light beep",
-                    icon     = Icons.Default.GraphicEq
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF222222))
-                            .padding(2.dp)
-                    ) {
-                        listOf(
-                            "TICK" to TapSoundType.TICK,
-                            "BEEP" to TapSoundType.BEEP
-                        ).forEach { (label, st) ->
-                            val selected = settings.tapSoundType == st
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(if (selected) accent else Color.Transparent)
-                                    .clickable { onUpdate { copy(tapSoundType = st) } }
-                                    .padding(horizontal = 12.dp, vertical = 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = label,
-                                    color = if (selected) Color.Black else (if (isDayMode) Color(0xFF333333) else Color(0xFFAAAAAA)),
-                                    fontSize = 10.sp,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                    letterSpacing = 1.sp
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
         }
@@ -2391,104 +1985,8 @@ fun SettingsScreen(
         }
         }
 
-        // ── Maps ───────────────────────────────────────────────────────────────
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
-        SettingsSection("Maps") {
-            SettingsRow(
-                label    = "Map Widget",
-                sublabel = "Live map with position — enable the MAP widget from the widget library (edit mode → +)",
-                icon     = Icons.Default.Map
-            ) {}
-            SettingsDivider()
-            SettingsRow(
-                label    = "Map Provider",
-                sublabel = if (settings.mapProvider == com.openlauncher.app.data.MapProvider.GOOGLE)
-                    "Google Maps — polished tiles, traffic layer (needs Play Services)"
-                else "OpenStreetMap — free, no key, caches tiles for offline use",
-                icon     = Icons.Default.Public
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf(
-                        com.openlauncher.app.data.MapProvider.GOOGLE to "Google",
-                        com.openlauncher.app.data.MapProvider.OSM to "OSM"
-                    ).forEach { (provider, label) ->
-                        TapFilterChip(
-                            selected = settings.mapProvider == provider,
-                            onClick  = { onUpdate { copy(mapProvider = provider) } },
-                            label    = { Text(label, fontSize = 10.sp) },
-                            colors   = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = selectedChipContainer,
-                                selectedLabelColor     = selectedChipLabel
-                            )
-                        )
-                    }
-                }
-            }
-            SettingsDivider()
-            SettingsRow(
-                label    = "Control Size",
-                sublabel = "Scale of the map's on-screen buttons, chips and search panel — Large enlarges them 30% for easier tapping in the car",
-                icon     = Icons.Default.TouchApp
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf(
-                        com.openlauncher.app.data.MapControlScale.NORMAL to "Normal",
-                        com.openlauncher.app.data.MapControlScale.LARGE to "Large"
-                    ).forEach { (scale, label) ->
-                        TapFilterChip(
-                            selected = settings.mapControlScale == scale,
-                            onClick  = { onUpdate { copy(mapControlScale = scale) } },
-                            label    = { Text(label, fontSize = 10.sp) },
-                            colors   = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = selectedChipContainer,
-                                selectedLabelColor     = selectedChipLabel
-                            )
-                        )
-                    }
-                }
-            }
-            SettingsDivider()
-            SettingsRow(
-                label    = "Map Type",
-                sublabel = "Base view of the map widget",
-                icon     = Icons.Default.Layers
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf(
-                        com.openlauncher.app.data.MapType.ROADMAP to "Roadmap",
-                        com.openlauncher.app.data.MapType.SATELLITE to "Satellite",
-                        com.openlauncher.app.data.MapType.HYBRID to "Hybrid",
-                        com.openlauncher.app.data.MapType.TERRAIN to "Terrain"
-                    ).forEach { (type, label) ->
-                        TapFilterChip(
-                            selected = settings.mapWidgetType == type,
-                            onClick  = { onUpdate { copy(mapWidgetType = type) } },
-                            label    = { Text(label, fontSize = 10.sp) },
-                            colors   = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = selectedChipContainer,
-                                selectedLabelColor     = selectedChipLabel
-                            )
-                        )
-                    }
-                }
-            }
-            SettingsDivider()
-            SettingsRow(
-                label    = "Live Traffic",
-                sublabel = "Overlay traffic conditions on the map widget",
-                icon     = Icons.Default.Traffic
-            ) {
-                TapSwitch(
-                    checked         = settings.mapShowTraffic,
-                    onCheckedChange = { onUpdate { copy(mapShowTraffic = it) } },
-                    colors          = switchColors(accent)
-                )
-            }
-        }
-        }
-
         // ── Floating Panel ────────────────────────────────────────────────────
-        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Widgets") {
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Dashboard") {
         SettingsSection("Floating Panel") {
             SettingsRow(
                 label    = "Floating Quick Controls",
@@ -2801,6 +2299,23 @@ fun SettingsScreen(
             )
             SettingsDivider()
             SettingsButton(
+                label    = "Modify System Settings",
+                sublabel = if (Settings.System.canWrite(context)) "Granted — the volume widget can set head-unit volume" else "Required for the volume widget to change head-unit volume (NWD/Qualcomm)",
+                icon     = Icons.Default.Tune,
+                accent   = if (Settings.System.canWrite(context)) accent else Color(0xFF993333),
+                onClick  = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(
+                                Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                                Uri.parse("package:${context.packageName}")
+                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }
+            )
+            SettingsDivider()
+            SettingsButton(
                 label    = "Microphone (Spectrum)",
                 sublabel = if (hasMic) "Granted — the sound visualizer can analyze playing audio"
                            else "Required for the sound visualizer to analyze playing audio",
@@ -2850,33 +2365,10 @@ fun SettingsScreen(
                 }
             )
         }
-
-        // ── Updates ──────────────────────────────────────────────────────────
-        SettingsSection("Updates") {
-            SettingsButton(
-                label    = "Visit github (fork)",
-                sublabel = "https://github.com/limbo666/openlauncher_custom",
-                icon     = Icons.Default.SystemUpdate,
-                accent   = accent,
-                onClick  = {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/limbo666/openlauncher_custom"))
-                    context.startActivity(intent)
-                }
-            )
-        }
-
-        // ── Telegram ─────────────────────────────────────────────────────────
-        SettingsSection("Telegram Messages") {
-            SettingsButton(
-                label    = "Driver Inbox",
-                sublabel = "Remote messages from a Telegram bot — setup, commands, quick replies & status",
-                icon     = Icons.Default.Forum,
-                accent   = accent,
-                onClick  = onOpenTelegram
-            )
         }
 
         // ── Maintenance ──────────────────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
         SettingsSection("Maintenance") {
             SettingsButton(
                 label    = "System Status",
@@ -2894,6 +2386,21 @@ fun SettingsScreen(
                 onClick  = onOpenVolumeCalibration
             )
             SettingsDivider()
+            SettingsRow(
+                label    = "Log Collector",
+                sublabel = if (settings.debugLogEnabled)
+                    "Enabled — recording media / radio / volume events to a log file"
+                else
+                    "Disabled — no logging overhead; enable before reproducing an issue",
+                icon     = Icons.Default.BugReport
+            ) {
+                TapSwitch(
+                    checked         = settings.debugLogEnabled,
+                    onCheckedChange = { onUpdate { copy(debugLogEnabled = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+            SettingsDivider()
             val logScope = rememberCoroutineScope()
             val logExportLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.CreateDocument("text/plain")
@@ -2908,7 +2415,7 @@ fun SettingsScreen(
             }
             SettingsButton(
                 label    = "Export Debug Log",
-                sublabel = "Save the app's runtime event log (media / radio / volume) to a file",
+                sublabel = if (settings.debugLogEnabled) "Save the collected log to a file" else "Enable Log Collector first, then export here",
                 icon     = Icons.Default.BugReport,
                 accent   = accent,
                 onClick  = {
@@ -2941,6 +2448,22 @@ fun SettingsScreen(
                 Text("Reset to Defaults", color = resetTextColor, fontSize = 13.sp, letterSpacing = 1.sp, fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.height(8.dp))
+        }
+        }
+
+        // ── About ────────────────────────────────────────────────────────────
+        if (searchQuery.isNotBlank() || selectedCategory == "All" || selectedCategory == "Launcher") {
+        SettingsSection("About") {
+            SettingsButton(
+                label    = "Visit github (fork)",
+                sublabel = "https://github.com/limbo666/openlauncher_custom",
+                icon     = Icons.Default.SystemUpdate,
+                accent   = accent,
+                onClick  = {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/limbo666/openlauncher_custom"))
+                    context.startActivity(intent)
+                }
+            )
         }
         }
 
@@ -3149,15 +2672,6 @@ fun SettingsScreen(
         )
     }
 
-    if (showSpectrumColorPicker) {
-        ColorPickerDialog(
-            title           = "Spectrum Color",
-            initialColor    = settings.widgetContentFor(widgetContentPage).spectrumColor?.let { Color(it) } ?: accent,
-            onColorSelected = { c -> onUpdate { withWidgetContent(widgetContentPage) { it.copy(spectrumColor = c.toArgb()) } } },
-            onDismiss       = { showSpectrumColorPicker = false }
-        )
-    }
-
     // ── Font picker (live preview grid) ───────────────────────────────────────
     if (showFontPicker) {
         FontPickerDialog(
@@ -3198,22 +2712,6 @@ fun SettingsScreen(
                 floatingSlotEditor = null
             },
             onDismiss = { floatingSlotEditor = null }
-        )
-    }
-
-    if (showRadioAppPicker) {
-        AppPickerDialog(
-            title          = "RADIO APP",
-            currentPackage = settings.radioPackage,
-            apps           = apps,
-            accent         = accent,
-            isDayMode      = isDayMode,
-            selectedAppPackages = settings.selectedAppPackages,
-            toolsAppPackages    = settings.toolsAppPackages,
-            clearLabel     = "AUTO-DETECT",
-            onSelect       = { pkg -> onUpdate { copy(radioPackage = pkg) }; showRadioAppPicker = false },
-            onClear        = { onUpdate { copy(radioPackage = "") } },
-            onDismiss      = { showRadioAppPicker = false }
         )
     }
 
@@ -3270,6 +2768,7 @@ fun TelegramSettingsScreen(
     isOnline: Boolean
 ) {
     val isDayMode  = LocalDayMode.current
+    val keyboard   = LocalSoftwareKeyboardController.current
     val screenBg   = MaterialTheme.colorScheme.background
     val titleColor = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
     val subColor   = LocalHelpTextColor.current ?: if (isDayMode) Color(0xFF888888) else Color(0xFF666666)
@@ -3339,6 +2838,8 @@ fun TelegramSettingsScreen(
                         singleLine   = true,
                         textStyle    = MaterialTheme.typography.bodySmall.copy(color = titleColor),
                         colors       = outlinedFieldColors(accent),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
                         modifier     = Modifier.weight(1f)
                     )
                 }
@@ -3354,6 +2855,8 @@ fun TelegramSettingsScreen(
                         singleLine   = true,
                         textStyle    = MaterialTheme.typography.bodySmall.copy(color = titleColor),
                         colors       = outlinedFieldColors(accent),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
                         modifier     = Modifier.weight(1f)
                     )
                 }
@@ -3469,6 +2972,8 @@ fun TelegramSettingsScreen(
                             singleLine   = true,
                             textStyle    = MaterialTheme.typography.bodySmall.copy(color = titleColor),
                             colors       = outlinedFieldColors(accent),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
                             modifier     = Modifier.weight(1f)
                         )
                     }
@@ -3554,6 +3059,7 @@ fun TelegramSettingsScreen(
 @Composable
 private fun SettingsSection(
     title: String,
+    onHeaderTap: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val query = LocalSettingsSearchQuery.current
@@ -3603,7 +3109,14 @@ private fun SettingsSection(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = if (onHeaderTap != null) {
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onHeaderTap
+                    )
+                } else Modifier
             ) {
                 Box(
                     modifier = Modifier
@@ -3850,6 +3363,7 @@ private fun SearchField(
     // tiles and the Open System Settings card.
     val bg = accent.copy(alpha = if (isDayMode) 0.12f else 0.20f)
     val textColor = if (isDayMode) Color(0xFF111111) else Color(0xFFF0F0F0)
+    val keyboard = LocalSoftwareKeyboardController.current
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = bg,
@@ -3874,6 +3388,8 @@ private fun SearchField(
                     singleLine = true,
                     textStyle = TextStyle(color = textColor, fontSize = 12.sp),
                     cursorBrush = SolidColor(accent),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
                     modifier = Modifier.fillMaxSize(),
                     decorationBox = { innerTextField ->
                         // Center both the placeholder and the typed text
@@ -3896,7 +3412,7 @@ private fun SearchField(
                     modifier = Modifier
                         .size(22.dp)
                         .clip(CircleShape)
-                        .clickable { TapSound.play(); onQueryChange("") },
+                        .clickable { TapSound.play(); onQueryChange(""); keyboard?.hide() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -3931,38 +3447,42 @@ private fun FontPickerDialog(
     val cardBg       = if (isDayMode) Color(0xFFF8F9FA) else Color(0xFF161616)
     val cardBorder   = if (isDayMode) Color(0xFFCED4DA) else Color(0xFF242424)
 
+    val scales = LocalUiScales.current
+    val ts = scales.ts()
+    val us = scales.us()
+
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .widthIn(min = 420.dp, max = 680.dp)
+                .widthIn(min = (420 * us).dp, max = (680 * us).dp)
                 .fillMaxWidth(0.94f)
-                .heightIn(max = 480.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .heightIn(max = (480 * us).dp)
+                .clip(RoundedCornerShape((10 * us).dp))
                 .background(dialogBg)
-                .border(1.dp, dialogBorder, RoundedCornerShape(10.dp))
-                .padding(16.dp)
+                .border(1.dp, dialogBorder, RoundedCornerShape((10 * us).dp))
+                .padding((16 * us).dp)
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = (12 * us).dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text          = "FONT",
                     color         = effectiveAccent,
-                    fontSize      = 11.sp,
-                    letterSpacing = 2.sp,
+                    fontSize      = (11 * ts).sp,
+                    letterSpacing = (2 * ts).sp,
                     fontWeight    = FontWeight.Bold
                 )
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { TapSound.play(); onDismiss() }, modifier = Modifier.size(26.dp)) {
-                    Icon(Icons.Default.Close, null, tint = subColor, modifier = Modifier.size(16.dp))
+                IconButton(onClick = { TapSound.play(); onDismiss() }, modifier = Modifier.size((26 * us).dp)) {
+                    Icon(Icons.Default.Close, null, tint = subColor, modifier = Modifier.size((16 * us).dp))
                 }
             }
 
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 180.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                columns = GridCells.Adaptive(minSize = (180 * us).dp),
+                horizontalArrangement = Arrangement.spacedBy((8 * us).dp),
+                verticalArrangement = Arrangement.spacedBy((8 * us).dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 items(AppFont.entries) { font ->
@@ -3971,19 +3491,19 @@ private fun FontPickerDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape((8 * us).dp))
                             .background(if (selected) effectiveAccent.copy(alpha = if (isDayMode) 0.12f else 0.2f) else cardBg)
-                            .border(1.dp, if (selected) effectiveAccent else cardBorder, RoundedCornerShape(8.dp))
+                            .border(1.dp, if (selected) effectiveAccent else cardBorder, RoundedCornerShape((8 * us).dp))
                             .clickable { TapSound.play(); onSelect(font) }
-                            .padding(horizontal = 12.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .padding(horizontal = (12 * us).dp, vertical = (12 * us).dp),
+                        verticalArrangement = Arrangement.spacedBy((6 * us).dp)
                     ) {
                         // Two elements only: the font name on top, the sample below.
                         Text(
                             text = fontDisplayName(font),
                             fontFamily = family,
                             color = if (selected) effectiveAccent else textColor,
-                            fontSize = 18.sp,
+                            fontSize = (18 * ts).sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -3992,7 +3512,7 @@ private fun FontPickerDialog(
                             text = "Free by Limbo666",
                             fontFamily = family,
                             color = textColor.copy(alpha = 0.75f),
-                            fontSize = 14.sp,
+                            fontSize = (14 * ts).sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -4021,6 +3541,10 @@ private fun FloatingSlotDialog(
     val borderC    = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF282828)
     val textColor  = if (isDayMode) Color(0xFF111111) else Color(0xFFDDDDDD)
 
+    val scales = LocalUiScales.current
+    val ts = scales.ts()
+    val us = scales.us()
+
     if (showAppPicker) {
         AppPickerDialog(
             title          = "BUTTON ${slotIndex + 1} APP",
@@ -4040,42 +3564,43 @@ private fun FloatingSlotDialog(
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
+                .widthIn(min = (280 * us).dp, max = (460 * us).dp)
+                .heightIn(max = (480 * us).dp)
+                .clip(RoundedCornerShape((10 * us).dp))
                 .background(dialogBg)
-                .border(1.dp, borderC, RoundedCornerShape(10.dp))
-                .padding(16.dp)
-                .widthIn(min = 280.dp, max = 460.dp)
-                .heightIn(max = 480.dp)
+                .border(1.dp, borderC, RoundedCornerShape((10 * us).dp))
+                .verticalScroll(rememberScrollState())
+                .padding((16 * us).dp)
         ) {
             Text(
                 text          = "BUTTON ${slotIndex + 1}",
                 color         = accent,
-                fontSize      = 12.sp,
-                letterSpacing = 2.sp,
+                fontSize      = (12 * ts).sp,
+                letterSpacing = (2 * ts).sp,
                 fontWeight    = FontWeight.Bold
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height((12 * us).dp))
 
             FloatingActionType.entries.forEach { type ->
                 val selected = current?.type == type
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape((6 * us).dp))
                         .background(if (selected) accent.copy(alpha = 0.15f) else Color.Transparent)
                         .clickable {
                             TapSound.play()
                             if (type == FloatingActionType.APP) showAppPicker = true else onSelectType(type)
                         }
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                        .padding(horizontal = (10 * us).dp, vertical = (10 * us).dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(floatingActionIcon(type), null, tint = accent, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text(floatingActionLabel(type), color = textColor, fontSize = 13.sp)
+                    Icon(floatingActionIcon(type), null, tint = accent, modifier = Modifier.size((18 * us).dp))
+                    Spacer(Modifier.width((10 * us).dp))
+                    Text(floatingActionLabel(type), color = textColor, fontSize = (13 * ts).sp)
                     if (type == FloatingActionType.APP) {
                         Spacer(Modifier.weight(1f))
-                        Icon(Icons.Default.ChevronRight, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.ChevronRight, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size((16 * us).dp))
                     }
                 }
             }

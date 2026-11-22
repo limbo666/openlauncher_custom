@@ -59,6 +59,13 @@ class SoundVisualizerManager {
     @Volatile private var response = 1f
     private var lastFrameNanos = 0L
 
+    // Automatic gain control: a slow-moving reference peak keeps the bars visible
+    // on quiet sources and stops them from all-clipping on loud ones.
+    @Volatile private var agcEnabled = true
+    @Volatile private var agcTarget = 0.6f     // desired peak level (0..1)
+    private var agcReference = 0.05f
+    private var agcGain = 1f
+
     // Self-recovering watchdog: if a probe failed, or the attached Visualizer
     // stopped delivering data (e.g. after switching media apps), retry the probe.
     private val watchdog = object : Runnable {
@@ -85,7 +92,7 @@ class SoundVisualizerManager {
      * the key so granting the permission triggers a re-probe of the output mix.
      */
     @Synchronized
-    fun configure(enabled: Boolean, sessionId: Int, recordAudio: Boolean, attackMs: Float, decayMs: Float, response: Float) {
+    fun configure(enabled: Boolean, sessionId: Int, recordAudio: Boolean, attackMs: Float, decayMs: Float, response: Float, agcEnabled: Boolean, agcTarget: Float) {
         val sourceKey = "$enabled|$sessionId|$recordAudio"
         val sourceChanged = sourceKey != lastConfigKey
         lastConfigKey = sourceKey
@@ -95,6 +102,8 @@ class SoundVisualizerManager {
         this.attackMs = attackMs
         this.decayMs = decayMs
         this.response = response
+        this.agcEnabled = agcEnabled
+        this.agcTarget = agcTarget
         if (!sourceChanged) return // tuning-only change — no re-probe needed
         ensureThread()
         handler?.post { doConfigure() }
@@ -205,15 +214,31 @@ class SoundVisualizerManager {
             val bins = fft.size
             if (bins < 2) return
             val target = FloatArray(BIN_COUNT)
+            var framePeak = 0f
             for (i in 0 until BIN_COUNT) {
                 val t = i.toFloat() / (BIN_COUNT - 1)
                 val idx = (t * t * (bins - 1)).toInt().coerceIn(1, bins - 1)
                 val mag = (fft[idx].toInt() and 0xFF) / 255f
-                target[i] = (mag * 3.5f).coerceIn(0f, 1f)
+                target[i] = mag
+                if (mag > framePeak) framePeak = mag
             }
+            updateAgc(framePeak)
             publish(target)
         } catch (_: Throwable) {
         }
+    }
+
+    /** Adjust the gain so the bars track a stable peak regardless of source volume. */
+    private fun updateAgc(framePeak: Float) {
+        if (!agcEnabled) {
+            agcGain = 1f
+            return
+        }
+        // Slow rise, slower fall so AGC doesn't pump with the beat.
+        val k = if (framePeak > agcReference) 0.06f else 0.008f
+        agcReference += (framePeak - agcReference) * k
+        val desired = agcTarget.coerceIn(0.15f, 1f)
+        agcGain = (desired / (agcReference + 0.001f)).coerceIn(1f, 80f)
     }
 
     private fun publish(target: FloatArray) {
@@ -224,7 +249,7 @@ class SoundVisualizerManager {
         lastFrameNanos = now
 
         for (i in 0 until BIN_COUNT) {
-            val raw = target[i]
+            val raw = (target[i] * agcGain).coerceIn(0f, 1f)
             if (raw > max) max = raw
             // Response curve (gamma): >1 spreads the bars apart (less all-peaking),
             // <1 compresses them. Then chase it with a time-constant envelope.
